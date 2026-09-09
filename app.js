@@ -457,25 +457,26 @@ function enhanceYavoiBranding() {
       .app-brand-row { min-height: 86px !important; height: auto !important; }
       .app-brand-row img { width: 168px !important; height: 66px !important; object-fit: contain; object-position: left center; }
       .hero-copy h1 { line-height: .94; }
-      .hero-wordmark-runtime { display:block; width:auto !important; height:1.05em !important; max-width:100% !important; object-fit:contain; object-position:left center; margin:.08em 0 0; }
+      .hero-wordmark-runtime { display:block; width:min(95%,720px) !important; height:auto !important; max-width:95% !important; object-fit:contain; object-position:left center; margin:.10em 0 0; }
       .final-card > img { width:min(390px,72vw) !important; height:auto !important; max-height:none !important; margin-inline:auto; }
       .footer-brand img { width:245px !important; height:auto !important; max-height:none !important; }
       @media (max-width: 1100px) {
         .brand { min-width: 205px; }
         .brand img { width:195px !important; height:74px !important; }
         .app-brand-row img { width:150px !important; height:58px !important; }
+        .hero-wordmark-runtime { width:94% !important; max-width:94% !important; }
       }
       @media (max-width: 760px) {
         .nav-shell { min-height: 92px; }
         .brand { min-width: 0; }
         .brand img { width:178px !important; height:68px !important; }
-        .hero-wordmark-runtime { height:.98em !important; }
+        .hero-wordmark-runtime { width:92% !important; max-width:92% !important; height:auto !important; }
         .app-brand-row img { width:142px !important; height:56px !important; }
         .footer-brand img { width:210px !important; }
       }
       @media (max-width: 430px) {
         .brand img { width:158px !important; height:62px !important; }
-        .hero-wordmark-runtime { height:.92em !important; }
+        .hero-wordmark-runtime { width:94% !important; max-width:94% !important; height:auto !important; }
       }
     `;
     document.head.appendChild(style);
