@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#06192c" />
+  <meta name="description" content="Yavoi! Tu raite, al instante. Movilidad segura, transparente y cercana en Delicias, Chihuahua." />
+  <title>Yavoi! | Tu raite, al instante</title>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header" id="inicio">
+    <div class="nav-shell container">
+      <a class="brand" href="#inicio" aria-label="Yavoi inicio">
+        <img src="assets/yavoi-logo.svg" alt="Yavoi!" />
+        <span>Tu raite, al instante</span>
+      </a>
+      <button class="menu-toggle" id="menuToggle" aria-expanded="false" aria-controls="mainNav">☰</button>
+      <nav class="main-nav" id="mainNav">
+        <a href="#usuarios">Usuarios</a>
+        <a href="#conductores">Conductores</a>
+        <a href="#categorias">Categorías</a>
+        <a href="#seguridad">Seguridad</a>
+        <a href="#simulador">Simulador</a>
+      </nav>
+      <a class="btn btn-outline nav-cta" href="#conductores">Quiero conducir</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero section-pad">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <span class="eyebrow">DELÍCIAS, CHIHUAHUA · MOVILIDAD LOCAL</span>
+          <h1>Tu ciudad. Tu gente.<br /><span>Tu raite, al instante.</span></h1>
+          <p class="lead">Una nueva forma de moverte por Delicias y la región: clara, segura y cercana. Desde un viaje cotidiano hasta un servicio especial, Yavoi! conecta usuarios y conductores con confianza.</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary btn-lg" href="#simulador">Solicita un viaje</a>
+            <a class="btn btn-dark btn-lg" href="#conductores">Conduce con Yavoi!</a>
+          </div>
+          <div class="trust-row" aria-label="Beneficios principales">
+            <div><strong>24/7</strong><span>Monitoreo</span></div>
+            <div><strong>100%</strong><span>Tarifa visible</span></div>
+            <div><strong>Local</strong><span>Delicias y región</span></div>
+          </div>
+        </div>
+
+        <div class="hero-experience">
+          <div class="map-card">
+            <div class="map-topbar">
+              <div>
+                <small>Yavoi! en movimiento</small>
+                <strong>Delicias, Chihuahua</strong>
+              </div>
+              <span class="live-pill"><i></i> En vivo</span>
+            </div>
+            <div id="heroMap" class="map"></div>
+            <div class="floating-trip-card">
+              <div class="trip-line"><span class="dot start"></span><span>Centro, Delicias</span></div>
+              <div class="trip-line"><span class="dot end"></span><span>Tecnológico de Delicias</span></div>
+              <div class="trip-meta"><strong>7 min</strong><span>Unidad monitoreada en tiempo real</span></div>
+            </div>
+          </div>
+
+          <div class="quick-book-card">
+            <div class="card-tabs" role="tablist">
+              <button class="active" data-book-tab="ride">🚗 Viaje</button>
+              <button data-book-tab="scheduled">🗓 Programar</button>
+            </div>
+            <label>¿Dónde te recogemos?</label>
+            <input id="originInput" value="Mi ubicación · Delicias" aria-label="Origen" />
+            <label>¿A dónde vas?</label>
+            <input id="destinationInput" value="Centro de Delicias" aria-label="Destino" />
+            <button class="btn btn-primary full" id="quickQuoteBtn">Ver opciones y precio</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="category-strip" id="categorias">
+      <div class="container">
+        <div class="section-heading compact">
+          <span class="eyebrow">ELIGE CÓMO VIAJAR</span>
+          <h2>Una categoría para cada necesidad</h2>
+        </div>
+        <div class="category-grid">
+          <button class="category-card selected" data-category="Básico" data-price="68"><span>🚘</span><strong>Básico</strong><small>Práctico · 1 a 4</small></button>
+          <button class="category-card" data-category="Grande" data-price="92"><span>🚙</span><strong>Grande</strong><small>Más espacio · hasta 7</small></button>
+          <button class="category-card" data-category="Comercial" data-price="108"><span>📦</span><strong>Comercial</strong><small>Comercios y entregas</small></button>
+          <button class="category-card" data-category="Plus" data-price="126"><span>✨</span><strong>Plus</strong><small>Confort preferente</small></button>
+          <button class="category-card" data-category="Pickup" data-price="145"><span>🛻</span><strong>Pickup</strong><small>Carga y apoyo especial</small></button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-pad user-value" id="usuarios">
+      <div class="container">
+        <div class="section-heading two-col-heading">
+          <div>
+            <span class="eyebrow orange">VALOR PARA QUIEN VIAJA</span>
+            <h2>Más confianza en cada trayecto.</h2>
+          </div>
+          <p>Yavoi! no solo busca llevarte de un punto a otro. Diseñamos una experiencia donde puedas saber quién te lleva, cuánto pagarás y cómo avanza tu recorrido.</p>
+        </div>
+        <div class="value-grid">
+          <article class="value-card featured"><span class="icon-badge">♀</span><h3>Servicios de Mujer seguros</h3><p>Preferencias y protocolos diseñados para brindar mayor confianza en viajes solicitados por mujeres.</p><span class="tag">Seguridad prioritaria</span></article>
+          <article class="value-card"><span class="icon-badge">↗</span><h3>Transparencia en el recorrido</h3><p>Ruta, conductor, unidad, origen y destino visibles durante el servicio.</p></article>
+          <article class="value-card"><span class="icon-badge">⏱</span><h3>Siempre a tiempo</h3><p>Monitorea la unidad y su tiempo estimado de llegada desde el mapa.</p></article>
+          <article class="value-card"><span class="icon-badge">$</span><h3>Cobro seguro y transparente</h3><p>Conoce la tarifa estimada antes de confirmar y evita sorpresas al finalizar.</p></article>
+          <article class="value-card"><span class="icon-badge">★</span><h3>Recompensas para clientes</h3><p>Acumula beneficios por frecuencia, buen historial y participación en promociones.</p></article>
+          <article class="value-card"><span class="icon-badge">!</span><h3>Sistema de quejas</h3><p>Canal visible para soporte, seguimiento, folio y resolución de incidencias.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="safety-band section-pad" id="seguridad">
+      <div class="container safety-grid">
+        <div>
+          <span class="eyebrow orange">SEGURIDAD QUE SE VE</span>
+          <h2>Antes, durante y después del viaje.</h2>
+          <p class="lead-sm">La confianza nace de la información. Yavoi! muestra los datos esenciales del servicio y mantiene el viaje visible de principio a fin.</p>
+          <div class="safety-list">
+            <div><span>01</span><p><strong>Conductor y unidad identificados</strong>Nombre, fotografía, vehículo y datos del servicio.</p></div>
+            <div><span>02</span><p><strong>Ruta en tiempo real</strong>Seguimiento visual del avance de la unidad.</p></div>
+            <div><span>03</span><p><strong>Botón de ayuda</strong>Acceso rápido a soporte y reporte de incidencias.</p></div>
+          </div>
+        </div>
+        <div class="phone-shell">
+          <div class="phone-screen">
+            <div class="phone-head"><strong>Tu viaje en curso</strong><span>● En vivo</span></div>
+            <div id="phoneMap" class="phone-map"></div>
+            <div class="driver-mini">
+              <div class="avatar">CM</div>
+              <div><strong>Carlos M.</strong><span>★ 4.9 · Yavoi! Plus</span></div>
+              <span class="eta">4 min</span>
+            </div>
+            <div class="phone-actions"><button>Compartir</button><button class="danger">SOS</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-pad simulator-section" id="simulador">
+      <div class="container">
+        <div class="section-heading center">
+          <span class="eyebrow">PRUÉBALO AHORA</span>
+          <h2>Simula la experiencia Yavoi!</h2>
+          <p>Explora el flujo del usuario o mira cómo recibe servicios un conductor.</p>
+        </div>
+        <div class="simulator-shell">
+          <div class="simulator-switch">
+            <button class="active" data-sim="user">Soy usuario</button>
+            <button data-sim="driver">Soy conductor</button>
+          </div>
+
+          <div class="sim-view active" id="userSim">
+            <div class="sim-map-wrap"><div id="simMap" class="sim-map"></div><div class="route-status" id="routeStatus">Listo para solicitar</div></div>
+            <div class="sim-panel">
+              <span class="eyebrow">SOLICITAR VIAJE</span>
+              <h3 id="simTitle">¿A dónde vamos?</h3>
+              <div class="sim-step" id="simStepContent">
+                <label>Origen</label><input value="Mi ubicación · Delicias" />
+                <label>Destino</label><input value="Centro Cultural Cleofas Villegas" />
+                <div class="selected-service"><span>🚘</span><div><small>Categoría</small><strong id="selectedCategory">Básico</strong></div><strong id="selectedPrice">$68</strong></div>
+              </div>
+              <button class="btn btn-primary full btn-lg" id="simulateRideBtn">Solicitar Yavoi!</button>
+              <small class="fine-print">Demostración sin cobros ni solicitudes reales.</small>
+            </div>
+          </div>
+
+          <div class="sim-view" id="driverSim">
+            <div class="driver-console">
+              <div class="driver-top"><div><small>Estado</small><strong><i></i> Disponible</strong></div><div class="earnings"><small>Hoy</small><strong>$684</strong></div></div>
+              <div class="incoming-ride">
+                <div class="ride-alert">NUEVO SERVICIO <span>12 s</span></div>
+                <h3>$86 estimados</h3>
+                <div class="route-lines"><p>● Plaza de la República</p><p>● Col. Revolución</p></div>
+                <div class="ride-stats"><span><strong>1.8 km</strong> para recoger</span><span><strong>14 min</strong> estimados</span></div>
+                <button class="btn btn-orange full" id="acceptRideBtn">Aceptar servicio</button>
+              </div>
+              <div class="driver-bottom"><span>★ 4.92 rating</span><span>🏆 Nivel Oro</span><span>💰 Propinas $128</span></div>
+            </div>
+            <div class="driver-benefits-mini">
+              <span class="eyebrow orange">CRECE CON YAVOI!</span>
+              <h3>Tu buen servicio también se recompensa.</h3>
+              <p>Rating, propinas, convenios publicitarios y servicios especiales pueden abrir nuevas fuentes de ingreso.</p>
+              <div class="mini-stats"><div><strong>+15%</strong><span>meta de bono*</span></div><div><strong>4.9</strong><span>rating ejemplo</span></div><div><strong>5</strong><span>categorías</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-pad driver-value" id="conductores">
+      <div class="container driver-grid">
+        <div class="driver-pitch">
+          <span class="eyebrow orange">VALOR PARA CONDUCTORES</span>
+          <h2>Maneja tu tiempo. Haz que cada buen viaje cuente.</h2>
+          <p class="lead-sm">Yavoi! está pensado para conductores que quieren flexibilidad, reputación, mejores oportunidades y una relación más clara con sus pasajeros.</p>
+          <a class="btn btn-orange btn-lg" href="#registro">Quiero ser conductor</a>
+        </div>
+        <div class="driver-benefit-grid">
+          <article><span>💸</span><h3>Recibe propinas</h3><p>Tu buen servicio puede convertirse en ingreso adicional.</p></article>
+          <article><span>🏆</span><h3>Recompensas por rating</h3><p>Beneficios conceptuales por mantener calidad y cumplimiento.</p></article>
+          <article><span>⭐</span><h3>Evalúa al cliente</h3><p>La confianza funciona en ambos sentidos después del viaje.</p></article>
+          <article><span>📦</span><h3>Servicios adicionales</h3><p>Mudanza ligera, equipaje, entregas y apoyo a comercios.</p></article>
+          <article><span>♿</span><h3>Movilidad accesible</h3><p>Participa en servicios adaptados a distintas necesidades.</p></article>
+          <article><span>📣</span><h3>Publicidad y convenios</h3><p>Potencial de ingreso extra mediante campañas y alianzas locales.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="regional section-pad">
+      <div class="container regional-grid">
+        <div>
+          <span class="eyebrow">MÁS QUE DELICIAS</span>
+          <h2>Tu región también se mueve contigo.</h2>
+          <p>Diseñado para crecer hacia Meoqui, Rosales, Julimes, Saucillo, Camargo y otros destinos cercanos.</p>
+        </div>
+        <div class="destination-list">
+          <button><strong>Meoqui</strong><span>Viaje regional →</span></button>
+          <button><strong>Rosales</strong><span>Viaje regional →</span></button>
+          <button><strong>Saucillo</strong><span>Viaje regional →</span></button>
+          <button><strong>Camargo</strong><span>Viaje regional →</span></button>
+        </div>
+      </div>
+    </section>
+
+    <section class="final-cta section-pad" id="registro">
+      <div class="container final-card">
+        <div><img src="assets/yavoi-logo.svg" alt="Yavoi!" /><span>Tu raite, al instante</span></div>
+        <h2>Muévete con confianza.<br />Conduce con oportunidad.</h2>
+        <p>Yavoi! nace para conectar a Delicias con una movilidad más cercana, transparente y dinámica.</p>
+        <div class="hero-actions center-actions"><a class="btn btn-orange btn-lg" href="#simulador">Probar como usuario</a><a class="btn btn-light btn-lg" href="#conductores">Conocer plan conductor</a></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-grid">
+      <div class="footer-brand"><img src="assets/yavoi-logo.svg" alt="Yavoi!" /><p>Tu raite, al instante.</p></div>
+      <div><strong>Yavoi!</strong><a href="#usuarios">Usuarios</a><a href="#conductores">Conductores</a><a href="#categorias">Categorías</a></div>
+      <div><strong>Confianza</strong><a href="#seguridad">Seguridad</a><a href="#simulador">Simulador</a><a href="#inicio">Inicio</a></div>
+      <div><strong>Delicias, Chihuahua</strong><p>Prototipo MVP · 2026</p><p>Movilidad local y regional.</p></div>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="app.js"></script>
+</body>
+</html>
