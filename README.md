@@ -1,27 +1,30 @@
 # Yavoi! — Tu raite, al instante
 
-Landing page / MVP interactivo para **Yavoi!**, plataforma de movilidad enfocada en Delicias, Chihuahua y su región.
+Aplicación web interactiva para **Yavoi!**, plataforma de movilidad enfocada en Delicias, Chihuahua y su región.
 
-## Objetivo
+## Experiencia
 
-El prototipo presenta una experiencia inspirada en los patrones de UX de apps de movilidad modernas, con identidad propia Yavoi!, tipografía grande, diseño responsivo y simuladores para usuario y conductor.
+La interfaz utiliza identidad propia Yavoi!, tipografía grande, diseño responsivo y patrones UX/UI de aplicaciones modernas de movilidad. Incluye pantallas realistas para usuario y conductor, mapas de Delicias y simulación visual del recorrido de las unidades.
 
 ## Funciones incluidas
 
-- Landing page responsiva para desktop, tablet y móvil.
+- Landing page responsiva para computadora, tablet y móvil.
 - Identidad visual azul marino, blanco y naranja.
-- Mapa interactivo de Delicias con vehículo animado.
-- Simulador de solicitud de viaje.
+- Mapas interactivos de Delicias con unidad Yavoi! animada.
+- Pantallas de solicitud, selección de servicio y seguimiento del viaje.
+- Simulador interactivo para usuario con origen, destino, categoría, tarifa y estados del servicio.
+- Simulador para conductor con solicitud, aceptación, llegada, inicio y finalización del viaje.
 - Categorías: Básico, Grande, Comercial, Plus y Pickup.
-- Flujo de seguridad y servicio para Mujer.
-- Monitoreo / transparencia del recorrido.
-- Pago anticipado y transparente.
-- Sistema conceptual de recompensas y quejas.
-- Panel demostrativo para conductores con propinas, rating, evaluación de clientes y servicios adicionales.
-- Secciones de confianza, cobertura regional y llamados a la acción.
+- Servicios de Mujer seguros y herramientas de seguimiento.
+- Transparencia de recorrido y tarifa.
+- Sistema de recompensas, soporte y quejas.
+- Beneficios para conductores: propinas, rating, evaluación de clientes, servicios adicionales y convenios.
+- Cobertura conceptual urbana y regional.
 
 ## Publicación
 
-El sitio es estático y puede desplegarse directamente en Vercel o GitHub Pages.
+El sitio puede desplegarse directamente en Vercel o GitHub Pages.
 
 **Repositorio:** TheDevLogos/Yavoi-App
+
+Diseño y desarrollo: **TheDevLogos Creación Inteligente**.
