@@ -439,3 +439,47 @@ window.addEventListener('resize', () => {
     driverMap?.invalidateSize();
   }, 160);
 });
+
+// Escala visual de marca Yavoi! y ajuste del mensaje principal.
+function enhanceYavoiBranding() {
+  const heroTitle = $('.hero-copy h1');
+  if (heroTitle) {
+    heroTitle.innerHTML = 'Tu Ciudad!<br />Tu Gente!<br /><img class="hero-wordmark-runtime" src="assets/yavoi-logo.png" alt="Yavoi!" />';
+  }
+
+  if (!document.getElementById('yavoi-brand-scale')) {
+    const style = document.createElement('style');
+    style.id = 'yavoi-brand-scale';
+    style.textContent = `
+      .nav-shell { min-height: 112px; height: auto; }
+      .brand { min-width: 245px; }
+      .brand img { width: 228px !important; height: 86px !important; object-fit: contain; object-position: left center; }
+      .app-brand-row { min-height: 86px !important; height: auto !important; }
+      .app-brand-row img { width: 168px !important; height: 66px !important; object-fit: contain; object-position: left center; }
+      .hero-copy h1 { line-height: .94; }
+      .hero-wordmark-runtime { display:block; width:auto !important; height:1.05em !important; max-width:100% !important; object-fit:contain; object-position:left center; margin:.08em 0 0; }
+      .final-card > img { width:min(390px,72vw) !important; height:auto !important; max-height:none !important; margin-inline:auto; }
+      .footer-brand img { width:245px !important; height:auto !important; max-height:none !important; }
+      @media (max-width: 1100px) {
+        .brand { min-width: 205px; }
+        .brand img { width:195px !important; height:74px !important; }
+        .app-brand-row img { width:150px !important; height:58px !important; }
+      }
+      @media (max-width: 760px) {
+        .nav-shell { min-height: 92px; }
+        .brand { min-width: 0; }
+        .brand img { width:178px !important; height:68px !important; }
+        .hero-wordmark-runtime { height:.98em !important; }
+        .app-brand-row img { width:142px !important; height:56px !important; }
+        .footer-brand img { width:210px !important; }
+      }
+      @media (max-width: 430px) {
+        .brand img { width:158px !important; height:62px !important; }
+        .hero-wordmark-runtime { height:.92em !important; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
+
+enhanceYavoiBranding();
