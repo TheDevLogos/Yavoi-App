@@ -1,5 +1,6 @@
 export const roles = { passenger: "Pasajero", driver: "Conductor", admin: "Operaciones" };
 export const statuses = {
+  payment_pending: "Confirmando pago",
   scheduled: "Programado",
   requested: "Buscando conductor",
   accepted: "Conductor en camino",
@@ -21,6 +22,7 @@ export const navs = {
     ["home", "navigation", "Conducir"],
     ["trips", "route", "Mis viajes"],
     ["wallet", "wallet", "Mis ingresos"],
+    ["weekly", "calendar-check", "Cuota semanal"],
     ["rewards", "gift", "Recompensas"],
     ["help", "shield-check", "Ayuda y seguridad"],
     ["profile", "user-round", "Mi perfil"],
@@ -29,6 +31,7 @@ export const navs = {
     ["home", "layout-dashboard", "Resumen"],
     ["trips", "route", "Viajes"],
     ["fleet", "car", "Conductores y flotilla"],
+    ["payments", "credit-card", "Pagos y cuotas"],
     ["help", "headset", "Reportes"],
     ["rates", "sliders-horizontal", "Tarifas"],
     ["audit", "scroll-text", "Auditoría"],

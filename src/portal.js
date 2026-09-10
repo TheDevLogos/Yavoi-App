@@ -46,6 +46,12 @@ const S = {
   avatarUrls: {},
   refreshing: false,
   routeVersion: 0,
+  roadRoute: null,
+  units: [],
+  selectedUnit: null,
+  cardEnabled: false,
+  mercadoPagoPublicKey: "",
+  mpController: null,
 };
 const modal = $("#modal");
 let toastTimer, pollTimer;
@@ -60,6 +66,8 @@ function notify(message) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 6500);
 }
 function closeModal() {
+  S.mpController?.unmount?.();
+  S.mpController = null;
   modal.close();
   modal.innerHTML = "";
 }
@@ -154,6 +162,9 @@ function clearSession() {
   S.profile = null;
   S.driver = null;
   S.quote = null;
+  S.roadRoute = null;
+  S.units = [];
+  S.selectedUnit = null;
   S.avatarUrls = {};
   clearInterval(pollTimer);
 }
@@ -286,6 +297,8 @@ async function loadSession() {
   S.profile = b.profile;
   S.driver = b.driver;
   S.categories = b.categories || [];
+  S.cardEnabled = !!b.card_enabled;
+  S.mercadoPagoPublicKey = b.mercado_pago_public_key || "";
   if (!S.profile.onboarding_complete) return onboarding();
   if (S.profile.role === "admin") {
     const { data, error } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
@@ -317,10 +330,82 @@ function shell(content, title, subtitle = "") {
 }
 function mapFrame(
   id = "ride-map",
-  caption = "Selecciona puntos en el mapa. La tarifa usa distancia geográfica, no una ruta vial.",
+  caption = "Busca una dirección o coloca marcadores. Yavoi! trazará la ruta vial disponible.",
 ) {
-  return `<section class="map-panel"><div class="map-top">Delicias, Chihuahua</div><div class="map" id="${id}" aria-label="Mapa de Delicias"></div><div class="map-caption">${I("shield-check")}<span>${caption}</span></div></section>`;
+  return `<section class="map-panel"><div class="map-top">Delicias, Chihuahua</div><button class="map-fullscreen" type="button" data-action="map-fullscreen" aria-label="Ver mapa en pantalla completa">${I("maximize-2")}<span>Ampliar</span></button><div class="map" id="${id}" aria-label="Mapa de Delicias"></div><div class="map-caption">${I("shield-check")}<span>${caption}</span></div></section>`;
 }
+async function mapService(body) {
+  const { data, error } = await db.functions.invoke("maps", { body });
+  if (error) throw new Error(data?.error || error.message);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+async function searchAddress(kind) {
+  const input = $(`[name=${kind}]`);
+  const query = input?.value.trim();
+  if (!query || query.length < 3) return notify("Escribe al menos tres caracteres para buscar.");
+  await run(async () => {
+    const result = await mapService({ type: "search", query });
+    openModal(
+      `Resultados para ${query}`,
+      result.results?.length
+        ? `<div class="address-results">${result.results.map((place, index) => `<button type="button" data-place="${index}">${I("map-pin")}<span>${e(place.name)}</span></button>`).join("")}</div>`
+        : '<div class="empty"><p>No encontramos esa dirección dentro de la cobertura de Delicias y Meoqui.</p></div>',
+    );
+    $$('[data-place]', modal).forEach((item) => {
+      item.onclick = async () => {
+        const place = result.results[Number(item.dataset.place)];
+        S[kind] = place;
+        input.value = place.name;
+        closeModal();
+        S.roadRoute = null;
+        drawPoints();
+        await loadRoadRoute();
+        if (kind === "origin") await refreshAvailableUnits();
+      };
+    });
+  });
+}
+async function loadRoadRoute(trip = null) {
+  const origin = trip ? { lat: trip.origin_lat, lng: trip.origin_lng } : S.origin;
+  const destination = trip ? { lat: trip.dest_lat, lng: trip.dest_lng } : S.destination;
+  if (!origin || !destination) return;
+  const version = ++S.routeVersion;
+  try {
+    const route = await mapService({ type: "route", origin, destination });
+    if (version !== S.routeVersion) return;
+    S.roadRoute = route;
+    drawPoints(trip);
+  } catch (error) {
+    if (version === S.routeVersion) notify("No pudimos trazar la ruta vial; puedes continuar con la estimación operativa.");
+  }
+}
+async function refreshAvailableUnits() {
+  if (!S.map || S.profile?.role !== "passenger" || !S.origin) return;
+  const category = $('[name=category]:checked')?.value || S.categories.find((c) => c.active)?.id;
+  if (!category) return;
+  try {
+    S.units = await rpc("available_units", {
+      lat: S.origin.lat,
+      lng: S.origin.lng,
+      category,
+      women_only: !!$('[name=women_only]')?.checked,
+      accessible: !!$('[name=accessible]')?.checked,
+    });
+    if (S.selectedUnit && !S.units.some((unit) => unit.unit_id === S.selectedUnit)) S.selectedUnit = null;
+    const label = $("#unit-status");
+    if (label) label.textContent = S.units.length ? `${S.units.length} unidad${S.units.length === 1 ? "" : "es"} disponible${S.units.length === 1 ? "" : "s"}. Puedes elegir una o dejar que Yavoi! asigne la más cercana.` : "No hay unidades compatibles visibles en este momento. Puedes cotizar y esperar disponibilidad.";
+    drawPoints();
+  } catch (error) {
+    notify(errorMessage(error));
+  }
+}
+const vehicleIcon = (heading = 0, selected = false) => L.divIcon({
+  className: "vehicle-icon-wrap",
+  html: `<div class="vehicle-icon ${selected ? "selected" : ""}" style="transform:rotate(${Number.isFinite(Number(heading)) ? Number(heading) : 0}deg)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 17h14l-1-7-2-3H8l-2 3-1 7Z"/><path d="M7 12h10M8 17v2M16 17v2"/></svg></div>`,
+  iconSize: [38, 38],
+  iconAnchor: [19, 19],
+});
 function startMap(trip = null) {
   if (!$("#ride-map")) return;
   S.map = L.map("ride-map", { zoomControl: true, scrollWheelZoom: false }).setView(
@@ -342,9 +427,13 @@ function startMap(trip = null) {
       S[S.pick] = point;
       const input = $(`[name=${S.pick === "origin" ? "origin" : "destination"}]`);
       if (input) input.value = point.name;
+      S.roadRoute = null;
       drawPoints();
+      loadRoadRoute();
+      if (S.pick === "origin") refreshAvailableUnits();
     });
   drawPoints(trip);
+  loadRoadRoute(trip);
   setTimeout(() => S.map?.invalidateSize(), 70);
 }
 function drawPoints(t = null) {
@@ -372,8 +461,10 @@ function drawPoints(t = null) {
   if (points.every(Boolean)) {
     S.markers.push(
       L.polyline(
-        points.map((p) => [p.lat, p.lng]),
-        { color: "#183c54", weight: 3, dashArray: "7 9", opacity: 0.55 },
+        S.roadRoute?.coordinates?.length
+          ? S.roadRoute.coordinates.map(([lng, lat]) => [lat, lng])
+          : points.map((p) => [p.lat, p.lng]),
+        { color: "#183c54", weight: 5, opacity: 0.72 },
       ).addTo(S.map),
     );
     S.map.fitBounds(
@@ -381,17 +472,27 @@ function drawPoints(t = null) {
       { padding: [55, 55], maxZoom: 15 },
     );
   }
+  if (!t)
+    S.units.forEach((unit) => {
+      const marker = L.marker([unit.lat, unit.lng], { icon: vehicleIcon(0, S.selectedUnit === unit.unit_id) })
+        .bindTooltip(`Unidad disponible · ${decimal(unit.pickup_km)} km · ${unit.pickup_minutes} min`)
+        .on("click", () => {
+          S.selectedUnit = S.selectedUnit === unit.unit_id ? null : unit.unit_id;
+          drawPoints();
+          const label = $("#unit-selection");
+          if (label) label.textContent = S.selectedUnit ? `Unidad elegida · llegada estimada ${unit.pickup_minutes} min` : "Asignación automática por cercanía";
+        })
+        .addTo(S.map);
+      S.markers.push(marker);
+    });
+  if (t && S.trip?.route_history?.length > 1) {
+    S.markers.push(L.polyline(S.trip.route_history.map((point) => [point.lat, point.lng]), { color: "#ff6a0a", weight: 6, opacity: 0.9 }).addTo(S.map));
+  }
   if (t && S.trip?.location) {
     const loc = S.trip.location;
     const stale = Date.now() - Date.parse(loc.updated_at) > 60000;
     S.markers.push(
-      L.circleMarker([loc.lat, loc.lng], {
-        radius: 11,
-        color: "white",
-        weight: 3,
-        fillColor: stale ? "#8693a1" : "#ff6a0a",
-        fillOpacity: 1,
-      })
+      L.marker([loc.lat, loc.lng], { icon: vehicleIcon(loc.heading || 0) })
         .bindTooltip(stale ? "Última posición; señal desactualizada" : "Posición del conductor")
         .addTo(S.map),
     );
@@ -405,17 +506,23 @@ function riderHome() {
   }
   const cats = S.categories.filter((c) => c.active);
   shell(
-    `<div class="booking"><section class="panel"><h2>Planea tu viaje</h2><form id="quote-form"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" list="places" value="${e(S.origin?.name || "")}" required maxlength="200" autocomplete="off"></label><label class="input-point">Destino${I("map-pin")}<input name="destination" list="places" value="${e(S.destination?.name || "")}" placeholder="¿A dónde quieres ir?" required maxlength="200" autocomplete="off"></label><datalist id="places">${places.map((p) => `<option value="${e(p.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin">Marcar origen</button><button type="button" id="map-destination">Marcar destino</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((c, i) => `<label class="category-option"><div class="car">${I(c.id === "commercial" ? "package" : c.id === "pickup" ? "truck" : "car")}</div><div><strong>Yavoi! ${e(c.name)}</strong><small>${c.seats} plazas · ${money(c.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(c.base_cents)}</span><input type="radio" name="category" value="${e(c.id)}" ${i ? "" : "checked"} required></label>`).join("")}</div><label class="check women">${I("shield-check")} Prefiero una conductora<input name="women_only" type="checkbox"></label><label class="check"><input name="accessible" type="checkbox">Necesito una unidad con accesibilidad verificada</label><label>Programar (opcional)<input name="scheduled_at" type="datetime-local"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">El precio se calcula en el servidor y se mantiene durante cinco minutos. Una solicitud no garantiza disponibilidad.</p></form></section>${mapFrame()}</div>`,
+    `<div class="booking"><section class="panel"><h2>Planea tu viaje</h2><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" list="places" value="${e(S.origin?.name || "")}" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}</button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="places" value="${e(S.destination?.name || "")}" placeholder="Calle, número o lugar" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}</button></div><datalist id="places">${places.map((p) => `<option value="${e(p.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin">Marcar origen</button><button type="button" id="map-destination">Marcar destino</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((c, i) => `<label class="category-option"><div class="car">${I(c.id === "commercial" ? "package" : c.id === "pickup" ? "truck" : "car")}</div><div><strong>Yavoi! ${e(c.name)}</strong><small>${c.seats} plazas · ${money(c.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(c.base_cents)}</span><input type="radio" name="category" value="${e(c.id)}" ${i ? "" : "checked"} required></label>`).join("")}</div><label class="check women">${I("shield-check")} Prefiero una conductora<input name="women_only" type="checkbox"></label><label class="check"><input name="accessible" type="checkbox">Necesito una unidad con accesibilidad verificada</label><div class="unit-summary">${I("car-front")}<div><strong id="unit-selection">Asignación automática por cercanía</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">El precio se calcula en el servidor y se mantiene durante cinco minutos. La unidad elegida queda sujeta a disponibilidad al confirmar.</p></form></section>${mapFrame()}</div>`,
     `¿A dónde vamos, ${e(S.profile.full_name.split(" ")[0])}?`,
     "Elige tu destino y revisa el precio antes de confirmar.",
   );
   startMap();
+  refreshAvailableUnits();
+  $$('[data-search-address]').forEach((search) => search.onclick = () => searchAddress(search.dataset.searchAddress));
+  $$('[name=category],[name=women_only],[name=accessible]').forEach((control) => control.addEventListener("change", refreshAvailableUnits));
   ["origin", "destination"].forEach((k) =>
     $(`[name=${k}]`).addEventListener("change", (ev) => {
       const p = places.find((p) => p.name === ev.target.value);
       if (p) {
         S[k] = p;
+        S.roadRoute = null;
         drawPoints();
+        loadRoadRoute();
+        if (k === "origin") refreshAvailableUnits();
       } else if (S[k] && ev.target.value !== S[k].name) {
         S[k] = null;
         notify("Marca esa dirección en el mapa para ubicarla con precisión.");
@@ -438,6 +545,8 @@ function riderHome() {
         $("[name=origin]").value = "Mi ubicación";
         drawPoints();
         S.map.setView([S.origin.lat, S.origin.lng], 16);
+        loadRoadRoute();
+        refreshAvailableUnits();
       },
       () => notify("No se pudo obtener tu ubicación. Puedes marcarla en el mapa."),
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 15000 },
@@ -456,6 +565,10 @@ function riderHome() {
       accessible: v.accessible === "on",
       scheduled_at: v.scheduled_at ? new Date(v.scheduled_at).toISOString() : null,
     });
+    if (S.roadRoute) {
+      S.quote.road_distance_km = S.roadRoute.distance_km;
+      S.quote.road_duration_minutes = S.roadRoute.duration_minutes;
+    }
     paymentModal();
   });
 }
@@ -468,8 +581,25 @@ function paymentModal() {
       : "Referencia operativa de la zona";
   openModal(
     "Tu viaje, con todo claro",
-    `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.distance_km)} km · ${q.trip_eta_minutes} min</strong><span>${zoneLabel(q.service_zone)}</span></div></div><p class="hint">Distancias y tiempos estimados con el modelo operativo de Yavoi!; pueden cambiar por tráfico, cierre de calles y ubicación de la unidad. ${q.scheduled_at ? "Programado: " + date(q.scheduled_at) : ""}</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Reservación</span><span>${money(q.booking_fee_cents)}</span></div>${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Recogida lejana · excedente de 3 km</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Unidad con accesibilidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}<div class="receipt-row total"><span>Tarifa estimada</span><strong>${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>¿Cómo quieres pagar?</h3><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo al finalizar el viaje</label><label class="check muted"><input type="radio" disabled>Tarjeta · próximamente</label><p class="hint">Tarjeta se habilitará cuando Yavoi! conecte su proveedor. No solicitamos ni almacenamos números de tarjeta.</p><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="1000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p><button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`,
+    `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.road_distance_km || q.distance_km)} km · ${q.road_duration_minutes || q.trip_eta_minutes} min</strong><span>${q.road_distance_km ? "Ruta vial trazada" : zoneLabel(q.service_zone)}</span></div></div><p class="hint">Distancias y tiempos estimados; pueden cambiar por tráfico, cierre de calles y ubicación de la unidad. ${q.scheduled_at ? "Programado: " + date(q.scheduled_at) : ""}</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Reservación</span><span>${money(q.booking_fee_cents)}</span></div>${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Recogida lejana · excedente de 3 km</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Unidad con accesibilidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}<div class="receipt-row"><span>Propina voluntaria</span><strong id="tip-preview">$0.00</strong></div><div class="receipt-row total"><span>Total</span><strong id="total-preview">${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>Agrega una propina (opcional)</h3><div class="tip-options"><label><input type="radio" name="tip" value="0" checked>Sin propina</label><label><input type="radio" name="tip" value="10">10%</label><label><input type="radio" name="tip" value="15">15%</label><label><input type="radio" name="tip" value="custom">Otro</label></div><label id="custom-tip-label" class="hidden">Propina (MXN)<input name="custom_tip" type="number" min="1" max="1000" step="0.01"></label><h3>¿Cómo quieres pagar?</h3><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo al finalizar el viaje</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago ${S.cardEnabled ? "" : "· lista para activar"}</label><p class="hint">Los datos de tarjeta se capturan en el formulario seguro de Mercado Pago y Yavoi! no recibe ni almacena el número o CVV.</p><div id="cash-options"><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="3000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p></div><button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`,
   );
+  const tipCents = () => {
+    const choice = $('[name=tip]:checked').value;
+    return choice === "custom" ? cents($('[name=custom_tip]').value || 0) : Math.round(q.fare_cents * Number(choice) / 100);
+  };
+  const updateTotal = () => {
+    let tip = 0;
+    try { tip = tipCents(); } catch {}
+    $("#custom-tip-label").classList.toggle("hidden", $('[name=tip]:checked').value !== "custom");
+    $("#tip-preview").textContent = money(tip);
+    $("#total-preview").textContent = money(q.fare_cents + tip);
+    $('[name=cash_tender]').min = (q.fare_cents + tip) / 100;
+    if (!$("#need-change").checked) $('[name=cash_tender]').value = (q.fare_cents + tip) / 100;
+    updateChange();
+  };
+  $$('[name=tip]').forEach((input) => input.onchange = updateTotal);
+  $('[name=custom_tip]').oninput = updateTotal;
+  $$('[name=payment_method]').forEach((input) => input.onchange = () => $("#cash-options").classList.toggle("hidden", input.value === "card" && input.checked));
   $("#need-change").onchange = (ev) => {
     $("#tender-label").classList.toggle("hidden", !ev.target.checked);
     if (!ev.target.checked) $("[name=cash_tender]").value = q.fare_cents / 100;
@@ -478,28 +608,71 @@ function paymentModal() {
   function updateChange() {
     try {
       $("#change-preview").textContent =
-        "Cambio estimado: " + money(changeDue(q.fare_cents, cents($("[name=cash_tender]").value)));
+        "Cambio estimado: " + money(changeDue(q.fare_cents + tipCents(), cents($("[name=cash_tender]").value)));
     } catch {}
   }
   $("[name=cash_tender]").oninput = updateChange;
   const requestKey = crypto.randomUUID();
   bindForm("#payment", async (v) => {
+    const tip = tipCents();
+    const method = v.payment_method;
+    const total = q.fare_cents + tip;
     const t = await rpc("request_trip", {
       quote_id: q.id,
       request_key: requestKey,
-      payment_method: "cash",
-      cash_tender_cents: $("#need-change").checked ? cents(v.cash_tender) : q.fare_cents,
+      payment_method: method,
+      cash_tender_cents: method === "cash" ? ($("#need-change").checked ? cents(v.cash_tender) : total) : null,
+      tip_cents: tip,
+      preferred_driver_id: S.selectedUnit,
     });
     closeModal();
     S.quote = null;
+    if (method === "card") return cardCheckout(t.payment_id, t.id, total);
     S.data = await rpc("dashboard");
     location.hash = "trip/" + t.id;
   });
 }
+async function loadMercadoPago() {
+  if (window.MercadoPago) return;
+  await new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://sdk.mercadopago.com/js/v2";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("No pudimos cargar el formulario seguro de Mercado Pago."));
+    document.head.append(script);
+  });
+}
+async function cardCheckout(paymentId, tripId, amountCents) {
+  openModal("Pago seguro con tarjeta", `<div class="secure-payment">${I("shield-check")} Mercado Pago procesa los datos de tu tarjeta.</div><div id="card-payment-brick"><div class="hint">Cargando formulario seguro…</div></div>`);
+  try {
+    await loadMercadoPago();
+    const mp = new window.MercadoPago(S.mercadoPagoPublicKey, { locale: "es-MX" });
+    S.mpController = await mp.bricks().create("cardPayment", "card-payment-brick", {
+      initialization: { amount: amountCents / 100, payer: { email: S.user.email } },
+      customization: { visual: { style: { theme: "default" } }, paymentMethods: { maxInstallments: 1 } },
+      callbacks: {
+        onReady: () => {},
+        onError: () => notify("Revisa el formulario seguro de la tarjeta."),
+        onSubmit: async (formData) => {
+          const { data, error } = await db.functions.invoke("mercado-pago-payment", { body: { payment_id: paymentId, form_data: formData } });
+          if (error || data?.error) throw new Error(data?.error || error.message);
+          closeModal();
+          S.data = await rpc("dashboard");
+          location.hash = "trip/" + tripId;
+          notify(data.status === "approved" ? "Pago aprobado. Buscamos tu unidad." : "Mercado Pago está confirmando el pago.");
+        },
+      },
+    });
+  } catch (error) {
+    closeModal();
+    notify(errorMessage(error));
+    location.hash = "trip/" + tripId;
+  }
+}
 function stats() {
   const ts = S.data.trips,
     completed = ts.filter((t) => t.status === "completed");
-  const gross = completed.reduce((n, t) => n + t.fare_cents, 0);
+  const gross = completed.reduce((n, t) => n + (t.total_cents || t.fare_cents), 0);
   const items =
     S.profile.role === "admin"
       ? [
@@ -538,10 +711,18 @@ async function driverHome() {
     );
     return;
   }
+  if (!d.account_active) {
+    shell(
+      `<section class="panel"><span class="badge cancelled">Cuenta sin acceso a viajes</span><h2 class="section-gap">Revisa tu cuota semanal</h2><p>Tu cuenta no puede conectarse hasta que Operaciones valide la cuota o reactive el acceso.</p><a class="btn" href="#weekly">Consultar cuota y comprobante ${I("arrow-right")}</a></section>`,
+      "Acceso temporalmente desactivado",
+      "Tu historial y tu perfil siguen disponibles.",
+    );
+    return;
+  }
   const offers = await rpc("offers");
   const availabilityActions = `<div class="driver-actions">${button(d.online ? "Desconectarme" : "Conectarme", "availability", d.online ? "secondary" : "", "power")}${d.online ? button("Actualizar mi zona", "presence", "secondary", "locate-fixed") : ""}</div>`;
   shell(
-    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${d.online ? "Listo para tu próximo viaje" : "Tú eliges cuándo comenzar"}</h2><p>${d.online ? "Comparte tu zona para ordenar las solicitudes por cercanía." : "Conéctate cuando estés listo para recibir solicitudes."}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between"><h2>Solicitudes disponibles</h2>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offers.length ? offers.map((o) => `<article class="offer"><div class="row between"><span class="badge neutral">${e(S.categories.find((c) => c.id === o.category)?.name)}</span><strong class="earn">${money(o.net_cents)}</strong></div><div class="route-line">${I("circle-dot")}${e(o.origin)}</div><div class="route-line destination">${I("map-pin")}${e(o.destination)}</div><div class="estimate-grid compact"><div><small>Para recoger</small><strong>${o.pickup_from_driver_km == null ? "Actualiza tu zona" : `${decimal(o.pickup_from_driver_km)} km`}</strong></div><div><small>Viaje estimado</small><strong>${decimal(o.distance_km)} km · ${o.trip_eta_minutes} min</strong></div></div><div class="meta-row"><span>${zoneLabel(o.service_zone)}</span><span>Efectivo · tarifa ${money(o.fare_cents)}</span><span>Cambio: ${money(changeDue(o.fare_cents, o.cash_tender_cents))}</span>${o.women_only ? "<span>Conductora verificada</span>" : ""}${o.accessible ? "<span>Accesibilidad requerida</span>" : ""}</div><button class="btn wide" data-accept="${e(o.id)}">Aceptar viaje ${I("arrow-right")}</button></article>`).join("") : `<div class="empty">${I("navigation")}<h3>${d.online ? "Sin solicitudes compatibles por ahora" : "Estás desconectado"}</h3><p>${d.online ? "Actualiza tu zona para recibir primero los viajes más cercanos." : "Conéctate para recibir solicitudes compatibles con tu unidad."}</p></div>`}</section>`,
+    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${d.online ? "Listo para tu próximo viaje" : "Tú eliges cuándo comenzar"}</h2><p>${d.online ? "Comparte tu zona para ordenar las solicitudes por cercanía." : "Conéctate cuando estés listo para recibir solicitudes."}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between"><h2>Solicitudes disponibles</h2>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offers.length ? offers.map((o) => `<article class="offer"><div class="row between"><span class="badge neutral">${e(S.categories.find((c) => c.id === o.category)?.name)}</span><strong class="earn">${money(o.net_cents)}</strong></div><div class="route-line">${I("circle-dot")}${e(o.origin)}</div><div class="route-line destination">${I("map-pin")}${e(o.destination)}</div><div class="estimate-grid compact"><div><small>Para recoger</small><strong>${o.pickup_from_driver_km == null ? "Actualiza tu zona" : `${decimal(o.pickup_from_driver_km)} km`}</strong></div><div><small>Viaje estimado</small><strong>${decimal(o.distance_km)} km · ${o.trip_eta_minutes} min</strong></div></div><div class="meta-row"><span>${zoneLabel(o.service_zone)}</span><span>${o.payment_method === "card" ? "Tarjeta aprobada" : `Efectivo · cambio ${money(changeDue(o.fare_cents, o.cash_tender_cents))}`} · total ${money(o.total_cents || o.fare_cents)}</span>${o.tip_cents ? `<span>Incluye propina ${money(o.tip_cents)}</span>` : ""}${o.women_only ? "<span>Conductora verificada</span>" : ""}${o.accessible ? "<span>Accesibilidad requerida</span>" : ""}</div><button class="btn wide" data-accept="${e(o.id)}">Aceptar viaje ${I("arrow-right")}</button></article>`).join("") : `<div class="empty">${I("navigation")}<h3>${d.online ? "Sin solicitudes compatibles por ahora" : "Estás desconectado"}</h3><p>${d.online ? "Actualiza tu zona para recibir primero los viajes más cercanos." : "Conéctate para recibir solicitudes compatibles con tu unidad."}</p></div>`}</section>`,
     "Un buen día para conducir.",
     "Tu tiempo, tus viajes y tus ganancias en un mismo lugar.",
   );
@@ -561,7 +742,7 @@ function tripRows(ts) {
   return ts
     .map(
       (t) =>
-        `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small></td><td>${badge(t)}</td><td>Efectivo<small>${t.payment_status === "paid" ? "Recibido" : "Pendiente"}</small></td><td>${money(t.fare_cents)}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
+        `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e({ paid: "Confirmado", pending: "Pendiente", failed: "No aprobado", refund_pending: "Reembolso pendiente", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</small></td><td>${money(t.total_cents || t.fare_cents)}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
     )
     .join("");
 }
@@ -596,18 +777,33 @@ async function tripView(id) {
   const rider = S.user.id === t.passenger_id,
     conductor = S.user.id === t.driver_id;
   const person = rider ? driver : passenger;
-  const title = statuses[t.status];
+  const title = statuses[t.status] || t.status;
   const progress = ["requested", "accepted", "arrived", "in_progress", "completed"].indexOf(
     t.status,
   );
+  const ridePayment = S.trip.payments?.find((payment) => payment.kind === "ride");
   const action =
-    t.status === "accepted" && conductor
+    t.status === "payment_pending" && rider && ridePayment
+      ? `${button("Continuar pago seguro", "retry-card", "wide", "credit-card")}${button("Cancelar solicitud", "cancel", "danger wide section-gap", "x")}`
+      : t.status === "accepted" && conductor
       ? button("Ya llegué al punto", "arrive", "wide", "map-pin")
       : t.status === "arrived" && conductor
         ? `<form id="start-trip"><label>PIN del pasajero<input name="pin" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" minlength="4" maxlength="4" required placeholder="4 dígitos"></label><button class="btn wide" type="submit">Iniciar viaje ${I("navigation")}</button></form>`
         : t.status === "in_progress" && conductor
           ? button("Llegamos al destino", "finish", "wide", "flag")
           : "";
+  const statusMessage =
+    t.status === "payment_pending" ? "Completa o espera la confirmación de Mercado Pago antes de asignar una unidad."
+      : t.status === "requested" ? "Buscamos un conductor disponible que cumpla tus preferencias."
+        : t.status === "scheduled" ? "Tu solicitud se asignará cerca de la hora programada."
+          : t.status === "accepted" ? "Verifica la fotografía, el color, el modelo y las placas antes de abordar."
+            : t.status === "arrived" ? "Comparte el PIN sólo cuando estés frente al conductor correcto."
+              : t.status === "in_progress" ? "Sigue el recorrido en el mapa y comunícate con tu conductor."
+                : t.status === "completed" ? "Gracias por viajar con Yavoi! Tu opinión nos ayuda a mejorar."
+                  : "La solicitud fue cancelada.";
+  const paymentRows = t.payment_method === "card"
+    ? `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · tarjeta</span><strong>${money(t.total_cents || t.fare_cents)}</strong></div><p class="hint">Estado del pago: ${e({ paid: "Confirmado", pending: "En proceso", failed: "No aprobado", refund_pending: "Reembolso en proceso", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</p>`
+    : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span><strong>${money(t.total_cents || t.fare_cents)}</strong></div><div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(t.total_cents || t.fare_cents, t.cash_tender_cents))}</strong></div>`;
   let geo = "Sin señal GPS del conductor. No se muestra una ubicación inventada.";
   if (loc)
     geo =
@@ -619,7 +815,7 @@ async function tripView(id) {
           Math.round(loc.accuracy) +
           " m.";
   shell(
-    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${t.status === "requested" ? "Buscamos un conductor disponible que cumpla tus preferencias." : t.status === "scheduled" ? "Tu solicitud se ofrecerá a conductores cerca de la hora programada." : t.status === "accepted" ? "Verifica la unidad y las placas antes de abordar." : t.status === "arrived" ? "Comparte el PIN sólo cuando estés frente al conductor correcto." : t.status === "in_progress" ? "Tu recorrido está registrado y puedes comunicarte con tu conductor." : t.status === "completed" ? "Gracias por viajar con Yavoi! Tu opinión nos ayuda a mejorar." : "La solicitud fue cancelada."}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e(driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}<div class="receipt-row"><span>Total · efectivo</span><strong>${money(t.fare_cents)}</strong></div><div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(t.fare_cents, t.cash_tender_cents))}</strong></div>${action}${conductor && active(t) ? `<div class="section-gap">${button(S.watch !== null ? "Detener ubicación" : "Compartir mi ubicación", "gps", "secondary wide", "locate-fixed")}<p class="hint">El GPS web funciona mientras esta página está activa. Mantén el navegador abierto durante el servicio.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}<a href="#help" class="btn secondary">${I("headset")} Ayuda</a></div></section><div class="stack">${mapFrame("ride-map", e(geo))}<section class="panel"><h2>Mensajes del viaje</h2><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Escribe un mensaje…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
+    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button(S.watch !== null ? "Detener ubicación" : "Compartir mi ubicación", "gps", "secondary wide", "locate-fixed")}<p class="hint">El GPS web funciona mientras esta página está activa. Mantén el navegador abierto durante el servicio.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}<a href="#help" class="btn secondary">${I("headset")} Ayuda</a></div></section><div class="stack">${mapFrame("ride-map", e(geo))}<section class="panel"><h2>Mensajes del viaje</h2><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Escribe un mensaje…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
     "Tu viaje Yavoi!",
     "Folio " + e(t.id.slice(0, 8).toUpperCase()) + " · " + date(t.created_at),
   );
@@ -679,12 +875,70 @@ function wallet() {
   const completed = S.data.trips.filter((t) => t.status === "completed");
   const total = driver
     ? S.data.ledger.reduce((n, l) => n + l.amount_cents, 0)
-    : completed.reduce((n, t) => n + t.fare_cents, 0);
+    : completed.reduce((n, t) => n + (t.total_cents || t.fare_cents), 0);
   shell(
     `<div class="balance"><small>${driver ? "INGRESO NETO REGISTRADO" : "TOTAL DE VIAJES COMPLETADOS"}</small><h2>${money(total)}</h2><p>${driver ? "Tarifas cobradas, menos comisión, más propinas recibidas." : "Pagos en efectivo registrados por el conductor al terminar."}</p></div><div class="grid2"><section class="panel"><h2>${driver ? "Tus movimientos" : "Métodos de pago"}</h2>${driver ? (S.data.ledger.length ? S.data.ledger.map((l) => `<div class="receipt-row"><div>${e({ fare: "Tarifa cobrada", commission: "Comisión por pagar", cash_tip: "Propina en efectivo" }[l.kind])}<small style="display:block">${date(l.created_at)}</small></div><strong>${money(l.amount_cents)}</strong></div>`).join("") : "<p>Aún no hay movimientos.</p>") : `<div class="row">${I("banknote")}<strong>Efectivo</strong><span class="badge">Disponible</span></div><p class="hint">Indica si necesitas cambio antes de solicitar. El conductor verá el monto con el que pagarás.</p><div class="row muted">${I("credit-card")}<strong>Tarjeta</strong><span class="badge neutral">Próximamente</span></div><p class="hint">No se guardan datos de tarjeta. Esta opción se activará al conectar un proveedor de pagos.</p>`}</section><section class="panel"><h2>${driver ? "Comisiones y liquidaciones" : "Cada peso, con claridad"}</h2><p>${driver ? "Al cobrar en efectivo recibes la tarifa completa. La comisión registrada representa una cuenta pendiente con Yavoi!, no una transferencia ya realizada." : "La tarifa se muestra antes de confirmar. La propina es voluntaria y puedes entregarla directamente en efectivo."}</p><p class="hint">No hay retiros bancarios, cobros automáticos ni devoluciones electrónicas habilitados. Operaciones deberá conciliar el efectivo.</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></section></div>`,
     driver ? "Tus ingresos, siempre claros." : "Tu cartera Yavoi!",
     "Consulta los importes registrados en tus viajes.",
   );
+  if (!driver && S.cardEnabled) {
+    const cardRow = $(".row.muted");
+    cardRow?.classList.remove("muted");
+    const cardBadge = $(".badge", cardRow);
+    if (cardBadge) cardBadge.textContent = "Disponible";
+    const note = cardRow?.nextElementSibling;
+    if (note) note.textContent = "Tarjeta protegida por Mercado Pago, disponible al solicitar el viaje y para propinas posteriores.";
+  }
+}
+function weeklyView() {
+  const fees = S.data.weekly_fees || [];
+  const current = fees[0];
+  const statusName = { pending: "Pendiente", submitted: "En revisión", paid: "Pagada", overdue: "Vencida", waived: "Condonada" };
+  shell(
+    `<div class="balance"><small>CUOTA SEMANAL DE USO</small><h2>${money(current?.amount_cents || 50000)}</h2><p>${current ? `Semana del ${new Date(current.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "long" })} · vence ${date(current.due_at)}` : "La cuota aparecerá al aprobarse tu expediente."}</p></div><div class="grid2"><section class="panel"><div class="row between"><h2>Semana actual</h2>${current ? `<span class="badge ${["pending", "submitted", "overdue"].includes(current.status) ? "pending" : ""}">${e(statusName[current.status])}</span>` : ""}</div>${current && !["paid", "waived"].includes(current.status) ? `<form id="weekly-proof"><p>Sube el comprobante de pago de $500. Operaciones verificará el depósito y habilitará la cuenta.</p><label>Comprobante · PDF, JPG o PNG hasta 5 MB<input name="proof" type="file" accept="application/pdf,image/jpeg,image/png" required></label><button class="btn wide" type="submit">Enviar comprobante ${I("upload")}</button></form>` : `<p>${current ? "Tu cuota de esta semana está cubierta." : "Aún no existe una cuota activa."}</p>`}</section><section class="panel"><h2>Calendario de cuotas</h2>${fees.length ? fees.map((fee) => `<div class="fee-row"><div><strong>${new Date(fee.week_start + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</strong><small>Vence ${date(fee.due_at)}</small></div><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><strong>${money(fee.amount_cents)}</strong></div>`).join("") : '<div class="empty"><p>Sin cuotas registradas.</p></div>'}</section></div>`,
+    "Tu acceso semanal",
+    "Consulta vencimientos y envía comprobantes desde un solo lugar.",
+  );
+  bindForm("#weekly-proof", async (_v, form) => {
+    const path = await upload(form.elements.proof.files[0], "yavoi-payment-proofs");
+    await rpc("submit_weekly_fee", { fee_id: current.id, proof_path: path });
+    await refreshPage();
+    notify("Comprobante enviado a Operaciones.");
+  });
+}
+function paymentsView() {
+  const payments = S.data.payments || [];
+  const fees = S.data.weekly_fees || [];
+  const approved = payments.filter((payment) => payment.status === "approved").reduce((sum, payment) => sum + payment.amount_cents, 0);
+  const statusName = { created: "Creado", pending: "Pendiente", in_process: "Procesando", approved: "Aprobado", rejected: "Rechazado", cancelled: "Cancelado", refund_pending: "Reembolso pendiente", refunded: "Reembolsado", submitted: "En revisión", paid: "Pagada", overdue: "Vencida", waived: "Condonada" };
+  shell(
+    `<div class="grid4 stats"><div class="stat"><small>Pagos registrados</small><strong>${payments.length}</strong><p>Efectivo, tarjeta y cuotas</p></div><div class="stat"><small>Importe aprobado</small><strong>${money(approved)}</strong><p>Conciliación del sistema</p></div><div class="stat"><small>Cuotas por revisar</small><strong>${fees.filter((fee) => fee.status === "submitted").length}</strong><p>Comprobantes recibidos</p></div><div class="stat"><small>Reembolsos pendientes</small><strong>${payments.filter((payment) => payment.status === "refund_pending").length}</strong><p>Requieren seguimiento</p></div></div><section class="panel section-gap"><h2>Registro de pagos</h2><div class="table-wrap"><table><thead><tr><th>Fecha / referencia</th><th>Concepto</th><th>Viaje y personas</th><th>Método</th><th>Estado</th><th>Importe</th><th></th></tr></thead><tbody>${payments.map((payment) => `<tr><td>${date(payment.created_at)}<small>${e(payment.provider_payment_id || payment.id.slice(0, 8))}</small></td><td>${e({ ride: "Viaje", tip: "Propina", weekly_fee: "Cuota semanal" }[payment.kind])}</td><td>${e(payment.origin || "Sin viaje")}<small>${e(payment.payer_name || "")} ${payment.driver_name ? `· ${e(payment.driver_name)}` : ""}</small></td><td>${e({ cash: "Efectivo", mercado_pago: "Mercado Pago", manual: "Comprobante" }[payment.provider])}</td><td><span class="badge ${["created", "pending", "in_process", "refund_pending"].includes(payment.status) ? "pending" : payment.status === "rejected" ? "cancelled" : ""}">${e(statusName[payment.status] || payment.status)}</span></td><td><strong>${money(payment.amount_cents)}</strong></td><td>${payment.status === "refund_pending" ? `<button class="link" data-refund="${e(payment.id)}">Procesar reembolso</button>` : ""}</td></tr>`).join("")}</tbody></table></div></section><section class="panel section-gap"><h2>Cuotas semanales de conductores</h2>${fees.length ? fees.map((fee) => `<article class="fee-card"><div><strong>${e(fee.driver_name)}</strong><small>Semana ${e(fee.week_start)} · vence ${date(fee.due_at)}</small></div><strong>${money(fee.amount_cents)}</strong><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><div class="row wrap">${fee.proof_path ? `<button class="btn secondary" data-fee-proof="${e(fee.proof_path)}">Ver comprobante</button>` : ""}${fee.status === "submitted" ? `<button class="btn" data-fee-review="${e(fee.id)}">Revisar pago</button>` : ""}<button class="btn ${fee.account_active ? "danger" : "secondary"}" data-driver-access="${e(fee.driver_id)}" data-active="${fee.account_active ? "false" : "true"}">${fee.account_active ? "Desactivar cuenta" : "Activar cuenta"}</button></div></article>`).join("") : '<div class="empty"><p>No hay cuotas registradas.</p></div>'}</section>`,
+    "Pagos y cuotas",
+    "Conciliación por viaje, conductor, pasajero y semana.",
+  );
+  $$('[data-fee-proof]').forEach((item) => item.onclick = () => run(async () => {
+    const { data, error } = await db.storage.from("yavoi-payment-proofs").createSignedUrl(item.dataset.feeProof, 60);
+    if (error) throw error;
+    openModal("Comprobante privado", `<p>El enlace vence en un minuto.</p><a class="btn wide" href="${e(data.signedUrl)}" target="_blank" rel="noopener noreferrer">Abrir comprobante ${I("external-link")}</a>`);
+  }));
+  $$('[data-fee-review]').forEach((item) => item.onclick = () => {
+    openModal("Revisar cuota semanal", `<form id="fee-review"><label>Resultado<select name="approved"><option value="true">Pago comprobado</option><option value="false">Rechazar comprobante</option></select></label><label>Nota de revisión<textarea name="note" minlength="5" maxlength="1000" required></textarea></label><button class="btn wide" type="submit">Guardar revisión</button></form>`);
+    bindForm("#fee-review", async (values) => {
+      await rpc("review_weekly_fee", { fee_id: item.dataset.feeReview, approved: values.approved === "true", note: values.note });
+      closeModal();
+      await refreshPage();
+    });
+  });
+  $$('[data-driver-access]').forEach((item) => item.onclick = () => run(async () => {
+    await rpc("set_driver_access", { driver_id: item.dataset.driverAccess, active: item.dataset.active === "true", note: "Cambio desde control de cuotas" });
+    await refreshPage();
+  }));
+  $$('[data-refund]').forEach((item) => item.onclick = () => run(async () => {
+    const { data, error } = await db.functions.invoke("mercado-pago-payment", { body: { action: "refund", payment_id: item.dataset.refund } });
+    if (error || data?.error) throw new Error(data?.error || error.message);
+    await refreshPage();
+    notify("Reembolso confirmado por Mercado Pago.");
+  }));
 }
 function rewards() {
   shell(
@@ -696,11 +950,11 @@ function rewards() {
 async function upload(file, bucket) {
   if (!file || !file.size) return null;
   const types =
-    bucket === "yavoi-documents"
+    bucket === "yavoi-documents" || bucket === "yavoi-payment-proofs"
       ? ["application/pdf", "image/jpeg", "image/png"]
       : ["image/jpeg", "image/png", "image/webp"];
   if (!types.includes(file.type)) throw Error("Elige un archivo del formato permitido.");
-  if (file.size > (bucket === "yavoi-documents" ? 5 : 2) * 1024 * 1024)
+  if (file.size > (bucket === "yavoi-documents" || bucket === "yavoi-payment-proofs" ? 5 : 2) * 1024 * 1024)
     throw Error("El archivo excede el tamaño permitido.");
   const ext = {
     "application/pdf": "pdf",
@@ -724,6 +978,15 @@ function profile() {
     "Mi perfil",
     "Tu información, tu unidad y las opciones de tu cuenta.",
   );
+  if (driver) {
+    const legacyVehicle = $('[name=vehicle]');
+    legacyVehicle.required = false;
+    legacyVehicle.closest("label").classList.add("hidden");
+    legacyVehicle.closest("label").insertAdjacentHTML(
+      "afterend",
+      `<label>Marca<input name="vehicle_make" required minlength="2" maxlength="50" value="${e(d?.vehicle_make)}" placeholder="Nissan"></label><label>Modelo<input name="vehicle_model" required minlength="1" maxlength="50" value="${e(d?.vehicle_model)}" placeholder="Versa"></label><label>Año<input name="vehicle_year" type="number" min="1990" max="${new Date().getFullYear() + 1}" required value="${e(d?.vehicle_year || "")}"></label><label>Color<input name="vehicle_color" required minlength="3" maxlength="40" value="${e(d?.vehicle_color)}" placeholder="Gris"></label>`,
+    );
+  }
   bindForm("#profile-form", async (v, f) => {
     const path = await upload(f.elements.avatar.files[0], "yavoi-avatars");
     await rpc("profile", {
@@ -891,6 +1154,13 @@ async function updateDriverPresence() {
 async function handleAction(action, b) {
   if (action === "logout") return signOut();
   if (action === "refresh") return run(refreshPage);
+  if (action === "map-fullscreen") {
+    const panel = b.closest(".map-panel");
+    panel?.classList.toggle("fullscreen");
+    b.querySelector("span").textContent = panel?.classList.contains("fullscreen") ? "Cerrar" : "Ampliar";
+    setTimeout(() => S.map?.invalidateSize(), 80);
+    return;
+  }
   if (action === "availability")
     return run(async () => {
       const goingOnline = !S.driver.online;
@@ -972,6 +1242,10 @@ async function handleAction(action, b) {
   }
   const t = S.trip?.trip;
   if (!t) return;
+  if (action === "retry-card") {
+    const payment = S.trip.payments?.find((item) => item.kind === "ride");
+    if (payment) return cardCheckout(payment.id, t.id, payment.amount_cents);
+  }
   if (action === "arrive")
     return run(async () => {
       await rpc("transition", { trip_id: t.id, status: "arrived" });
@@ -979,11 +1253,11 @@ async function handleAction(action, b) {
     });
   if (action === "finish") {
     openModal(
-      "Llegada y pago en efectivo",
-      `<p>Confirma con el pasajero que llegaron al destino antes de cerrar el viaje.</p><div class="receipt-row"><span>Tarifa</span><strong>${money(t.fare_cents)}</strong></div><div class="receipt-row"><span>Paga con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row total"><span>Entrega de cambio</span><strong>${money(changeDue(t.fare_cents, t.cash_tender_cents))}</strong></div><form id="finish"><label class="check"><input name="cash_received" type="checkbox" required>Recibí el pago y entregué el cambio correspondiente.</label><button class="btn wide" type="submit">Completar viaje ${I("check")}</button></form>`,
+      t.payment_method === "card" ? "Llegada confirmada" : "Llegada y pago en efectivo",
+      `<p>Confirma con el pasajero que llegaron al destino antes de cerrar el viaje.</p><div class="receipt-row"><span>Total</span><strong>${money(t.total_cents || t.fare_cents)}</strong></div>${t.payment_method === "cash" ? `<div class="receipt-row"><span>Paga con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row total"><span>Entrega de cambio</span><strong>${money(changeDue(t.total_cents || t.fare_cents, t.cash_tender_cents))}</strong></div>` : `<div class="hint">Pago con tarjeta confirmado por Mercado Pago.</div>`}<form id="finish">${t.payment_method === "cash" ? '<label class="check"><input name="cash_received" type="checkbox" required>Recibí el pago y entregué el cambio correspondiente.</label>' : '<label class="check"><input type="checkbox" required>Confirmo que el pasajero llegó al destino.</label>'}<button class="btn wide" type="submit">Completar viaje ${I("check")}</button></form>`,
     );
     bindForm("#finish", async () => {
-      await rpc("transition", { trip_id: t.id, status: "completed", cash_received: true });
+      await rpc("transition", { trip_id: t.id, status: "completed", cash_received: t.payment_method === "cash" });
       closeModal();
       await tripView(t.id);
     });
@@ -995,7 +1269,11 @@ async function handleAction(action, b) {
       `<form id="cancel"><p class="hint">Esta acción cierra la solicitud. No se registra un cargo automático.</p><label>Motivo<textarea name="reason" required minlength="5" maxlength="500"></textarea></label><button class="btn danger wide" type="submit">Confirmar cancelación</button></form>`,
     );
     bindForm("#cancel", async (v) => {
-      await rpc("transition", { trip_id: t.id, status: "cancelled", reason: v.reason });
+      const cancelled = await rpc("transition", { trip_id: t.id, status: "cancelled", reason: v.reason });
+      if (cancelled.refund_payment_id) {
+        const { data, error } = await db.functions.invoke("mercado-pago-payment", { body: { action: "refund", payment_id: cancelled.refund_payment_id } });
+        if (error || data?.error) notify("El viaje se canceló y el reembolso quedó pendiente para Operaciones.");
+      }
       closeModal();
       await tripView(t.id);
     });
@@ -1027,10 +1305,24 @@ async function handleAction(action, b) {
     });
     return;
   }
+  if (action === "passenger-tip") {
+    if (t.tip_cents > 0) return notify("Este viaje ya incluye una propina. Gracias por reconocer el servicio.");
+    openModal(
+      "Agradece un gran servicio",
+      `<form id="passenger-tip"><label>Importe de propina (MXN)<input name="amount" type="number" min="1" max="1000" step="0.01" required></label><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo entregado directamente</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago</label><p class="hint">La propina es voluntaria. Una propina en efectivo aparecerá cuando el conductor confirme que la recibió.</p><button class="btn wide" type="submit">Continuar</button></form>`,
+    );
+    bindForm("#passenger-tip", async (v) => {
+      const result = await rpc("post_trip_tip", { trip_id: t.id, amount_cents: cents(v.amount), payment_method: v.payment_method });
+      closeModal();
+      if (result.payment_id) return cardCheckout(result.payment_id, t.id, result.amount_cents);
+      notify("Entrega la propina al conductor; quedará registrada cuando confirme la recepción.");
+    });
+    return;
+  }
   if (action === "receipt") {
     openModal(
       "Comprobante del viaje",
-      `<p>Yavoi! · ${e(t.id.slice(0, 8).toUpperCase())}</p><div class="route-line">${e(t.origin)} → ${e(t.destination)}</div><div class="receipt-row"><span>Finalizó</span><span>${date(t.completed_at)}</span></div><div class="receipt-row"><span>Método</span><strong>Efectivo recibido</strong></div><div class="receipt-row total"><span>Total del viaje</span><strong>${money(t.fare_cents)}</strong></div><p class="hint">Este comprobante de servicio no es una factura fiscal. Las propinas voluntarias se registran por separado.</p>`,
+      `<p>Yavoi! · ${e(t.id.slice(0, 8).toUpperCase())}</p><div class="route-line">${e(t.origin)} → ${e(t.destination)}</div><div class="receipt-row"><span>Finalizó</span><span>${date(t.completed_at)}</span></div><div class="receipt-row"><span>Método</span><strong>${t.payment_method === "card" ? "Tarjeta · Mercado Pago" : "Efectivo recibido"}</strong></div><div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total</span><strong>${money(t.total_cents || t.fare_cents)}</strong></div><p class="hint">Este comprobante de servicio no es una factura fiscal.</p>`,
     );
     return;
   }
@@ -1073,6 +1365,8 @@ async function handleAction(action, b) {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           accuracy: pos.coords.accuracy,
+          heading: Number.isFinite(pos.coords.heading) ? pos.coords.heading : null,
+          speed: Number.isFinite(pos.coords.speed) ? pos.coords.speed : null,
         }).catch((err) => notify(errorMessage(err)));
       },
       () => {
@@ -1104,13 +1398,15 @@ async function renderRoute() {
     if (S.profile.role === "passenger") riderHome();
     else if (S.profile.role === "driver") await driverHome();
     else adminHome();
-  } else ({ trips: tripsView, profile, wallet, rewards, help, fleet, rates, audit })[S.view]?.();
+  } else ({ trips: tripsView, profile, wallet, weekly: weeklyView, payments: paymentsView, rewards, help, fleet, rates, audit })[S.view]?.();
 }
 async function refreshPage() {
   const b = await rpc("bootstrap");
   S.profile = b.profile;
   S.driver = b.driver;
   S.categories = b.categories;
+  S.cardEnabled = !!b.card_enabled;
+  S.mercadoPagoPublicKey = b.mercado_pago_public_key || "";
   S.data = await rpc("dashboard");
   await renderRoute();
 }
@@ -1123,6 +1419,8 @@ function startUpdates() {
     .on("postgres_changes", { event: "*", schema: "public", table: "locations" }, () =>
       safeRefresh(),
     )
+    .on("postgres_changes", { event: "*", schema: "public", table: "payments" }, () => safeRefresh())
+    .on("postgres_changes", { event: "*", schema: "public", table: "weekly_fees" }, () => safeRefresh())
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, () =>
       safeRefresh(),
     )
@@ -1134,6 +1432,7 @@ async function safeRefresh() {
   S.refreshing = true;
   try {
     if (S.view === "trip") await refreshTrip();
+    else if (S.view === "home" && S.profile.role === "passenger") await refreshAvailableUnits();
     else if (S.view === "home" && S.profile.role !== "passenger") {
       const focused = document.activeElement;
       if (!["INPUT", "TEXTAREA", "SELECT"].includes(focused?.tagName)) await refreshPage();
