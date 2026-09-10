@@ -15,7 +15,7 @@ const json = (body: unknown, status: number, origin: string) => new Response(JSO
 
 function originFor(req: Request) {
   const origin = req.headers.get("origin") || "";
-  const allowed = (Deno.env.get("APP_ORIGINS") || "https://yavoi-delicias.alonsovl-logos88.chatgpt.site").split(",").map((v) => v.trim());
+  const allowed = (Deno.env.get("APP_ORIGINS") || "https://yavoi-delicias.alonsovl-logos88.chatgpt.site,https://yavoi-app.vercel.app").split(",").map((v) => v.trim());
   return allowed.includes(origin) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ? origin : "";
 }
 
