@@ -6,8 +6,7 @@
   <meta name="theme-color" content="#06192c" />
   <meta name="description" content="Yavoi! Tu raite, al instante. Movilidad segura, transparente y cercana en Delicias, Chihuahua." />
   <title>Yavoi! | Tu raite, al instante</title>
-  <link rel="preconnect" href="https://unpkg.com" crossorigin />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="icon" href="/assets/yavoi-logo.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -38,9 +37,9 @@
         <a href="#conductores">Conductores</a>
         <a href="#categorias">Categorías</a>
         <a href="#seguridad">Seguridad</a>
-        <a href="#simulador">Simulador</a>
+        <a href="#simulador">Simulador</a><a href="/portal.html">Mi cuenta</a>
       </nav>
-      <a class="btn btn-outline nav-cta" href="#conductores">Quiero conducir</a>
+      <a class="btn btn-outline nav-cta" href="/portal.html">Ingresar a mi cuenta</a>
     </div>
   </header>
 
@@ -52,8 +51,8 @@
           <h1>Tu ciudad.<br />Tu gente.<br /><span>Yavoi!</span></h1>
           <p class="lead">Pide tu raite, conoce tu tarifa y sigue la unidad en tiempo real. Una experiencia pensada para Delicias y para la forma en que se mueve nuestra región.</p>
           <div class="hero-actions">
-            <a class="btn btn-primary btn-lg" href="#simulador">Solicitar un viaje</a>
-            <a class="btn btn-ghost btn-lg" href="#conductores">Conducir con Yavoi!</a>
+            <a class="btn btn-primary btn-lg" href="/portal.html">Solicitar un viaje</a>
+            <a class="btn btn-ghost btn-lg" href="/portal.html">Conducir con Yavoi!</a>
           </div>
           <div class="trust-row">
             <div><strong>Ruta visible</strong><span>Seguimiento durante el servicio</span></div>
@@ -71,7 +70,7 @@
           <div class="hero-route-sheet">
             <div class="route-row"><span class="route-bullet blue"></span><div><small>Recogida</small><strong>Plaza de la República</strong></div></div>
             <div class="route-row"><span class="route-bullet orange"></span><div><small>Destino</small><strong>Tecnológico de Delicias</strong></div></div>
-            <div class="route-summary"><strong id="heroEta">8 min</strong><span>Unidad Yavoi! monitoreada en tiempo real</span></div>
+            <div class="route-summary"><strong id="heroEta">8 min</strong><span>Vista de demostración · unidad simulada</span></div>
           </div>
         </div>
       </div>
@@ -303,7 +302,7 @@
     <div class="container footer-grid">
       <div class="footer-brand"><img src="assets/yavoi-logo.png" alt="Yavoi!" /><p>Tu raite, al instante.</p></div>
       <div class="footer-links"><strong>Yavoi!</strong><a href="#experiencia">La app</a><a href="#usuarios">Usuarios</a><a href="#conductores">Conductores</a></div>
-      <div class="footer-links"><strong>Confianza</strong><a href="#seguridad">Seguridad</a><a href="#categorias">Categorías</a><a href="#simulador">Simulador</a></div>
+      <div class="footer-links"><strong>Confianza</strong><a href="#seguridad">Seguridad</a><a href="#categorias">Categorías</a><a href="#simulador">Simulador</a><a href="/portal.html">Mi cuenta</a></div>
       <div class="footer-city"><strong>Delicias, Chihuahua</strong><p>Movilidad local y regional.</p></div>
     </div>
     <div class="container creator-bar">
@@ -314,7 +313,7 @@
   </footer>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="app.js"></script>
+
+  <script type="module" src="app.js"></script>
 </body>
 </html>

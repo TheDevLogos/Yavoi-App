@@ -1,13 +1,17 @@
 {
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "cleanUrls": true,
   "trailingSlash": false,
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
-      ]
-    }
-  ]
+  "headers": [{
+    "source": "/(.*)",
+    "headers": [
+      {"key":"X-Content-Type-Options","value":"nosniff"},
+      {"key":"Referrer-Policy","value":"strict-origin-when-cross-origin"},
+      {"key":"X-Frame-Options","value":"DENY"},
+      {"key":"Permissions-Policy","value":"geolocation=(self), camera=(), microphone=()"},
+      {"key":"Strict-Transport-Security","value":"max-age=31536000"},
+      {"key":"Content-Security-Policy","value":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://asjlyureqokifjkpdwgc.supabase.co; connect-src 'self' https://asjlyureqokifjkpdwgc.supabase.co wss://asjlyureqokifjkpdwgc.supabase.co https://*.tile.openstreetmap.org; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"}
+    ]
+  }]
 }

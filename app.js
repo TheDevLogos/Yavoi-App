@@ -1,3 +1,5 @@
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
 
