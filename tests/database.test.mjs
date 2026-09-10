@@ -30,7 +30,7 @@ async function expectError(fn, pattern) {
 }
 test("Postgres security and complete ride lifecycle", async () => {
   await db.exec(
-    `create role anon;create role authenticated;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.jwt() returns jsonb language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb$$;create function auth.uid() returns uuid language sql stable as $$select nullif(auth.jwt()->>'sub','')::uuid$$;grant usage on schema auth to authenticated,anon;grant execute on function auth.uid(),auth.jwt() to authenticated,anon;create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text);alter table storage.objects enable row level security;grant usage on schema storage to authenticated;grant select,insert on storage.objects to authenticated;create function storage.foldername(text) returns text[] language sql immutable as $$select (string_to_array($1,'/'))[1:array_length(string_to_array($1,'/'),1)-1]$$;`,
+    `create role anon;create role authenticated;create role service_role;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.jwt() returns jsonb language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb$$;create function auth.uid() returns uuid language sql stable as $$select nullif(auth.jwt()->>'sub','')::uuid$$;grant usage on schema auth to authenticated,anon;grant execute on function auth.uid(),auth.jwt() to authenticated,anon;create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text);alter table storage.objects enable row level security;grant usage on schema storage to authenticated;grant select,insert on storage.objects to authenticated;create function storage.foldername(text) returns text[] language sql immutable as $$select (string_to_array($1,'/'))[1:array_length(string_to_array($1,'/'),1)-1]$$;`,
   );
   const files = (await readdir(new URL("../supabase/migrations/", import.meta.url)))
     .filter((n) => n.endsWith(".sql"))
@@ -114,6 +114,14 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.ok(q.trip_eta_minutes >= 5);
   assert.equal(q.booking_fee_cents, 900);
   assert.equal(q.pickup_surcharge_cents, 0);
+  const units = await rpc("available_units", {
+    lat: 28.19065,
+    lng: -105.47045,
+    category: "basic",
+  });
+  assert.equal(units.length, 1);
+  assert.equal(units[0].unit_id, ids.driver);
+  assert.ok(Number(units[0].pickup_km) < 1);
   await expectError(
     () =>
       rpc("request_trip", {
@@ -121,7 +129,7 @@ test("Postgres security and complete ride lifecycle", async () => {
         request_key: crypto.randomUUID(),
         payment_method: "card",
       }),
-    /Tarjeta/,
+    /tarjeta/i,
   );
   await expectError(
     () =>
@@ -145,6 +153,8 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(Number(t.pickup_distance_km), Number(q.pickup_distance_km));
   assert.equal(t.trip_eta_minutes, q.trip_eta_minutes);
   assert.equal(t.service_zone, q.service_zone);
+  assert.equal(t.status, "accepted");
+  assert.equal(t.driver_id, ids.driver);
   const duplicate = await rpc("request_trip", {
     quote_id: q.id,
     request_key: key,
@@ -160,13 +170,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   await expectError(() => rpc("trip", { trip_id: t.id }), /acceso/);
   await expectError(() => db.query("select * from private.trip_secrets"), /permission denied/);
   await as(ids.driver);
-  const offers = await rpc("offers");
-  const offer = offers.find((o) => o.id === t.id);
-  assert.ok(offer);
-  assert.ok(Number(offer.pickup_from_driver_km) < 1);
-  assert.equal(Number(offer.distance_km), Number(q.distance_km));
-  assert.equal(offer.trip_eta_minutes, q.trip_eta_minutes);
-  await rpc("accept", { trip_id: t.id });
+  assert.equal((await rpc("offers")).length, 0);
   assert.equal((await rpc("trip", { trip_id: t.id })).pin, null);
   await as(ids.driver2);
   await expectError(() => rpc("accept", { trip_id: t.id }), /disponible/);
@@ -221,6 +225,97 @@ test("Postgres security and complete ride lifecycle", async () => {
   await rpc("rating", { trip_id: t.id, stars: 5, comfort: 4, safety: 5, comment: "Buen servicio" });
   await rpc("rating", { trip_id: t.id, stars: 1 });
   assert.equal((await rpc("trip", { trip_id: t.id })).my_rating.stars, 5);
+
+  // Card payments stay blocked until credentials are enabled, then wait for a
+  // verified provider event before dispatching a driver.
+  await db.exec("reset role");
+  await db.query(
+    "update private.app_settings set mercado_pago_enabled=true,mercado_pago_public_key='TEST-public-key' where id",
+  );
+  await as(ids.rider);
+  const cardQuote = await rpc("quote", {
+    origin: "Centro",
+    destination: "Hospital Regional",
+    origin_lat: 28.19065,
+    origin_lng: -105.47045,
+    dest_lat: 28.18145,
+    dest_lng: -105.475,
+    category: "basic",
+  });
+  const cardTrip = await rpc("request_trip", {
+    quote_id: cardQuote.id,
+    request_key: crypto.randomUUID(),
+    payment_method: "card",
+    tip_cents: 1500,
+  });
+  assert.equal(cardTrip.status, "payment_pending");
+  assert.equal(cardTrip.driver_id, null);
+  assert.equal(cardTrip.total_cents, cardQuote.fare_cents + 1500);
+  const checkout = await rpc("payment_checkout", { payment_id: cardTrip.payment_id });
+  assert.equal(checkout.amount_cents, cardTrip.total_cents);
+  assert.equal(checkout.payer_email, "rider@example.test");
+  await as(ids.other);
+  await expectError(
+    () => rpc("payment_checkout", { payment_id: cardTrip.payment_id }),
+    /Pago no disponible/,
+  );
+  await db.exec("reset role");
+  const providerPayload = {
+    external_reference: cardTrip.payment_id,
+    provider_payment_id: "mp-test-1001",
+    amount_cents: cardTrip.total_cents,
+    status: "approved",
+    status_detail: "accredited",
+    payment_method_type: "credit_card",
+    payment_method_id: "visa",
+    installments: "1",
+    live_mode: "false",
+    event_key: "mp-test-1001:approved:1",
+  };
+  await db.query("select public.yavoi_payment_event($1::jsonb)", [JSON.stringify(providerPayload)]);
+  await db.query("select public.yavoi_payment_event($1::jsonb)", [JSON.stringify(providerPayload)]);
+  assert.equal(
+    (await db.query("select count(*)::int as count from public.payment_events where payment_id=$1", [cardTrip.payment_id])).rows[0].count,
+    1,
+  );
+  await as(ids.rider);
+  const paidCardTrip = await rpc("trip", { trip_id: cardTrip.id });
+  assert.equal(paidCardTrip.trip.status, "accepted");
+  assert.equal(paidCardTrip.trip.payment_status, "paid");
+  assert.equal(paidCardTrip.driver.vehicle, "Versa 2024");
+  const cardPin = paidCardTrip.pin;
+  await as(ids.driver);
+  await rpc("transition", { trip_id: cardTrip.id, status: "arrived" });
+  await rpc("transition", { trip_id: cardTrip.id, status: "in_progress", pin: cardPin });
+  await rpc("location", {
+    trip_id: cardTrip.id,
+    lat: 28.187,
+    lng: -105.472,
+    accuracy: 8,
+    heading: 170,
+    speed: 9,
+  });
+  const cardDone = await rpc("transition", { trip_id: cardTrip.id, status: "completed" });
+  assert.equal(cardDone.payment_status, "paid");
+  const cardDriverData = await rpc("dashboard");
+  assert.equal(cardDriverData.ledger.filter((l) => l.kind === "card_tip").length, 1);
+  assert.equal((await rpc("trip", { trip_id: cardTrip.id })).route_history.length, 1);
+
+  // Weekly application fee: private proof, Operations review and account switch.
+  const weekly = cardDriverData.weekly_fees[0];
+  assert.equal(weekly.amount_cents, 50000);
+  const proofPath = ids.driver + "/weekly-proof.pdf";
+  await db.query("insert into storage.objects(bucket_id,name) values('yavoi-payment-proofs',$1)", [proofPath]);
+  await rpc("submit_weekly_fee", { fee_id: weekly.id, proof_path: proofPath });
+  await as(ids.admin, "aal2");
+  await rpc("review_weekly_fee", { fee_id: weekly.id, approved: true, note: "Pago comprobado." });
+  await rpc("set_driver_access", { driver_id: ids.driver, active: false, note: "Prueba de bloqueo" });
+  await as(ids.driver);
+  await expectError(() => rpc("availability", { online: true }), /acceso semanal/);
+  await as(ids.admin, "aal2");
+  await rpc("set_driver_access", { driver_id: ids.driver, active: true, note: "Prueba finalizada" });
+  await as(ids.rider);
+
   const regional = await rpc("quote", {
     origin: "Zona norte",
     destination: "Centro de Meoqui",

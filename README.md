@@ -9,13 +9,14 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 - Paneles y rutas separados por rol, con validación adicional en PostgreSQL.
 - Perfil de pasajero, expediente privado de conductor y revisión por Operaciones.
 - Cotización en servidor por categoría, kilómetros estimados, duración y zona.
-- Estimación de distancia y tiempo de una unidad disponible hasta la recogida.
+- Unidades compatibles en mapa, selección opcional y despacho automático por cercanía y disponibilidad.
 - Zonas central, urbana y regional; Meoqui se clasifica como servicio regional.
 - Preferencia de conductora verificada y unidad con accesibilidad verificada.
-- Efectivo con importe para cambio. Tarjeta permanece deshabilitada hasta conectar un proveedor real.
-- Solicitud idempotente, asignación de conductor, PIN de inicio, ubicación, chat y estados del viaje.
+- Efectivo con cambio y Checkout Bricks de Mercado Pago listo para activar con credenciales reales.
+- Propina voluntaria antes o después del viaje, conciliada por método de pago.
+- Solicitud y cobro idempotentes, PIN de inicio, ubicación, trayectoria, chat y estados del viaje.
 - Cierre con confirmación de efectivo, recibo, valoración mutua, propina, recompensas y quejas.
-- Centro de Operaciones con flotilla, expedientes, viajes, ingresos, reportes, tarifas y auditoría.
+- Centro de Operaciones con flotilla, expedientes, viajes, pagos, reembolsos, cuotas semanales, reportes, tarifas y auditoría.
 - Exportación CSV segura para análisis operativo.
 
 ## Seguridad
@@ -30,7 +31,7 @@ Las fotografías y documentos se guardan en depósitos privados y se consultan m
 
 La tarifa se calcula en PostgreSQL y se conserva en la cotización durante cinco minutos. Usa tarifa base, kilómetros estimados de recorrido, minutos estimados, cuota de reservación, tarifa mínima, zona y accesibilidad. La distancia de recogida utiliza la posición reciente de una unidad compatible; cuando no existe, muestra una referencia operativa de zona.
 
-El modelo actual estima la ruta con factores territoriales. Está preparado para sustituirse por un proveedor vial y de tráfico antes de una operación comercial de gran escala.
+La búsqueda de calles y lugares usa un servicio protegido del backend con caché. El mapa traza la ruta vial y el servidor conserva su propio cálculo de tarifa para impedir que un cliente altere el precio.
 
 ## Desarrollo y validación
 
@@ -50,6 +51,6 @@ Las migraciones versionadas están en `supabase/migrations`. La integración con
 3. Publicar el resultado de `npm run build` con HTTPS.
 4. Registrar y verificar `admin.yavoi@gmail.com`, y después activar MFA.
 5. Aprobar conductores únicamente después de revisar fotografía, licencia, seguro y vigencias.
-6. Conectar un proveedor de pagos certificado antes de habilitar tarjeta.
+6. Completar la guía [Activar Mercado Pago](docs/mercado-pago.md). La tarjeta permanece bloqueada hasta terminar esos pasos.
 
 Diseño y desarrollo: **TheDevLogos Creación Inteligente**.
