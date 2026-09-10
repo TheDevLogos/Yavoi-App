@@ -22,7 +22,7 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 
 Supabase Auth usa PKCE y correo verificado. Los permisos se obtienen del perfil almacenado en la base, nunca de metadatos modificables por el usuario. Todas las tablas expuestas tienen Row Level Security; las operaciones sensibles pasan por funciones del servidor con control de rol, estado del viaje, vigencias, límites de frecuencia y MFA AAL2 para Operaciones.
 
-La primera cuenta de Operaciones está reservada para `administracion@yavoi.com`. El correo debe verificarse y la cuenta debe configurar autenticación de dos pasos antes de usar el panel administrativo.
+La primera cuenta de Operaciones está reservada para `admin.yavoi@gmail.com`. El correo debe verificarse y la cuenta debe configurar autenticación de dos pasos antes de usar el panel administrativo.
 
 Las fotografías y documentos se guardan en depósitos privados y se consultan mediante enlaces temporales. La clave incluida en el cliente es la clave publicable de Supabase; no se utiliza ninguna clave de servicio en el navegador.
 
@@ -48,7 +48,7 @@ Las migraciones versionadas están en `supabase/migrations`. La integración con
 1. Aplicar las migraciones de Supabase en orden.
 2. Configurar la URL pública en Supabase Auth y permitir `/portal.html` como URL de confirmación y recuperación.
 3. Publicar el resultado de `npm run build` con HTTPS.
-4. Verificar `administracion@yavoi.com`, completar el perfil y activar MFA.
+4. Registrar y verificar `admin.yavoi@gmail.com`, y después activar MFA.
 5. Aprobar conductores únicamente después de revisar fotografía, licencia, seguro y vigencias.
 6. Conectar un proveedor de pagos certificado antes de habilitar tarjeta.
 

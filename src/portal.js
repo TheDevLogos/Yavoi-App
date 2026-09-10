@@ -11,6 +11,7 @@ import {
   cents,
   changeDue,
   allowedView,
+  mfaQrSource,
   escapeHtml as e,
   money,
   errorMessage,
@@ -219,7 +220,7 @@ function authPage(view = "login", message = "") {
 function onboarding() {
   const pr = S.profile;
   $("#app").innerHTML =
-    `<div class="auth-main"><div class="auth-box"><img class="auth-logo-mobile" style="display:block" src="/assets/yavoi-logo.png" alt="Yavoi!"><div class="eyebrow">UN ÚLTIMO PASO</div><h2>Haz tuyo tu perfil</h2><p>Selecciona cómo usarás esta cuenta. Los conductores deben completar una revisión antes de recibir viajes.</p><form id="onboard"><div class="role-choice"><label><input type="radio" name="role" value="passenger" checked>Pasajero</label><label><input type="radio" name="role" value="driver">Conductor</label></div><label>Nombre completo<input name="name" autocomplete="name" required minlength="2" maxlength="100" value="${e(pr.full_name)}"></label><label>Teléfono de contacto<input name="phone" type="tel" autocomplete="tel" required minlength="10" maxlength="25" value="${e(pr.phone)}"></label><button type="submit" class="btn wide">Guardar mi perfil ${I("arrow-right")}</button></form><button class="link" id="logout">Cerrar sesión</button></div></div>`;
+    `<div class="auth-main"><div class="auth-box"><img class="onboarding-logo" src="/assets/yavoi-logo.png" alt="Yavoi!"><div class="eyebrow">UN ÚLTIMO PASO</div><h2>Haz tuyo tu perfil</h2><p>Selecciona cómo usarás esta cuenta. Los conductores deben completar una revisión antes de recibir viajes.</p><form id="onboard"><div class="role-choice"><label><input type="radio" name="role" value="passenger" checked>Pasajero</label><label><input type="radio" name="role" value="driver">Conductor</label></div><label>Nombre completo<input name="name" autocomplete="name" required minlength="2" maxlength="100" value="${e(pr.full_name)}"></label><label>Teléfono de contacto<input name="phone" type="tel" autocomplete="tel" required minlength="10" maxlength="25" value="${e(pr.phone)}"></label><button type="submit" class="btn wide">Guardar mi perfil ${I("arrow-right")}</button></form><button class="link" id="logout">Cerrar sesión</button></div></div>`;
   iconsNow();
   $("#logout").onclick = signOut;
   bindForm("#onboard", async (v) => {
@@ -233,10 +234,12 @@ async function mfaGate() {
   let factor = data.totp.find((f) => f.status === "verified");
   const verified = !!factor;
   let qr = "";
+  let secret = "";
   if (!factor) {
     factor = data.totp.find((f) => f.status === "unverified");
     if (factor) {
-      await db.auth.mfa.unenroll({ factorId: factor.id });
+      const removed = await db.auth.mfa.unenroll({ factorId: factor.id });
+      if (removed.error) throw removed.error;
     }
     const enrolled = await db.auth.mfa.enroll({
       factorType: "totp",
@@ -244,11 +247,24 @@ async function mfaGate() {
     });
     if (enrolled.error) throw enrolled.error;
     factor = enrolled.data;
-    qr = enrolled.data.totp.qr_code;
+    qr = mfaQrSource(enrolled.data.totp.qr_code);
+    secret = enrolled.data.totp.secret;
   }
   S.factor = factor;
   $("#app").innerHTML =
-    `<main class="auth-main"><div class="auth-box"><div class="eyebrow">ACCESO A OPERACIONES</div><h2>Verificación en dos pasos</h2><p>${verified ? "Introduce el código de tu aplicación autenticadora." : "Escanea este código con tu aplicación autenticadora y confirma el código de seis dígitos."}</p>${qr ? `<img class="auth-qr" alt="Código QR para configurar autenticación" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(qr)}">` : ""}<form id="mfa"><label>Código de verificación<input name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></label><button type="submit" class="btn wide">Verificar acceso</button></form><button class="link" id="logout">Cerrar sesión</button></div></main>`;
+    `<main class="auth-main"><div class="auth-box"><div class="eyebrow">ACCESO A OPERACIONES</div><h2>Verificación en dos pasos</h2><p>${verified ? "Introduce el código de tu aplicación autenticadora." : "Escanea el código con Google Authenticator, Microsoft Authenticator, Authy u otra aplicación TOTP."}</p>${qr ? `<figure class="mfa-setup"><img id="mfa-qr" class="auth-qr" alt="Código QR para configurar autenticación" src="${e(qr)}"><figcaption id="qr-error" class="form-error hidden">El navegador no pudo mostrar el QR. Configura la cuenta con la clave manual.</figcaption><div class="mfa-secret"><small>Clave de configuración manual</small><code>${e(secret)}</code><button type="button" class="btn secondary" id="copy-mfa-secret">Copiar clave</button></div></figure>` : ""}<form id="mfa"><label>Código de verificación<input name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="000000"></label><button type="submit" class="btn wide">Verificar acceso</button></form><button class="link" id="logout">Cerrar sesión</button></div></main>`;
+  const qrImage = $("#mfa-qr");
+  if (qrImage)
+    qrImage.onerror = () => {
+      qrImage.hidden = true;
+      $("#qr-error").classList.remove("hidden");
+    };
+  $("#copy-mfa-secret")?.addEventListener("click", () =>
+    run(async () => {
+      await navigator.clipboard.writeText(secret);
+      notify("Clave copiada. Agrégala en tu aplicación autenticadora.");
+    }),
+  );
   $("#logout").onclick = signOut;
   bindForm("#mfa", async (v) => {
     const { error } = await db.auth.mfa.challengeAndVerify({ factorId: S.factor.id, code: v.code });
