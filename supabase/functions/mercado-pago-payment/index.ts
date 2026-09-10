@@ -16,7 +16,7 @@ const json = (body: unknown, status = 200, origin = "") =>
 
 function allowedOrigin(req: Request) {
   const origin = req.headers.get("origin") || "";
-  const configured = (Deno.env.get("APP_ORIGINS") || "https://yavoi-delicias.alonsovl-logos88.chatgpt.site")
+  const configured = (Deno.env.get("APP_ORIGINS") || "https://yavoi-delicias.alonsovl-logos88.chatgpt.site,https://yavoi-app.vercel.app")
     .split(",")
     .map((value) => value.trim());
   if (configured.includes(origin) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;

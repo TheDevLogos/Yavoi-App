@@ -18,7 +18,7 @@ En Supabase, abrir Edge Functions > Secrets y crear:
 
 - `MP_ACCESS_TOKEN`: Access Token privado de producción.
 - `MP_WEBHOOK_SECRET`: clave secreta de Webhooks.
-- `APP_ORIGINS`: dominios permitidos separados por coma. Debe incluir el dominio final de Yavoi!.
+- `APP_ORIGINS`: dominios permitidos separados por coma. Debe incluir `https://yavoi-app.vercel.app`, la landing publicada y el futuro dominio oficial de Yavoi!.
 - `ROUTING_BASE_URL`: opcional; URL de un servidor OSRM contratado para producción.
 
 Las claves privadas nunca deben guardarse en GitHub, JavaScript del navegador o tablas visibles.
