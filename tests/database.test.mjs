@@ -44,8 +44,16 @@ test("Postgres security and complete ride lifecycle", async () => {
   for (const [name, id] of Object.entries(ids))
     await db.query("insert into auth.users(id,email,email_confirmed_at)values($1,$2,now())", [
       id,
-      name + "@example.test",
+      name === "admin" ? "admin.yavoi@gmail.com" : name + "@example.test",
     ]);
+  assert.deepEqual(
+    (await db.query("select email,claimed_by from private.admin_enrollment order by email")).rows,
+    [{ email: "admin.yavoi@gmail.com", claimed_by: ids.admin }],
+  );
+  assert.equal(
+    (await db.query("select role from public.profiles where id=$1", [ids.admin])).rows[0].role,
+    "admin",
+  );
   await as(ids.rider);
   await rpc("onboard", { role: "passenger", name: "Pasajero Prueba", phone: "6391234567" });
   await expectError(
