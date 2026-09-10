@@ -52,6 +52,14 @@ const S = {
   cardEnabled: false,
   mercadoPagoPublicKey: "",
   mpController: null,
+  trackingWatch: null,
+  heartbeatTimer: null,
+  latestPosition: null,
+  presenceSending: false,
+  presenceSession: crypto.randomUUID(),
+  knownOfferIds: new Set(),
+  offersInitialized: false,
+  draftTimer: null,
 };
 const modal = $("#modal");
 let toastTimer, pollTimer;
@@ -64,6 +72,32 @@ function notify(message) {
   t.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove("show"), 6500);
+}
+function serviceNotification(title, body) {
+  notify(`${title}. ${body}`);
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    const item = new Notification(title, {
+      body,
+      icon: "/assets/yavoi-logo.png",
+      tag: "yavoi-driver-offer",
+      renotify: true,
+    });
+    item.onclick = () => {
+      window.focus();
+      location.hash = "home";
+    };
+  } catch {}
+}
+function announceOffers(offers) {
+  const newOffers = offers.filter((offer) => !S.knownOfferIds.has(offer.offer_id));
+  offers.forEach((offer) => S.knownOfferIds.add(offer.offer_id));
+  if (newOffers.length)
+    serviceNotification(
+      "Nueva solicitud de viaje",
+      `${newOffers[0].passenger_name}, ${newOffers[0].party_size} persona${newOffers[0].party_size === 1 ? "" : "s"}, servicio ${newOffers[0].category}.`,
+    );
+  S.offersInitialized = true;
 }
 function closeModal() {
   S.mpController?.unmount?.();
@@ -158,6 +192,7 @@ function clearSession() {
   S.channel = null;
   if (S.watch !== null) navigator.geolocation.clearWatch(S.watch);
   S.watch = null;
+  stopDriverTracking();
   S.trip = null;
   S.profile = null;
   S.driver = null;
@@ -166,6 +201,9 @@ function clearSession() {
   S.units = [];
   S.selectedUnit = null;
   S.avatarUrls = {};
+  S.knownOfferIds = new Set();
+  S.offersInitialized = false;
+  clearTimeout(S.draftTimer);
   clearInterval(pollTimer);
 }
 function authPage(view = "login", message = "") {
@@ -309,6 +347,8 @@ async function loadSession() {
   S.data = await rpc("dashboard");
   await renderRoute();
   startUpdates();
+  if (S.profile.role === "driver" && S.driver?.online) startDriverTracking();
+  else stopDriverTracking();
 }
 async function signOut() {
   await run(async () => {
@@ -362,6 +402,7 @@ async function searchAddress(kind) {
         drawPoints();
         await loadRoadRoute();
         if (kind === "origin") await refreshAvailableUnits();
+        scheduleRideDraft();
       };
     });
   });
@@ -431,6 +472,7 @@ function startMap(trip = null) {
       drawPoints();
       loadRoadRoute();
       if (S.pick === "origin") refreshAvailableUnits();
+      scheduleRideDraft();
     });
   drawPoints(trip);
   loadRoadRoute(trip);
@@ -498,35 +540,85 @@ function drawPoints(t = null) {
     );
   }
 }
+function draftPoint(draft, prefix) {
+  const name = draft?.[prefix === "origin" ? "origin" : "destination"];
+  const lat = Number(draft?.[prefix === "origin" ? "origin_lat" : "dest_lat"]);
+  const lng = Number(draft?.[prefix === "origin" ? "origin_lng" : "dest_lng"]);
+  return name && Number.isFinite(lat) && Number.isFinite(lng) ? { name, lat, lng } : null;
+}
+function rideDraftPayload(form = $("#quote-form")) {
+  if (!form) return null;
+  const values = Object.fromEntries(new FormData(form));
+  const originValid = S.origin && values.origin === S.origin.name;
+  const destinationValid = S.destination && values.destination === S.destination.name;
+  return {
+    origin: values.origin || "",
+    origin_lat: originValid ? S.origin.lat : null,
+    origin_lng: originValid ? S.origin.lng : null,
+    destination: values.destination || "",
+    dest_lat: destinationValid ? S.destination.lat : null,
+    dest_lng: destinationValid ? S.destination.lng : null,
+    category: values.category || "basic",
+    party_size: Number(values.party_size || 1),
+    service_notes: values.service_notes || "",
+    women_only: values.women_only === "on",
+    accessible: values.accessible === "on",
+    scheduled_at: values.scheduled_at || null,
+  };
+}
+function scheduleRideDraft() {
+  clearTimeout(S.draftTimer);
+  S.draftTimer = setTimeout(async () => {
+    const payload = rideDraftPayload();
+    if (!payload || !S.connected || S.profile?.role !== "passenger") return;
+    try {
+      await rpc("save_ride_draft", payload);
+      S.data.ride_draft = payload;
+      const state = $("#draft-state");
+      if (state) state.textContent = "Plan guardado";
+    } catch {}
+  }, 700);
+}
 function riderHome() {
-  const current = S.data.trips.find((t) => active(t) && t.status !== "scheduled");
+  const current = S.data.trips.find((trip) => active(trip) && trip.status !== "scheduled");
   if (current) {
     location.hash = "trip/" + current.id;
     return;
   }
-  const cats = S.categories.filter((c) => c.active);
+  const draft = S.data.ride_draft;
+  if (draft) {
+    S.origin = draftPoint(draft, "origin") || S.origin;
+    S.destination = draftPoint(draft, "destination");
+  }
+  const cats = S.categories.filter((category) => category.active);
+  const selectedCategory = draft?.category || cats[0]?.id;
   shell(
-    `<div class="booking"><section class="panel"><h2>Planea tu viaje</h2><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" list="places" value="${e(S.origin?.name || "")}" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}</button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="places" value="${e(S.destination?.name || "")}" placeholder="Calle, número o lugar" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}</button></div><datalist id="places">${places.map((p) => `<option value="${e(p.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin">Marcar origen</button><button type="button" id="map-destination">Marcar destino</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((c, i) => `<label class="category-option"><div class="car">${I(c.id === "commercial" ? "package" : c.id === "pickup" ? "truck" : "car")}</div><div><strong>Yavoi! ${e(c.name)}</strong><small>${c.seats} plazas · ${money(c.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(c.base_cents)}</span><input type="radio" name="category" value="${e(c.id)}" ${i ? "" : "checked"} required></label>`).join("")}</div><label class="check women">${I("shield-check")} Prefiero una conductora<input name="women_only" type="checkbox"></label><label class="check"><input name="accessible" type="checkbox">Necesito una unidad con accesibilidad verificada</label><div class="unit-summary">${I("car-front")}<div><strong id="unit-selection">Asignación automática por cercanía</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">El precio se calcula en el servidor y se mantiene durante cinco minutos. La unidad elegida queda sujeta a disponibilidad al confirmar.</p></form></section>${mapFrame()}</div>`,
+    `<div class="booking"><section class="panel"><div class="row between"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" list="places" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}</button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="places" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Calle, número o lugar" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}</button></div><datalist id="places">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin">Marcar origen</button><button type="button" id="map-destination">Marcar destino</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car">${I(category.id === "commercial" ? "package" : category.id === "pickup" ? "truck" : "car")}</div><div><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.base_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div><div class="grid2 service-request"><label>Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label><label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label></div><label class="check women">${I("shield-check")} Prefiero una conductora<input name="women_only" type="checkbox" ${draft?.women_only ? "checked" : ""}></label><label class="check"><input name="accessible" type="checkbox" ${draft?.accessible ? "checked" : ""}>Necesito una unidad con accesibilidad verificada</label><div class="unit-summary">${I("car-front")}<div><strong id="unit-selection">Asignación por cercanía con aceptación del conductor</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local" value="${e(draft?.scheduled_at || "")}"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">Guardamos este plan en tu cuenta. Si recargas o cierras por accidente, podrás continuar. La solicitud se envía primero a la unidad compatible más cercana y el conductor decide si la acepta.</p></form></section>${mapFrame()}</div>`,
     `¿A dónde vamos, ${e(S.profile.full_name.split(" ")[0])}?`,
-    "Elige tu destino y revisa el precio antes de confirmar.",
+    "Elige tu destino, necesidades y revisa el precio antes de confirmar.",
   );
   startMap();
   refreshAvailableUnits();
   $$('[data-search-address]').forEach((search) => search.onclick = () => searchAddress(search.dataset.searchAddress));
-  $$('[name=category],[name=women_only],[name=accessible]').forEach((control) => control.addEventListener("change", refreshAvailableUnits));
-  ["origin", "destination"].forEach((k) =>
-    $(`[name=${k}]`).addEventListener("change", (ev) => {
-      const p = places.find((p) => p.name === ev.target.value);
-      if (p) {
-        S[k] = p;
+  $$('[name=category],[name=women_only],[name=accessible]').forEach((control) => control.addEventListener("change", () => {
+    refreshAvailableUnits();
+    scheduleRideDraft();
+  }));
+  $$('[name=origin],[name=destination],[name=party_size],[name=service_notes],[name=scheduled_at]').forEach((control) => control.addEventListener("input", scheduleRideDraft));
+  ["origin", "destination"].forEach((kind) =>
+    $(`[name=${kind}]`).addEventListener("change", (event) => {
+      const place = places.find((item) => item.name === event.target.value);
+      if (place) {
+        S[kind] = place;
         S.roadRoute = null;
         drawPoints();
         loadRoadRoute();
-        if (k === "origin") refreshAvailableUnits();
-      } else if (S[k] && ev.target.value !== S[k].name) {
-        S[k] = null;
+        if (kind === "origin") refreshAvailableUnits();
+      } else if (S[kind] && event.target.value !== S[kind].name) {
+        S[kind] = null;
         notify("Marca esa dirección en el mapa para ubicarla con precisión.");
       }
+      scheduleRideDraft();
     }),
   );
   $("#map-origin").onclick = () => {
@@ -540,30 +632,32 @@ function riderHome() {
   $("#gps-origin").onclick = () => {
     if (!navigator.geolocation) return notify("Tu navegador no permite ubicación. Usa el mapa.");
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        S.origin = { name: "Mi ubicación", lat: pos.coords.latitude, lng: pos.coords.longitude };
+      (position) => {
+        S.origin = { name: "Mi ubicación", lat: position.coords.latitude, lng: position.coords.longitude };
         $("[name=origin]").value = "Mi ubicación";
         drawPoints();
         S.map.setView([S.origin.lat, S.origin.lng], 16);
         loadRoadRoute();
         refreshAvailableUnits();
+        scheduleRideDraft();
       },
       () => notify("No se pudo obtener tu ubicación. Puedes marcarla en el mapa."),
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 15000 },
     );
   };
-  bindForm("#quote-form", async (v) => {
+  bindForm("#quote-form", async (values) => {
     if (!S.origin || !S.destination)
       throw Error("Selecciona ambos puntos en el mapa o en las sugerencias.");
     S.quote = await rpc("quote", {
-      ...v,
+      ...values,
+      party_size: Number(values.party_size),
       origin_lat: S.origin.lat,
       origin_lng: S.origin.lng,
       dest_lat: S.destination.lat,
       dest_lng: S.destination.lng,
-      women_only: v.women_only === "on",
-      accessible: v.accessible === "on",
-      scheduled_at: v.scheduled_at ? new Date(v.scheduled_at).toISOString() : null,
+      women_only: values.women_only === "on",
+      accessible: values.accessible === "on",
+      scheduled_at: values.scheduled_at ? new Date(values.scheduled_at).toISOString() : null,
     });
     if (S.roadRoute) {
       S.quote.road_distance_km = S.roadRoute.distance_km;
@@ -627,6 +721,7 @@ function paymentModal() {
     });
     closeModal();
     S.quote = null;
+    S.data.ride_draft = null;
     if (method === "card") return cardCheckout(t.payment_id, t.id, total);
     S.data = await rpc("dashboard");
     location.hash = "trip/" + t.id;
@@ -697,21 +792,21 @@ function stats() {
   return `<div class="grid4 stats">${items.map(([a, b]) => `<div class="stat"><small>${a}</small><strong>${b}</strong><p>Registros de tu operación</p></div>`).join("")}</div>`;
 }
 async function driverHome() {
-  const t = S.data.trips.find((t) => t.driver_id === S.user.id && active(t));
-  if (t) {
-    location.hash = "trip/" + t.id;
+  const activeTrip = S.data.trips.find((trip) => trip.driver_id === S.user.id && active(trip));
+  if (activeTrip) {
+    location.hash = "trip/" + activeTrip.id;
     return;
   }
-  const d = S.driver;
-  if (!d?.approved) {
+  const driver = S.driver;
+  if (!driver?.approved) {
     shell(
-      `<section class="panel"><span class="badge pending">Expediente pendiente de aprobación</span><h2 class="section-gap">Tu próximo paso: completa tu perfil</h2><p>Necesitamos tu fotografía, licencia, seguro y datos de la unidad. Operaciones revisará el expediente antes de que puedas recibir viajes.</p>${d?.review_note ? `<p class="hint">${e(d.review_note)}</p>` : ""}<a class="btn" href="#profile">Completar mi expediente ${I("arrow-right")}</a></section>`,
+      `<section class="panel"><span class="badge pending">Expediente pendiente de aprobación</span><h2 class="section-gap">Tu próximo paso: completa tu perfil</h2><p>Necesitamos tu fotografía, licencia, seguro y datos de la unidad. Operaciones revisará el expediente antes de que puedas recibir viajes.</p>${driver?.review_note ? `<p class="hint">${e(driver.review_note)}</p>` : ""}<a class="btn" href="#profile">Completar mi expediente ${I("arrow-right")}</a></section>`,
       "Hola, " + e(S.profile.full_name.split(" ")[0]),
       "Tu actividad como conductor comienza con una revisión de seguridad.",
     );
     return;
   }
-  if (!d.account_active) {
+  if (!driver.account_active) {
     shell(
       `<section class="panel"><span class="badge cancelled">Cuenta sin acceso a viajes</span><h2 class="section-gap">Revisa tu cuota semanal</h2><p>Tu cuenta no puede conectarse hasta que Operaciones valide la cuota o reactive el acceso.</p><a class="btn" href="#weekly">Consultar cuota y comprobante ${I("arrow-right")}</a></section>`,
       "Acceso temporalmente desactivado",
@@ -720,20 +815,45 @@ async function driverHome() {
     return;
   }
   const offers = await rpc("offers");
-  const availabilityActions = `<div class="driver-actions">${button(d.online ? "Desconectarme" : "Conectarme", "availability", d.online ? "secondary" : "", "power")}${d.online ? button("Actualizar mi zona", "presence", "secondary", "locate-fixed") : ""}</div>`;
+  await Promise.all(offers.map((offer) => loadAvatar(offer.passenger_avatar_path)));
+  announceOffers(offers);
+  const notificationButton =
+    "Notification" in window && Notification.permission !== "granted"
+      ? button("Activar avisos", "notifications", "secondary", "bell-ring")
+      : "";
+  const availabilityActions = `<div class="driver-actions">${button(driver.online ? "Desconectarme" : "Conectarme", "availability", driver.online ? "secondary" : "", "power")}${driver.online ? button("Actualizar ubicación", "presence", "secondary", "locate-fixed") : ""}${notificationButton}</div>`;
+  const offerCards = offers.length
+    ? offers
+        .map(
+          (offer) =>
+            `<article class="offer targeted-offer"><div class="offer-passenger">${avatar(offer.passenger_name, offer.passenger_avatar_path, "big")}<div><small>Pasajero</small><h3>${e(offer.passenger_name)}</h3><p>${offer.passenger_rating ? `${decimal(offer.passenger_rating)}/5` : "Sin evaluaciones"} · ${offer.passenger_trips} viaje${Number(offer.passenger_trips) === 1 ? "" : "s"} completado${Number(offer.passenger_trips) === 1 ? "" : "s"}</p></div><div class="offer-expiry">${I("timer")}<span>Responde antes de<br><strong>${date(offer.expires_at)}</strong></span></div></div><div class="row between"><span class="badge neutral">Yavoi! ${e(S.categories.find((category) => category.id === offer.category)?.name || offer.category)}</span><strong class="earn">Ganas ${money(offer.net_cents)}</strong></div><div class="route-line">${I("circle-dot")}${e(offer.origin)}</div><div class="route-line destination">${I("map-pin")}${e(offer.destination)}</div><div class="estimate-grid compact"><div><small>Para recoger</small><strong>${offer.pickup_from_driver_km == null ? "Actualiza tu ubicación" : `${decimal(offer.pickup_from_driver_km)} km`}</strong></div><div><small>Viaje estimado</small><strong>${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min</strong></div></div><div class="request-details"><div>${I("users-round")}<span><small>Personas</small><strong>${offer.party_size}</strong></span></div><div>${I("banknote")}<span><small>Pago</small><strong>${offer.payment_method === "card" ? "Tarjeta aprobada" : `Efectivo · paga con ${money(offer.cash_tender_cents)}`}</strong></span></div></div>${offer.service_notes ? `<div class="service-request">${I("message-square-text")}<div><small>Petición del pasajero</small><strong>${e(offer.service_notes)}</strong></div></div>` : ""}<div class="meta-row"><span>${zoneLabel(offer.service_zone)}</span><span>Total ${money(offer.total_cents || offer.fare_cents)}</span>${offer.payment_method === "cash" ? `<span>Cambio ${money(changeDue(offer.total_cents || offer.fare_cents, offer.cash_tender_cents))}</span>` : ""}${offer.tip_cents ? `<span>Incluye propina ${money(offer.tip_cents)}</span>` : ""}${offer.women_only ? "<span>Conductora verificada</span>" : ""}${offer.accessible ? "<span>Accesibilidad requerida</span>" : ""}</div><div class="offer-decisions"><button class="btn danger" data-reject-offer="${e(offer.offer_id)}">Rechazar ${I("x")}</button><button class="btn" data-accept-offer="${e(offer.offer_id)}">Aceptar viaje ${I("arrow-right")}</button></div></article>`,
+        )
+        .join("")
+    : `<div class="empty">${I("navigation")}<h3>${driver.online ? "Esperando una solicitud compatible" : "Estás desconectado"}</h3><p>${driver.online ? "Tu presencia se renueva automáticamente. Cuando una solicitud llegue, verás sus datos aquí y recibirás un aviso si autorizaste las notificaciones." : "Conéctate para que el sistema pueda enviarte una solicitud por cercanía y disponibilidad."}</p></div>`;
   shell(
-    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${d.online ? "Listo para tu próximo viaje" : "Tú eliges cuándo comenzar"}</h2><p>${d.online ? "Comparte tu zona para ordenar las solicitudes por cercanía." : "Conéctate cuando estés listo para recibir solicitudes."}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between"><h2>Solicitudes disponibles</h2>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offers.length ? offers.map((o) => `<article class="offer"><div class="row between"><span class="badge neutral">${e(S.categories.find((c) => c.id === o.category)?.name)}</span><strong class="earn">${money(o.net_cents)}</strong></div><div class="route-line">${I("circle-dot")}${e(o.origin)}</div><div class="route-line destination">${I("map-pin")}${e(o.destination)}</div><div class="estimate-grid compact"><div><small>Para recoger</small><strong>${o.pickup_from_driver_km == null ? "Actualiza tu zona" : `${decimal(o.pickup_from_driver_km)} km`}</strong></div><div><small>Viaje estimado</small><strong>${decimal(o.distance_km)} km · ${o.trip_eta_minutes} min</strong></div></div><div class="meta-row"><span>${zoneLabel(o.service_zone)}</span><span>${o.payment_method === "card" ? "Tarjeta aprobada" : `Efectivo · cambio ${money(changeDue(o.fare_cents, o.cash_tender_cents))}`} · total ${money(o.total_cents || o.fare_cents)}</span>${o.tip_cents ? `<span>Incluye propina ${money(o.tip_cents)}</span>` : ""}${o.women_only ? "<span>Conductora verificada</span>" : ""}${o.accessible ? "<span>Accesibilidad requerida</span>" : ""}</div><button class="btn wide" data-accept="${e(o.id)}">Aceptar viaje ${I("arrow-right")}</button></article>`).join("") : `<div class="empty">${I("navigation")}<h3>${d.online ? "Sin solicitudes compatibles por ahora" : "Estás desconectado"}</h3><p>${d.online ? "Actualiza tu zona para recibir primero los viajes más cercanos." : "Conéctate para recibir solicitudes compatibles con tu unidad."}</p></div>`}</section>`,
+    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Tú eliges cuándo comenzar"}</h2><p>${driver.online ? "Yavoi! actualiza tu presencia y ubicación mientras esta página permanece abierta." : "Conéctate cuando estés listo para recibir solicitudes dirigidas a tu unidad."}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">Tienes 60 segundos para revisar al pasajero, sus necesidades, el recorrido y el pago.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>`,
     "Un buen día para conducir.",
     "Tu tiempo, tus viajes y tus ganancias en un mismo lugar.",
   );
-  $$("[data-accept]").forEach(
-    (b) =>
-      (b.onclick = () =>
-        run(async () => {
-          const t = await rpc("accept", { trip_id: b.dataset.accept });
-          location.hash = "trip/" + t.id;
-        })),
-  );
+  $$('[data-accept-offer]').forEach((item) => {
+    item.onclick = () =>
+      run(async () => {
+        const trip = await rpc("accept", { offer_id: item.dataset.acceptOffer });
+        if (trip.error) throw Error(trip.error);
+        location.hash = "trip/" + trip.id;
+      });
+  });
+  $$('[data-reject-offer]').forEach((item) => {
+    item.onclick = () =>
+      run(async () => {
+        await rpc("reject_offer", {
+          offer_id: item.dataset.rejectOffer,
+          reason: "El conductor revisó la solicitud y decidió no tomarla",
+        });
+        await refreshPage();
+        notify("Solicitud rechazada. Yavoi! buscará la siguiente unidad disponible.");
+      });
+  });
 }
 function tableTrips() {
   return `<div class="table-wrap"><table><thead><tr><th>Folio / fecha</th><th>Recorrido</th><th>Estado</th><th>Pago</th><th>Importe</th><th></th></tr></thead><tbody id="trip-rows">${tripRows(S.data.trips)}</tbody></table></div>${!S.data.trips.length ? `<div class="empty">${I("route")}<h3>Tu historial empieza con el primer viaje</h3><p>Los viajes guardados aparecerán aquí.</p></div>` : ""}`;
@@ -801,9 +921,18 @@ async function tripView(id) {
               : t.status === "in_progress" ? "Sigue el recorrido en el mapa y comunícate con tu conductor."
                 : t.status === "completed" ? "Gracias por viajar con Yavoi! Tu opinión nos ayuda a mejorar."
                   : "La solicitud fue cancelada.";
-  const paymentRows = t.payment_method === "card"
+  const serviceDetails = `<div class="service-summary"><div>${I("users-round")}<span><small>Personas</small><strong>${t.party_size || 1}</strong></span></div><div>${I(t.accessible ? "accessibility" : "car-front")}<span><small>Servicio</small><strong>Yavoi! ${e(S.categories.find((category) => category.id === t.category)?.name || t.category)}</strong></span></div>${t.service_notes ? `<div class="wide-detail">${I("message-square-text")}<span><small>Petición del pasajero</small><strong>${e(t.service_notes)}</strong></span></div>` : ""}</div>`;
+  let paymentRows = serviceDetails + (t.payment_method === "card"
     ? `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · tarjeta</span><strong>${money(t.total_cents || t.fare_cents)}</strong></div><p class="hint">Estado del pago: ${e({ paid: "Confirmado", pending: "En proceso", failed: "No aprobado", refund_pending: "Reembolso en proceso", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</p>`
-    : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span><strong>${money(t.total_cents || t.fare_cents)}</strong></div><div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(t.total_cents || t.fare_cents, t.cash_tender_cents))}</strong></div>`;
+    : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span><strong>${money(t.total_cents || t.fare_cents)}</strong></div><div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(t.total_cents || t.fare_cents, t.cash_tender_cents))}</strong></div>`);
+  if (S.profile.role === "admin" && S.trip.operations) {
+    const operations = S.trip.operations;
+    const expected = Number(t.total_cents || t.fare_cents || 0);
+    const collected = Number(operations.paid_cents || 0);
+    const difference = collected - expected;
+    const ledger = operations.ledger || [];
+    paymentRows += `<section class="reconciliation"><div class="row between"><h3>Conciliación del viaje</h3><span class="badge ${difference === 0 && collected > 0 ? "" : "pending"}">${difference === 0 && collected > 0 ? "Conciliado" : t.status === "completed" ? "Revisar diferencia" : "En proceso"}</span></div><div class="receipt-row"><span>Importe esperado</span><strong>${money(expected)}</strong></div><div class="receipt-row"><span>Cobro confirmado</span><strong>${money(collected)}</strong></div><div class="receipt-row"><span>Diferencia</span><strong>${money(difference)}</strong></div><div class="receipt-row"><span>Ingreso neto del conductor</span><strong>${money(operations.driver_net_cents)}</strong></div><div class="receipt-row"><span>Método y estado</span><strong>${t.payment_method === "card" ? "Mercado Pago" : "Efectivo"} · ${e(t.payment_status)}</strong></div><div class="receipt-row"><span>Eventos del proveedor</span><strong>${(operations.payment_events || []).length}</strong></div><p class="hint">Pasajero: ${e(passenger?.name || "Sin dato")} · ${e(operations.passenger_phone || "sin teléfono")}<br>Conductor: ${e(driver?.name || "Sin asignar")} · ${e(operations.driver_phone || "sin teléfono")}<br>Movimientos contables: ${ledger.length}</p></section>`;
+  }
   let geo = "Sin señal GPS del conductor. No se muestra una ubicación inventada.";
   if (loc)
     geo =
@@ -815,7 +944,7 @@ async function tripView(id) {
           Math.round(loc.accuracy) +
           " m.";
   shell(
-    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button(S.watch !== null ? "Detener ubicación" : "Compartir mi ubicación", "gps", "secondary wide", "locate-fixed")}<p class="hint">El GPS web funciona mientras esta página está activa. Mantén el navegador abierto durante el servicio.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}<a href="#help" class="btn secondary">${I("headset")} Ayuda</a></div></section><div class="stack">${mapFrame("ride-map", e(geo))}<section class="panel"><h2>Mensajes del viaje</h2><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Escribe un mensaje…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
+    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}<a href="#help" class="btn secondary">${I("headset")} Ayuda</a></div></section><div class="stack">${mapFrame("ride-map", e(geo))}<section class="panel"><h2>Mensajes del viaje</h2><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Escribe un mensaje…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
     "Tu viaje Yavoi!",
     "Folio " + e(t.id.slice(0, 8).toUpperCase()) + " · " + date(t.created_at),
   );
@@ -829,10 +958,6 @@ async function tripView(id) {
     f.reset();
     await refreshTrip();
   });
-  if (!active(t) && S.watch !== null) {
-    navigator.geolocation.clearWatch(S.watch);
-    S.watch = null;
-  }
 }
 function messagesHtml(ms) {
   return ms.length
@@ -1037,9 +1162,78 @@ function help() {
       }),
   );
 }
+function operationsUnitStatus(unit) {
+  if (!unit.online) return ["Desconectado", "cancelled"];
+  if (!unit.presence_fresh) return ["Señal vencida", "pending"];
+  if (unit.trip_id) return [statuses[unit.trip_status] || unit.trip_status, ""];
+  return ["Disponible", ""];
+}
+function startOperationsMap() {
+  const element = $("#operations-map");
+  if (!element) return;
+  const units = S.data.operations_units || [];
+  S.map = L.map("operations-map", { zoomControl: true, scrollWheelZoom: true }).setView(
+    [28.19065, -105.47045],
+    13,
+  );
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(S.map);
+  S.map.zoomControl.setPosition("bottomright");
+  const bounds = [];
+  units.forEach((unit) => {
+    if (!Number.isFinite(Number(unit.lat)) || !Number.isFinite(Number(unit.lng))) return;
+    const point = [Number(unit.lat), Number(unit.lng)];
+    const [status] = operationsUnitStatus(unit);
+    bounds.push(point);
+    const marker = L.marker(point, {
+      icon: vehicleIcon(unit.heading, !!unit.trip_id),
+      opacity: unit.presence_fresh ? 1 : 0.55,
+    })
+      .addTo(S.map)
+      .bindTooltip(
+        `<strong>${e(unit.full_name)}</strong><br>${e(status)} · ${e(unit.plate || "Sin placas")}<br>${unit.trip_id ? `${e(unit.passenger_name || "Pasajero")} · ${money(unit.total_cents || unit.fare_cents)}` : e(unit.vehicle || "Unidad registrada")}`,
+        { direction: "top", offset: [0, -18] },
+      );
+    if (unit.trip_id)
+      marker.bindPopup(
+        `<strong>${e(unit.full_name)}</strong><p>${e(unit.origin)} → ${e(unit.destination)}</p><a href="#trip/${e(unit.trip_id)}">Abrir viaje y conciliación</a>`,
+      );
+    const history = Array.isArray(unit.route_history) ? unit.route_history : [];
+    if (history.length > 1) {
+      const route = history.map((item) => [Number(item.lat), Number(item.lng)]);
+      route.forEach((routePoint) => bounds.push(routePoint));
+      L.polyline(route, { color: "#ff6a0a", weight: 5, opacity: 0.78 }).addTo(S.map);
+    }
+  });
+  if (bounds.length) S.map.fitBounds(bounds, { padding: [55, 55], maxZoom: 15 });
+  setTimeout(() => S.map?.invalidateSize(), 80);
+}
+async function operationsMapView() {
+  const units = S.data.operations_units || [];
+  await Promise.all(units.map((unit) => loadAvatar(unit.avatar_path)));
+  const live = units.filter((unit) => unit.online && unit.presence_fresh);
+  const traveling = live.filter((unit) => unit.trip_id);
+  const available = live.filter((unit) => !unit.trip_id);
+  const cards = units.length
+    ? units
+        .map((unit) => {
+          const [status, kind] = operationsUnitStatus(unit);
+          return `<article class="fleet-unit">${avatar(unit.full_name, unit.avatar_path)}<div><div class="row wrap"><strong>${e(unit.full_name)}</strong><span class="badge ${kind}">${e(status)}</span></div><p>${e([unit.vehicle_color, unit.vehicle_make, unit.vehicle_model, unit.vehicle_year].filter(Boolean).join(" ") || unit.vehicle || "Unidad por completar")} · ${e(unit.plate || "Sin placas")}</p><small>${unit.heartbeat_at ? `Última señal ${date(unit.heartbeat_at)}` : "Sin señal GPS registrada"}</small>${unit.trip_id ? `<a class="link" href="#trip/${e(unit.trip_id)}">${e(unit.passenger_name || "Pasajero")} · ${e(unit.origin)} → ${e(unit.destination)} · ${money(unit.total_cents || unit.fare_cents)}</a>` : ""}</div></article>`;
+        })
+        .join("")
+    : '<div class="empty"><p>Aún no hay unidades registradas.</p></div>';
+  shell(
+    `<div class="grid4 stats"><div class="stat"><small>Unidades registradas</small><strong>${units.length}</strong><p>Flotilla total</p></div><div class="stat"><small>Con señal activa</small><strong>${live.length}</strong><p>Actualización menor a 90 segundos</p></div><div class="stat"><small>Disponibles</small><strong>${available.length}</strong><p>Listas para asignación</p></div><div class="stat"><small>En servicio</small><strong>${traveling.length}</strong><p>Recorridos visibles en el mapa</p></div></div><div class="operations-map-layout section-gap">${mapFrame("operations-map", "Ubicación y recorrido enviados por el GPS de cada conductor. Una señal mayor a 90 segundos se marca como vencida.")}<section class="panel fleet-list"><div class="row between"><h2>Estado de la flotilla</h2>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${cards}</section></div>`,
+    "Mapa de operación en vivo",
+    "Disponibilidad, ubicación, viaje activo y recorrido GPS de toda la flotilla.",
+  );
+  startOperationsMap();
+}
 function adminHome() {
   shell(
-    `${stats()}<section class="panel section-gap"><div class="row between"><h2>Operación reciente</h2>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${tableTrips()}</section><div class="grid2"><section class="panel"><h2>Conductores y unidades</h2><p>${S.data.drivers.filter((d) => d.approved).length} aprobados · ${S.data.drivers.filter((d) => !d.approved).length} por revisar</p><a class="btn secondary" href="#fleet">Revisar expedientes ${I("arrow-right")}</a></section><section class="panel"><h2>Control de la operación</h2><p>Las tarifas y autorizaciones se registran en auditoría. Las comisiones en efectivo requieren conciliación fuera del sistema hasta conectar pagos.</p><a class="btn secondary" href="#audit">Consultar auditoría ${I("arrow-right")}</a></section></div>`,
+    `${stats()}<section class="panel section-gap"><div class="row between"><h2>Operación reciente</h2>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${tableTrips()}</section><div class="grid3"><section class="panel"><h2>Mapa de operación</h2><p>${(S.data.operations_units || []).filter((unit) => unit.online && unit.presence_fresh).length} unidades con señal activa. Consulta ubicación y recorridos en tiempo real.</p><a class="btn secondary" href="#opsmap">Abrir mapa en vivo ${I("arrow-right")}</a></section><section class="panel"><h2>Conductores y unidades</h2><p>${S.data.drivers.filter((d) => d.approved).length} aprobados · ${S.data.drivers.filter((d) => !d.approved).length} por revisar</p><a class="btn secondary" href="#fleet">Revisar expedientes ${I("arrow-right")}</a></section><section class="panel"><h2>Control de la operación</h2><p>Viajes, pagos, cuotas y cambios administrativos conservan trazabilidad para conciliación y auditoría.</p><a class="btn secondary" href="#audit">Consultar auditoría ${I("arrow-right")}</a></section></div>`,
     "Tu ciudad, en movimiento.",
     "Viajes, unidades, ingresos y atención en un mismo centro de operación.",
   );
@@ -1128,28 +1322,86 @@ function audit() {
     "Un historial de autorizaciones, tarifas e intervenciones administrativas.",
   );
 }
-async function updateDriverPresence() {
+function browserPosition() {
   if (!navigator.geolocation)
-    throw Error(
-      "Tu navegador no permite compartir ubicación. Habilítala para ordenar viajes cercanos.",
+    return Promise.reject(
+      Error("Tu navegador no permite compartir ubicación. Habilítala para recibir viajes cercanos."),
     );
-  const pos = await new Promise((resolve, reject) =>
+  return new Promise((resolve, reject) =>
     navigator.geolocation.getCurrentPosition(resolve, reject, {
       enableHighAccuracy: true,
       timeout: 15000,
-      maximumAge: 15000,
+      maximumAge: 10000,
     }),
   ).catch(() => {
-    throw Error(
-      "No pudimos obtener tu ubicación. Revisa el permiso del navegador e inténtalo de nuevo.",
-    );
+    throw Error("No pudimos obtener tu ubicación. Revisa el permiso del navegador e inténtalo de nuevo.");
   });
-  await rpc("presence", {
-    lat: pos.coords.latitude,
-    lng: pos.coords.longitude,
-    accuracy: pos.coords.accuracy,
-  });
-  notify("Zona actualizada. Las solicitudes se ordenan por cercanía.");
+}
+function positionPayload(position) {
+  return {
+    session_id: S.presenceSession,
+    lat: position.coords.latitude,
+    lng: position.coords.longitude,
+    accuracy: position.coords.accuracy,
+    heading: Number.isFinite(position.coords.heading) ? position.coords.heading : null,
+    speed: Number.isFinite(position.coords.speed) ? position.coords.speed : null,
+  };
+}
+function driverActiveTrip() {
+  return S.data.trips.find(
+    (trip) => trip.driver_id === S.user?.id && ["accepted", "arrived", "in_progress"].includes(trip.status),
+  );
+}
+async function sendDriverPosition(position = S.latestPosition) {
+  if (!position || !S.driver?.online || S.profile?.role !== "driver" || S.presenceSending) return;
+  S.presenceSending = true;
+  try {
+    const trip = driverActiveTrip();
+    await rpc(trip ? "location" : "presence", {
+      ...positionPayload(position),
+      ...(trip ? { trip_id: trip.id } : {}),
+    });
+    S.gpsLast = Date.now();
+  } finally {
+    S.presenceSending = false;
+  }
+}
+function stopDriverTracking() {
+  if (S.trackingWatch !== null && navigator.geolocation)
+    navigator.geolocation.clearWatch(S.trackingWatch);
+  S.trackingWatch = null;
+  clearInterval(S.heartbeatTimer);
+  S.heartbeatTimer = null;
+  S.latestPosition = null;
+}
+function startDriverTracking() {
+  if (
+    S.profile?.role !== "driver" ||
+    !S.driver?.online ||
+    !navigator.geolocation ||
+    S.trackingWatch !== null
+  )
+    return;
+  S.trackingWatch = navigator.geolocation.watchPosition(
+    (position) => {
+      S.latestPosition = position;
+      if (Date.now() - S.gpsLast >= 7000)
+        sendDriverPosition(position).catch((error) => notify(errorMessage(error)));
+    },
+    () => notify("La ubicación se pausó. Revisa el permiso del navegador para seguir disponible."),
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 },
+  );
+  S.heartbeatTimer = setInterval(
+    () => sendDriverPosition().catch((error) => notify(errorMessage(error))),
+    25000,
+  );
+}
+async function updateDriverPresence(showConfirmation = true) {
+  const position = await browserPosition();
+  S.latestPosition = position;
+  await sendDriverPosition(position);
+  if (showConfirmation)
+    notify("Ubicación actualizada. Permanecerás activo mientras esta página siga abierta.");
 }
 async function handleAction(action, b) {
   if (action === "logout") return signOut();
@@ -1161,12 +1413,40 @@ async function handleAction(action, b) {
     setTimeout(() => S.map?.invalidateSize(), 80);
     return;
   }
+  if (action === "notifications")
+    return run(async () => {
+      if (!("Notification" in window)) throw Error("Este navegador no admite avisos del sistema.");
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted")
+        throw Error("Los avisos no quedaron autorizados. Puedes activarlos en los permisos del navegador.");
+      serviceNotification("Avisos de Yavoi! activados", "Te avisaremos cuando recibas una solicitud dirigida a tu unidad.");
+      await renderRoute();
+    });
   if (action === "availability")
     return run(async () => {
       const goingOnline = !S.driver.online;
-      await rpc("availability", { online: goingOnline });
-      await loadSession();
-      if (goingOnline) await updateDriverPresence();
+      const position = goingOnline ? await browserPosition() : null;
+      try {
+        await rpc("availability", { online: goingOnline });
+        S.driver.online = goingOnline;
+        if (goingOnline) {
+          S.latestPosition = position;
+          await sendDriverPosition(position);
+        } else stopDriverTracking();
+        await loadSession();
+        notify(
+          goingOnline
+            ? "Ya estás disponible. Mantén Yavoi! abierto para recibir solicitudes."
+            : "Te desconectaste y ya no recibirás nuevas solicitudes.",
+        );
+      } catch (error) {
+        if (goingOnline) {
+          await rpc("availability", { online: false }).catch(() => {});
+          S.driver.online = false;
+          stopDriverTracking();
+        }
+        throw error;
+      }
     });
   if (action === "presence")
     return run(async () => {
@@ -1350,34 +1630,10 @@ async function handleAction(action, b) {
     return;
   }
   if (action === "gps") {
-    if (S.watch !== null) {
-      navigator.geolocation.clearWatch(S.watch);
-      S.watch = null;
-      return tripView(t.id);
-    }
-    if (!navigator.geolocation) return notify("Tu navegador no soporta ubicación.");
-    S.watch = navigator.geolocation.watchPosition(
-      (pos) => {
-        if (Date.now() - S.gpsLast < 5000) return;
-        S.gpsLast = Date.now();
-        rpc("location", {
-          trip_id: t.id,
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-          heading: Number.isFinite(pos.coords.heading) ? pos.coords.heading : null,
-          speed: Number.isFinite(pos.coords.speed) ? pos.coords.speed : null,
-        }).catch((err) => notify(errorMessage(err)));
-      },
-      () => {
-        notify("No se pudo obtener ubicación. Revisa los permisos del navegador.");
-        if (S.watch !== null) navigator.geolocation.clearWatch(S.watch);
-        S.watch = null;
-      },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 },
-    );
-    await tripView(t.id);
-    notify("Ubicación compartida con los participantes del viaje.");
+    const position = await browserPosition();
+    S.latestPosition = position;
+    await sendDriverPosition(position);
+    notify("Ubicación actualizada para el pasajero y Centro de Operaciones.");
   }
 }
 async function renderRoute() {
@@ -1398,7 +1654,8 @@ async function renderRoute() {
     if (S.profile.role === "passenger") riderHome();
     else if (S.profile.role === "driver") await driverHome();
     else adminHome();
-  } else ({ trips: tripsView, profile, wallet, weekly: weeklyView, payments: paymentsView, rewards, help, fleet, rates, audit })[S.view]?.();
+  } else if (S.view === "opsmap") await operationsMapView();
+  else ({ trips: tripsView, profile, wallet, weekly: weeklyView, payments: paymentsView, rewards, help, fleet, rates, audit })[S.view]?.();
 }
 async function refreshPage() {
   const b = await rpc("bootstrap");
@@ -1416,7 +1673,30 @@ function startUpdates() {
   S.channel = db
     .channel("yavoi-account-" + S.user.id)
     .on("postgres_changes", { event: "*", schema: "public", table: "trips" }, () => safeRefresh())
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "trip_offers",
+        filter: `driver_id=eq.${S.user.id}`,
+      },
+      (payload) => {
+        if (S.profile?.role === "driver" && payload.new?.status === "offered")
+          serviceNotification(
+            "Nueva solicitud de viaje",
+            "Abre Yavoi! para revisar al pasajero, el recorrido y el pago antes de responder.",
+          );
+        safeRefresh();
+      },
+    )
     .on("postgres_changes", { event: "*", schema: "public", table: "locations" }, () =>
+      safeRefresh(),
+    )
+    .on("postgres_changes", { event: "*", schema: "public", table: "driver_presence" }, () =>
+      safeRefresh(),
+    )
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "location_history" }, () =>
       safeRefresh(),
     )
     .on("postgres_changes", { event: "*", schema: "public", table: "payments" }, () => safeRefresh())
@@ -1433,7 +1713,10 @@ async function safeRefresh() {
   try {
     if (S.view === "trip") await refreshTrip();
     else if (S.view === "home" && S.profile.role === "passenger") await refreshAvailableUnits();
-    else if (S.view === "home" && S.profile.role !== "passenger") {
+    else if (
+      (S.view === "home" && S.profile.role === "driver") ||
+      (S.profile.role === "admin" && ["home", "opsmap", "trips", "payments"].includes(S.view))
+    ) {
       const focused = document.activeElement;
       if (!["INPUT", "TEXTAREA", "SELECT"].includes(focused?.tagName)) await refreshPage();
     }
@@ -1451,11 +1734,20 @@ window.addEventListener("hashchange", () => {
 window.addEventListener("online", () => {
   S.connected = true;
   notify("Conexión recuperada. Actualiza para consultar los últimos datos.");
+  startDriverTracking();
+  sendDriverPosition().catch(() => {});
   safeRefresh();
 });
 window.addEventListener("offline", () => {
   S.connected = false;
   notify("Sin conexión. Los cambios no se enviarán hasta recuperar la red.");
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    startDriverTracking();
+    sendDriverPosition().catch(() => {});
+    safeRefresh();
+  }
 });
 let authLoading = false;
 db.auth.onAuthStateChange((event) => {

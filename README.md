@@ -9,14 +9,17 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 - Paneles y rutas separados por rol, con validación adicional en PostgreSQL.
 - Perfil de pasajero, expediente privado de conductor y revisión por Operaciones.
 - Cotización en servidor por categoría, kilómetros estimados, duración y zona.
-- Unidades compatibles en mapa, selección opcional y despacho automático por cercanía y disponibilidad.
+- Unidades compatibles en mapa, selección opcional y oferta automática a la unidad más cercana; el conductor acepta o rechaza después de revisar la solicitud.
+- Avisos de nuevas solicitudes, disponibilidad voluntaria y presencia GPS renovada mientras el portal del conductor permanece abierto.
+- Ficha previa del pasajero con fotografía, calificación, número de personas y peticiones de espacio o servicio.
 - Zonas central, urbana y regional; Meoqui se clasifica como servicio regional.
 - Preferencia de conductora verificada y unidad con accesibilidad verificada.
 - Efectivo con cambio y Checkout Bricks de Mercado Pago listo para activar con credenciales reales.
 - Propina voluntaria antes o después del viaje, conciliada por método de pago.
 - Solicitud y cobro idempotentes, PIN de inicio, ubicación, trayectoria, chat y estados del viaje.
 - Cierre con confirmación de efectivo, recibo, valoración mutua, propina, recompensas y quejas.
-- Centro de Operaciones con flotilla, expedientes, viajes, pagos, reembolsos, cuotas semanales, reportes, tarifas y auditoría.
+- Centro de Operaciones con mapa de flotilla en vivo, trayectorias GPS, expedientes, viajes, conciliación de efectivo o tarjeta, reembolsos, cuotas semanales, reportes, tarifas y auditoría.
+- Recuperación del viaje y del plan de solicitud desde Supabase después de recargar, cerrar o volver a abrir el navegador.
 - Exportación CSV segura para análisis operativo.
 
 ## Seguridad
@@ -26,6 +29,8 @@ Supabase Auth usa PKCE y correo verificado. Los permisos se obtienen del perfil 
 La primera cuenta de Operaciones está reservada para `admin.yavoi@gmail.com`. El correo debe verificarse y la cuenta debe configurar autenticación de dos pasos antes de usar el panel administrativo.
 
 Las fotografías y documentos se guardan en depósitos privados y se consultan mediante enlaces temporales. La clave incluida en el cliente es la clave publicable de Supabase; no se utiliza ninguna clave de servicio en el navegador.
+
+La presencia de un conductor vence a los 90 segundos sin señal. Esto impide nuevas asignaciones si el navegador se cierra, pierde conexión o el sistema operativo suspende la página; al regresar, la sesión y el rastreo se recuperan automáticamente.
 
 ## Estimador de tarifa
 

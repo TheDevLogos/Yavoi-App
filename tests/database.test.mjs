@@ -93,7 +93,35 @@ test("Postgres security and complete ride lifecycle", async () => {
     /fuera de cobertura/,
   );
   await rpc("presence", { lat: 28.191, lng: -105.471, accuracy: 10 });
+  await as(ids.driver2);
+  await rpc("presence", { lat: 28.198, lng: -105.478, accuracy: 12 });
   await as(ids.rider);
+  await rpc("save_ride_draft", {
+    origin: "Centro",
+    origin_lat: 28.19065,
+    origin_lng: -105.47045,
+    destination: "Tecnológico",
+    dest_lat: 28.18415,
+    dest_lng: -105.4593,
+    category: "basic",
+    party_size: 4,
+    service_notes: "Viaje para 4 personas",
+  });
+  assert.equal((await rpc("dashboard")).ride_draft.party_size, 4);
+  await expectError(
+    () =>
+      rpc("quote", {
+        origin: "Centro",
+        destination: "Tecnológico",
+        origin_lat: 28.19065,
+        origin_lng: -105.47045,
+        dest_lat: 28.18415,
+        dest_lng: -105.4593,
+        category: "basic",
+        party_size: 5,
+      }),
+    /no tiene espacio/,
+  );
   const q = await rpc("quote", {
     origin: "Centro",
     destination: "Tecnológico",
@@ -102,6 +130,8 @@ test("Postgres security and complete ride lifecycle", async () => {
     dest_lat: 28.18415,
     dest_lng: -105.4593,
     category: "basic",
+    party_size: 4,
+    service_notes: "Requiero espacio para dos maletas.",
     fare_cents: 1,
   });
   assert.ok(q.fare_cents > 3500);
@@ -119,9 +149,20 @@ test("Postgres security and complete ride lifecycle", async () => {
     lng: -105.47045,
     category: "basic",
   });
-  assert.equal(units.length, 1);
+  assert.equal(units.length, 2);
   assert.equal(units[0].unit_id, ids.driver);
   assert.ok(Number(units[0].pickup_km) < 1);
+  await db.exec("reset role");
+  await db.query("update public.driver_presence set heartbeat_at=now()-interval '2 minutes' where driver_id=$1", [ids.driver2]);
+  await as(ids.rider);
+  assert.equal((await rpc("available_units", {
+    lat: 28.19065,
+    lng: -105.47045,
+    category: "basic",
+  })).length, 1);
+  await as(ids.driver2);
+  await rpc("presence", { lat: 28.198, lng: -105.478, accuracy: 12, session_id: crypto.randomUUID() });
+  await as(ids.rider);
   await expectError(
     () =>
       rpc("request_trip", {
@@ -153,8 +194,11 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(Number(t.pickup_distance_km), Number(q.pickup_distance_km));
   assert.equal(t.trip_eta_minutes, q.trip_eta_minutes);
   assert.equal(t.service_zone, q.service_zone);
-  assert.equal(t.status, "accepted");
-  assert.equal(t.driver_id, ids.driver);
+  assert.equal(t.status, "requested");
+  assert.equal(t.driver_id, null);
+  assert.equal(t.party_size, 4);
+  assert.equal(t.service_notes, "Requiero espacio para dos maletas.");
+  assert.equal((await rpc("dashboard")).ride_draft, null);
   const duplicate = await rpc("request_trip", {
     quote_id: q.id,
     request_key: key,
@@ -162,6 +206,17 @@ test("Postgres security and complete ride lifecycle", async () => {
     cash_tender_cents: 10000,
   });
   assert.equal(duplicate.id, t.id);
+  await as(ids.driver);
+  const firstOffer = (await rpc("offers"))[0];
+  assert.equal(firstOffer.id, t.id);
+  assert.equal(firstOffer.party_size, 4);
+  assert.equal(firstOffer.service_notes, "Requiero espacio para dos maletas.");
+  assert.equal(firstOffer.passenger_name, "Pasajero Prueba");
+  assert.ok(firstOffer.offer_id);
+  const acceptedTrip = await rpc("accept", { offer_id: firstOffer.offer_id });
+  assert.equal(acceptedTrip.status, "accepted");
+  assert.equal(acceptedTrip.driver_id, ids.driver);
+  await as(ids.rider);
   const detail = await rpc("trip", { trip_id: t.id });
   assert.match(detail.pin, /^\d{4}$/);
   const pin = detail.pin;
@@ -217,6 +272,11 @@ test("Postgres security and complete ride lifecycle", async () => {
   await rpc("rating", { trip_id: t.id, stars: 5, comment: "Buen pasajero" });
   await rpc("tip", { trip_id: t.id, amount_cents: 2000 });
   await rpc("tip", { trip_id: t.id, amount_cents: 2000 });
+  await as(ids.admin, "aal2");
+  const cashOperations = await rpc("trip", { trip_id: t.id });
+  assert.equal(cashOperations.operations.paid_cents, t.total_cents);
+  assert.ok(cashOperations.operations.driver_net_cents > 0);
+  await as(ids.driver);
   const driverData = await rpc("dashboard");
   assert.equal(driverData.ledger.filter((l) => l.kind === "cash_tip").length, 1);
   assert.equal(driverData.points, 10);
@@ -278,13 +338,22 @@ test("Postgres security and complete ride lifecycle", async () => {
     (await db.query("select count(*)::int as count from public.payment_events where payment_id=$1", [cardTrip.payment_id])).rows[0].count,
     1,
   );
+  await as(ids.driver);
+  const declinedOffer = (await rpc("offers"))[0];
+  assert.equal(declinedOffer.id, cardTrip.id);
+  await rpc("reject_offer", { offer_id: declinedOffer.offer_id, reason: "No tengo espacio suficiente" });
+  await as(ids.driver2);
+  const secondOffer = (await rpc("offers"))[0];
+  assert.equal(secondOffer.id, cardTrip.id);
+  await rpc("accept", { offer_id: secondOffer.offer_id });
   await as(ids.rider);
   const paidCardTrip = await rpc("trip", { trip_id: cardTrip.id });
   assert.equal(paidCardTrip.trip.status, "accepted");
   assert.equal(paidCardTrip.trip.payment_status, "paid");
   assert.equal(paidCardTrip.driver.vehicle, "Versa 2024");
+  assert.equal(paidCardTrip.matching.attempts, 2);
   const cardPin = paidCardTrip.pin;
-  await as(ids.driver);
+  await as(ids.driver2);
   await rpc("transition", { trip_id: cardTrip.id, status: "arrived" });
   await rpc("transition", { trip_id: cardTrip.id, status: "in_progress", pin: cardPin });
   await rpc("location", {
@@ -295,6 +364,16 @@ test("Postgres security and complete ride lifecycle", async () => {
     heading: 170,
     speed: 9,
   });
+  await as(ids.admin, "aal2");
+  const liveOperations = await rpc("dashboard");
+  const liveUnit = liveOperations.operations_units.find((unit) => unit.driver_id === ids.driver2);
+  assert.equal(liveUnit.trip_id, cardTrip.id);
+  assert.equal(liveUnit.trip_status, "in_progress");
+  assert.equal(liveUnit.route_history.length, 1);
+  const operationsTrip = await rpc("trip", { trip_id: cardTrip.id });
+  assert.equal(operationsTrip.operations.paid_cents, cardTrip.total_cents);
+  assert.equal(operationsTrip.operations.passenger_phone, "6391234567");
+  await as(ids.driver2);
   const cardDone = await rpc("transition", { trip_id: cardTrip.id, status: "completed" });
   assert.equal(cardDone.payment_status, "paid");
   const cardDriverData = await rpc("dashboard");
@@ -304,16 +383,16 @@ test("Postgres security and complete ride lifecycle", async () => {
   // Weekly application fee: private proof, Operations review and account switch.
   const weekly = cardDriverData.weekly_fees[0];
   assert.equal(weekly.amount_cents, 50000);
-  const proofPath = ids.driver + "/weekly-proof.pdf";
+  const proofPath = ids.driver2 + "/weekly-proof.pdf";
   await db.query("insert into storage.objects(bucket_id,name) values('yavoi-payment-proofs',$1)", [proofPath]);
   await rpc("submit_weekly_fee", { fee_id: weekly.id, proof_path: proofPath });
   await as(ids.admin, "aal2");
   await rpc("review_weekly_fee", { fee_id: weekly.id, approved: true, note: "Pago comprobado." });
-  await rpc("set_driver_access", { driver_id: ids.driver, active: false, note: "Prueba de bloqueo" });
-  await as(ids.driver);
+  await rpc("set_driver_access", { driver_id: ids.driver2, active: false, note: "Prueba de bloqueo" });
+  await as(ids.driver2);
   await expectError(() => rpc("availability", { online: true }), /acceso semanal/);
   await as(ids.admin, "aal2");
-  await rpc("set_driver_access", { driver_id: ids.driver, active: true, note: "Prueba finalizada" });
+  await rpc("set_driver_access", { driver_id: ids.driver2, active: true, note: "Prueba finalizada" });
   await as(ids.rider);
 
   const regional = await rpc("quote", {
