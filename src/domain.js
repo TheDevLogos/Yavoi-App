@@ -51,6 +51,12 @@ export const cents = (value) => {
 };
 export const changeDue = (fare, tender) => Math.max(0, (tender ?? fare) - fare);
 export const allowedView = (role, view) => navs[role]?.some(([v]) => v === view) || view === "trip";
+export const mfaQrSource = (value) => {
+  const qr = String(value || "").trim();
+  if (/^data:image\/svg\+xml(?:;[^,]*)?,/i.test(qr)) return qr;
+  if (/^<svg[\s>]/i.test(qr)) return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(qr);
+  throw Error("No pudimos generar el código QR. Usa la clave manual o vuelve a intentarlo.");
+};
 export const escapeHtml = (s) =>
   String(s ?? "").replace(
     /[&<>"']/g,

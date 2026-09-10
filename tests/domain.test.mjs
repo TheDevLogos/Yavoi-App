@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cents, changeDue, allowedView, escapeHtml, active } from "../src/domain.js";
+import { cents, changeDue, allowedView, escapeHtml, active, mfaQrSource } from "../src/domain.js";
 test("cash amounts round to cents and invalid amounts are rejected", () => {
   assert.equal(cents("100.25"), 10025);
   assert.equal(changeDue(6850, 10000), 3150);
@@ -22,4 +22,10 @@ test("only terminal trips are inactive", () => {
   assert.equal(active({ status: "completed" }), false);
   assert.equal(active({ status: "cancelled" }), false);
   assert.equal(active({ status: "in_progress" }), true);
+});
+test("MFA QR accepts Supabase data URIs without double encoding", () => {
+  const dataUri = "data:image/svg+xml;utf-8,%3Csvg%3Eqr%3C/svg%3E";
+  assert.equal(mfaQrSource(dataUri), dataUri);
+  assert.match(mfaQrSource("<svg>qr</svg>"), /^data:image\/svg\+xml;charset=utf-8,/);
+  assert.throws(() => mfaQrSource("javascript:alert(1)"), /código QR/);
 });
