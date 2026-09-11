@@ -60,6 +60,25 @@ export const serviceAssets = Object.freeze({
   pickup: "/assets/services/pickup.webp",
 });
 export const serviceAsset = (category) => serviceAssets[category] || serviceAssets.basic;
+export const rewardEligibleForTrip = (reward = {}, quote = {}) =>
+  ["fare_discount_fixed", "fare_discount_percent", "free_local_trip", "ride_amenity"].includes(
+    reward.kind,
+  ) &&
+  (!reward.eligible_category || reward.eligible_category === quote.category) &&
+  !(reward.kind === "free_local_trip" && quote.service_zone === "regional");
+export const rewardDiscountCents = (reward = {}, quote = {}) => {
+  if (!rewardEligibleForTrip(reward, quote)) return 0;
+  const fare = Math.max(0, Number(quote.fare_cents) || 0);
+  if (reward.kind === "fare_discount_fixed")
+    return Math.min(fare, Math.max(0, Number(reward.value_cents) || 0));
+  if (reward.kind === "fare_discount_percent")
+    return Math.min(
+      Math.round((fare * Math.max(0, Number(reward.value_percent) || 0)) / 100),
+      Math.max(0, Number(reward.max_discount_cents) || 0),
+    );
+  if (reward.kind === "free_local_trip") return fare;
+  return 0;
+};
 export const PASSENGER_POLICY_VERSION = "2026-09-10";
 export const profileEditState = (profile = {}, now = Date.now()) => {
   const locked = Boolean(profile.profile_locked_at);

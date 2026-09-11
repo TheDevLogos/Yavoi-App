@@ -18,6 +18,9 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 - Preferencia de conductora verificada y unidad con accesibilidad verificada.
 - Efectivo con cambio y Checkout Bricks de Mercado Pago listo para activar con credenciales reales.
 - Propina voluntaria antes o después del viaje, conciliada por método de pago.
+- Puntos Viajeros para pasajeros y Rating Yavoi! para conductores: niveles, historial, catálogo escalable, canjes, beneficios aplicables al viaje y promociones al entrar.
+- Viaje local Básico gratis acumulable cada 15 viajes; descuentos y amenidades se eligen antes de confirmar y quedan visibles en precio, viaje y recibo.
+- Operaciones consulta puntos, nivel, viajes, ingresos, rating e incidentes por conductor, y registra la entrega o cancelación de beneficios físicos con auditoría y devolución automática de puntos.
 - Solicitud y cobro idempotentes, PIN de inicio, ubicación, trayectoria, chat y estados del viaje.
 - Cierre con confirmación de efectivo, recibo, valoración mutua, propina, recompensas y quejas.
 - Centro de Operaciones con mapa de flotilla en vivo, trayectorias GPS, expedientes, viajes, conciliación de efectivo o tarjeta, reembolsos, cuotas semanales, reportes, tarifas y auditoría.

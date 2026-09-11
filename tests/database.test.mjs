@@ -403,12 +403,27 @@ test("Postgres security and complete ride lifecycle", async () => {
   await as(ids.driver);
   const driverData = await rpc("dashboard");
   assert.equal(driverData.ledger.filter((l) => l.kind === "cash_tip").length, 1);
-  assert.equal(driverData.points, 10);
+  assert.equal(driverData.points, 14);
+  assert.equal(driverData.reward_wallet.available_points, 14);
+  assert.equal(driverData.reward_wallet.level, "Activo");
+  assert.ok(driverData.reward_wallet.catalog.some((reward) => reward.id === "driver_wash_free"));
   await as(ids.rider);
   await expectError(() => rpc("rating", { trip_id: t.id, stars: 6 }), /check constraint/);
   await rpc("rating", { trip_id: t.id, stars: 5, comfort: 4, safety: 5, comment: "Buen servicio" });
   await rpc("rating", { trip_id: t.id, stars: 1 });
   assert.equal((await rpc("trip", { trip_id: t.id })).my_rating.stars, 5);
+  await db.exec("reset role");
+  await db.query("update public.reward_catalog set min_trips=1 where id='passenger_discount_20'");
+  await db.query(
+    "insert into public.reward_entries(user_id,points,entry_type,description,source_key) values($1,120,'adjustment','Bono controlado de prueba','test:rider:bonus')",
+    [ids.rider],
+  );
+  await as(ids.rider);
+  const rideReward = await rpc("redeem_reward", { reward_id: "passenger_discount_20" });
+  assert.equal(rideReward.status, "available");
+  assert.equal(rideReward.points_spent, 120);
+  assert.match(rideReward.code, /^YV-[A-F0-9]{8}$/);
+  assert.equal((await rpc("dashboard")).reward_wallet.available_points, 12);
 
   // Card payments stay blocked until credentials are enabled, then wait for a
   // verified provider event before dispatching a driver.
@@ -431,10 +446,12 @@ test("Postgres security and complete ride lifecycle", async () => {
     request_key: crypto.randomUUID(),
     payment_method: "card",
     tip_cents: 1500,
+    reward_code: rideReward.code,
   });
   assert.equal(cardTrip.status, "payment_pending");
   assert.equal(cardTrip.driver_id, null);
-  assert.equal(cardTrip.total_cents, cardQuote.fare_cents + 1500);
+  assert.equal(cardTrip.reward_discount_cents, 2000);
+  assert.equal(cardTrip.total_cents, cardQuote.fare_cents + 1500 - 2000);
   const checkout = await rpc("payment_checkout", { payment_id: cardTrip.payment_id });
   assert.equal(checkout.amount_cents, cardTrip.total_cents);
   assert.equal(checkout.payer_email, "rider@example.test");
@@ -502,7 +519,34 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(cardDone.payment_status, "paid");
   const cardDriverData = await rpc("dashboard");
   assert.equal(cardDriverData.ledger.filter((l) => l.kind === "card_tip").length, 1);
+  assert.ok(cardDriverData.reward_wallet.available_points >= 12);
   assert.equal((await rpc("trip", { trip_id: cardTrip.id })).route_history.length, 1);
+
+  // A physical driver benefit requires Operations fulfillment and refunds its
+  // points if Operations cancels it.
+  await db.exec("reset role");
+  await db.query(
+    "update public.reward_catalog set min_trips=1,min_rating=null,min_income_cents=0 where id='driver_wash_discount'",
+  );
+  await db.query(
+    "insert into public.reward_entries(user_id,points,entry_type,description,source_key) values($1,100,'adjustment','Bono controlado de prueba','test:driver:bonus')",
+    [ids.driver2],
+  );
+  await as(ids.driver2);
+  const driverReward = await rpc("redeem_reward", { reward_id: "driver_wash_discount" });
+  assert.equal(driverReward.status, "requested");
+  const pointsAfterRequest = (await rpc("dashboard")).reward_wallet.available_points;
+  await as(ids.admin, "aal2");
+  const rewardsOps = await rpc("dashboard");
+  assert.ok(rewardsOps.reward_operations.pending.some((item) => item.id === driverReward.id));
+  assert.ok(rewardsOps.reward_operations.drivers.some((item) => item.id === ids.driver2));
+  await rpc("review_reward_redemption", {
+    redemption_id: driverReward.id,
+    status: "cancelled",
+    note: "Proveedor no disponible en la prueba.",
+  });
+  await as(ids.driver2);
+  assert.equal((await rpc("dashboard")).reward_wallet.available_points, pointsAfterRequest + 100);
 
   // Weekly application fee: private proof, Operations review and account switch.
   const weekly = cardDriverData.weekly_fees[0];

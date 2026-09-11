@@ -18,6 +18,8 @@ import {
   allowedView,
   mfaQrSource,
   serviceAsset,
+  rewardEligibleForTrip,
+  rewardDiscountCents,
   escapeHtml as e,
   money,
   errorMessage,
@@ -434,6 +436,7 @@ async function loadSession() {
   startUpdates();
   if (S.profile.role === "driver" && S.driver?.online) startDriverTracking();
   else stopDriverTracking();
+  setTimeout(maybeShowRewardPromo, 450);
 }
 async function signOut() {
   await run(async () => {
@@ -766,6 +769,9 @@ function riderHome() {
 function paymentModal() {
   const q = S.quote;
   const category = S.categories.find((c) => c.id === q.category);
+  const tripRewards = (S.data.reward_wallet?.redemptions || []).filter(
+    (reward) => reward.status === "available" && rewardEligibleForTrip(reward, q),
+  );
   const pickupBasis =
     q.preferred_driver_id
       ? "Unidad elegida por ti"
@@ -785,26 +791,41 @@ function paymentModal() {
     notify("La cotización no pasó la validación de suma. Calcula nuevamente para proteger tu cobro.");
     return;
   }
+  const rewardOptions = tripRewards.length
+    ? `<label>Aplicar recompensa<select name="reward_code"><option value="">No aplicar en este viaje</option>${tripRewards.map((reward) => `<option value="${e(reward.code)}">${e(reward.name)} · ${e(reward.code)}</option>`).join("")}</select></label>`
+    : `<p class="hint">Aún no tienes recompensas disponibles para aplicar a este viaje. Puedes conseguirlas en Puntos Viajeros.</p>`;
   openModal(
     "Tu viaje, con todo claro",
-    `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.distance_km)} km · ${q.trip_eta_minutes} min</strong><span>${zoneLabel(q.service_zone)}</span></div></div><p class="hint">El precio usa la distancia y duración estimadas por el servidor. Puede variar en una nueva cotización por tráfico, cierre de calles o disponibilidad. ${q.scheduled_at ? "Programado: " + date(q.scheduled_at) : ""}</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Distancia · ${decimal(q.distance_km)} km</span><span>${money(q.distance_charge_cents)}</span></div><div class="receipt-row"><span>Tiempo estimado · ${q.trip_eta_minutes} min</span><span>${money(q.time_charge_cents)}</span></div>${q.minimum_adjustment_cents ? `<div class="receipt-row"><span>Ajuste a tarifa mínima</span><span>${money(q.minimum_adjustment_cents)}</span></div>` : ""}${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Unidad elegida a más de 7 km · sólo excedente</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Servicio para personas con alguna discapacidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}<div class="receipt-row"><span>Propina voluntaria</span><strong id="tip-preview">$0.00</strong></div><div class="receipt-row total"><span>Total</span><strong id="total-preview">${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>Agrega una propina (opcional)</h3><div class="tip-options"><label><input type="radio" name="tip" value="0" checked>Sin propina</label><label><input type="radio" name="tip" value="10">10%</label><label><input type="radio" name="tip" value="15">15%</label><label><input type="radio" name="tip" value="custom">Otro</label></div><label id="custom-tip-label" class="hidden">Propina (MXN)<input name="custom_tip" type="number" min="1" max="1000" step="0.01"></label><h3>¿Cómo quieres pagar?</h3><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo al finalizar el viaje</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago ${S.cardEnabled ? "" : "· lista para activar"}</label><p class="hint">Los datos de tarjeta se capturan en el formulario seguro de Mercado Pago y Yavoi! no recibe ni almacena el número o CVV.</p><div id="cash-options"><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="3000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p></div><button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`,
+    `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.distance_km)} km · ${q.trip_eta_minutes} min</strong><span>${zoneLabel(q.service_zone)}</span></div></div><p class="hint">El precio usa la distancia y duración estimadas por el servidor. Puede variar en una nueva cotización por tráfico, cierre de calles o disponibilidad. ${q.scheduled_at ? "Programado: " + date(q.scheduled_at) : ""}</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Distancia · ${decimal(q.distance_km)} km</span><span>${money(q.distance_charge_cents)}</span></div><div class="receipt-row"><span>Tiempo estimado · ${q.trip_eta_minutes} min</span><span>${money(q.time_charge_cents)}</span></div>${q.minimum_adjustment_cents ? `<div class="receipt-row"><span>Ajuste a tarifa mínima</span><span>${money(q.minimum_adjustment_cents)}</span></div>` : ""}${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Unidad elegida a más de 7 km · sólo excedente</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Servicio para personas con alguna discapacidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}<div class="receipt-row reward-discount-row hidden"><span id="reward-preview-name">Recompensa</span><strong id="reward-preview-value">-$0.00</strong></div><div class="receipt-row"><span>Propina voluntaria</span><strong id="tip-preview">$0.00</strong></div><div class="receipt-row total"><span>Total</span><strong id="total-preview">${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>Tu recompensa</h3>${rewardOptions}<h3>Agrega una propina (opcional)</h3><div class="tip-options"><label><input type="radio" name="tip" value="0" checked>Sin propina</label><label><input type="radio" name="tip" value="10">10%</label><label><input type="radio" name="tip" value="15">15%</label><label><input type="radio" name="tip" value="custom">Otro</label></div><label id="custom-tip-label" class="hidden">Propina (MXN)<input name="custom_tip" type="number" min="1" max="1000" step="0.01"></label><h3>¿Cómo quieres pagar?</h3><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo al finalizar el viaje</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input id="card-payment-choice" type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago ${S.cardEnabled ? "" : "· lista para activar"}</label><p class="hint">Los datos de tarjeta se capturan en el formulario seguro de Mercado Pago y Yavoi! no recibe ni almacena el número o CVV.</p><div id="cash-options"><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="3000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p></div><button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`,
   );
   const tipCents = () => {
     const choice = $('[name=tip]:checked').value;
     return choice === "custom" ? cents($('[name=custom_tip]').value || 0) : Math.round(q.fare_cents * Number(choice) / 100);
   };
+  const selectedReward = () => tripRewards.find((reward) => reward.code === $('[name=reward_code]')?.value);
+  const payableTotal = () => q.fare_cents - rewardDiscountCents(selectedReward(), q) + tipCents();
   const updateTotal = () => {
     let tip = 0;
     try { tip = tipCents(); } catch {}
+    const reward = selectedReward();
+    const discount = rewardDiscountCents(reward, q);
+    const total = q.fare_cents - discount + tip;
     $("#custom-tip-label").classList.toggle("hidden", $('[name=tip]:checked').value !== "custom");
     $("#tip-preview").textContent = money(tip);
-    $("#total-preview").textContent = money(q.fare_cents + tip);
-    $('[name=cash_tender]').min = (q.fare_cents + tip) / 100;
-    if (!$("#need-change").checked) $('[name=cash_tender]').value = (q.fare_cents + tip) / 100;
+    $(".reward-discount-row").classList.toggle("hidden", !reward);
+    $("#reward-preview-name").textContent = reward?.kind === "ride_amenity" ? `Amenidad · ${reward.name}` : `Recompensa · ${reward?.name || ""}`;
+    $("#reward-preview-value").textContent = discount ? `-${money(discount)}` : "Incluida";
+    $("#total-preview").textContent = money(total);
+    $("#card-payment-choice").disabled = !S.cardEnabled || total === 0;
+    if (total === 0 && $("#card-payment-choice").checked) $('[name=payment_method][value=cash]').checked = true;
+    $('[name=cash_tender]').min = total / 100;
+    if (!$("#need-change").checked) $('[name=cash_tender]').value = total / 100;
+    $("#cash-options").classList.toggle("hidden", $('[name=payment_method]:checked').value === "card");
     updateChange();
   };
   $$('[name=tip]').forEach((input) => input.onchange = updateTotal);
   $('[name=custom_tip]').oninput = updateTotal;
+  $('[name=reward_code]')?.addEventListener("change", updateTotal);
   $$('[name=payment_method]').forEach((input) => input.onchange = () => $("#cash-options").classList.toggle("hidden", input.value === "card" && input.checked));
   $("#need-change").onchange = (ev) => {
     $("#tender-label").classList.toggle("hidden", !ev.target.checked);
@@ -814,7 +835,7 @@ function paymentModal() {
   function updateChange() {
     try {
       $("#change-preview").textContent =
-        "Cambio estimado: " + money(changeDue(q.fare_cents + tipCents(), cents($("[name=cash_tender]").value)));
+        "Cambio estimado: " + money(changeDue(payableTotal(), cents($("[name=cash_tender]").value)));
     } catch {}
   }
   $("[name=cash_tender]").oninput = updateChange;
@@ -822,7 +843,7 @@ function paymentModal() {
   bindForm("#payment", async (v) => {
     const tip = tipCents();
     const method = v.payment_method;
-    const total = q.fare_cents + tip;
+    const total = payableTotal();
     const t = await rpc("request_trip", {
       quote_id: q.id,
       request_key: requestKey,
@@ -830,11 +851,12 @@ function paymentModal() {
       cash_tender_cents: method === "cash" ? ($("#need-change").checked ? cents(v.cash_tender) : total) : null,
       tip_cents: tip,
       preferred_driver_id: q.preferred_driver_id,
+      reward_code: v.reward_code || null,
     });
     closeModal();
     S.quote = null;
     S.data.ride_draft = null;
-    if (method === "card") return cardCheckout(t.payment_id, t.id, total);
+    if (t.payment_method === "card" && t.total_cents > 0) return cardCheckout(t.payment_id, t.id, t.total_cents);
     S.data = await rpc("dashboard");
     location.hash = "trip/" + t.id;
   });
@@ -879,7 +901,7 @@ async function cardCheckout(paymentId, tripId, amountCents) {
 function stats() {
   const ts = S.data.trips,
     completed = ts.filter((t) => t.status === "completed");
-  const gross = completed.reduce((n, t) => n + (t.total_cents || t.fare_cents), 0);
+  const gross = completed.reduce((n, t) => n + (t.total_cents ?? t.fare_cents), 0);
   const items =
     S.profile.role === "admin"
       ? [
@@ -978,7 +1000,7 @@ function tripRows(ts) {
   return ts
     .map(
       (t) =>
-        `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e({ paid: "Confirmado", pending: "Pendiente", failed: "No aprobado", refund_pending: "Reembolso pendiente", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</small></td><td>${money(t.total_cents || t.fare_cents)}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
+        `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e({ paid: "Confirmado", pending: "Pendiente", failed: "No aprobado", refund_pending: "Reembolso pendiente", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</small></td><td>${money(t.total_cents ?? t.fare_cents)}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
     )
     .join("");
 }
@@ -1038,12 +1060,15 @@ async function tripView(id) {
                 : t.status === "completed" ? "Gracias por viajar con Yavoi! Tu opinión nos ayuda a mejorar."
                   : "La solicitud fue cancelada.";
   const serviceDetails = `<div class="service-summary"><div>${I("users-round")}<span><small>Personas</small><strong>${t.party_size || 1}</strong></span></div><div>${I(t.accessible ? "accessibility" : "car-front")}<span><small>Servicio</small><strong>Yavoi! ${e(S.categories.find((category) => category.id === t.category)?.name || t.category)}</strong></span></div>${t.service_notes ? `<div class="wide-detail">${I("message-square-text")}<span><small>Petición del pasajero</small><strong>${e(t.service_notes)}</strong></span></div>` : ""}</div>`;
+  const rewardPaymentRow = t.reward_discount_cents
+    ? `<div class="receipt-row positive-points"><span>Recompensa Puntos Viajeros</span><strong>-${money(t.reward_discount_cents)}</strong></div>`
+    : "";
   let paymentRows = serviceDetails + (t.payment_method === "card"
-    ? `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · tarjeta</span><strong>${money(t.total_cents || t.fare_cents)}</strong></div><p class="hint">Estado del pago: ${e({ paid: "Confirmado", pending: "En proceso", failed: "No aprobado", refund_pending: "Reembolso en proceso", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</p>`
-    : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span><strong>${money(t.total_cents || t.fare_cents)}</strong></div><div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(t.total_cents || t.fare_cents, t.cash_tender_cents))}</strong></div>`);
+    ? `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · tarjeta</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div><p class="hint">Estado del pago: ${e({ paid: "Confirmado", pending: "En proceso", failed: "No aprobado", refund_pending: "Reembolso en proceso", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</p>`
+    : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div>${Number(t.total_cents || 0) > 0 ? `<div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(t.total_cents ?? t.fare_cents, t.cash_tender_cents))}</strong></div>` : '<p class="hint">Viaje cubierto por tu recompensa. No entregues efectivo por la tarifa.</p>'}`);
   if (S.profile.role === "admin" && S.trip.operations) {
     const operations = S.trip.operations;
-    const expected = Number(t.total_cents || t.fare_cents || 0);
+    const expected = Number(t.total_cents ?? t.fare_cents ?? 0);
     const collected = Number(operations.paid_cents || 0);
     const difference = collected - expected;
     const ledger = operations.ledger || [];
@@ -1121,7 +1146,7 @@ function wallet() {
   const completed = S.data.trips.filter((t) => t.status === "completed");
   const total = driver
     ? S.data.ledger.reduce((n, l) => n + l.amount_cents, 0)
-    : completed.reduce((n, t) => n + (t.total_cents || t.fare_cents), 0);
+    : completed.reduce((n, t) => n + (t.total_cents ?? t.fare_cents), 0);
   shell(
     `<div class="balance"><small>${driver ? "INGRESO NETO REGISTRADO" : "TOTAL DE VIAJES COMPLETADOS"}</small><h2>${money(total)}</h2><p>${driver ? "Tarifas cobradas, menos comisión, más propinas recibidas." : "Pagos en efectivo registrados por el conductor al terminar."}</p></div><div class="grid2"><section class="panel"><h2>${driver ? "Tus movimientos" : "Métodos de pago"}</h2>${driver ? (S.data.ledger.length ? S.data.ledger.map((l) => `<div class="receipt-row"><div>${e({ fare: "Tarifa cobrada", commission: "Comisión por pagar", cash_tip: "Propina en efectivo" }[l.kind])}<small style="display:block">${date(l.created_at)}</small></div><strong>${money(l.amount_cents)}</strong></div>`).join("") : "<p>Aún no hay movimientos.</p>") : `<div class="row">${I("banknote")}<strong>Efectivo</strong><span class="badge">Disponible</span></div><p class="hint">Indica si necesitas cambio antes de solicitar. El conductor verá el monto con el que pagarás.</p><div class="row muted">${I("credit-card")}<strong>Tarjeta</strong><span class="badge neutral">Próximamente</span></div><p class="hint">No se guardan datos de tarjeta. Esta opción se activará al conectar un proveedor de pagos.</p>`}</section><section class="panel"><h2>${driver ? "Comisiones y liquidaciones" : "Cada peso, con claridad"}</h2><p>${driver ? "Al cobrar en efectivo recibes la tarifa completa. La comisión registrada representa una cuenta pendiente con Yavoi!, no una transferencia ya realizada." : "La tarifa se muestra antes de confirmar. La propina es voluntaria y puedes entregarla directamente en efectivo."}</p><p class="hint">No hay retiros bancarios, cobros automáticos ni devoluciones electrónicas habilitados. Operaciones deberá conciliar el efectivo.</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></section></div>`,
     driver ? "Tus ingresos, siempre claros." : "Tu cartera Yavoi!",
@@ -1185,12 +1210,87 @@ function paymentsView() {
     notify("Reembolso confirmado por Mercado Pago.");
   }));
 }
+const rewardStatusName = {
+  available: "Lista para usar",
+  requested: "Solicitada",
+  applied: "Aplicada",
+  fulfilled: "Entregada",
+  cancelled: "Cancelada",
+  expired: "Vencida",
+};
+function rewardEligibility(reward, metrics) {
+  if (!reward.active) return [false, reward.partner_name === "Proveedor por definir" ? "Convenio por confirmar" : "Temporalmente no disponible"];
+  if (reward.automatic) return [false, `Se genera cada ${reward.milestone_every} viajes`];
+  if (metrics.available_points < reward.points_cost) return [false, `Te faltan ${reward.points_cost - metrics.available_points} puntos`];
+  if (metrics.trip_count < reward.min_trips) return [false, `Requiere ${reward.min_trips} viajes`];
+  if (reward.min_rating && Number(metrics.rating || 0) < Number(reward.min_rating)) return [false, `Requiere rating ${reward.min_rating}`];
+  if (Number(metrics.income_cents || 0) < Number(reward.min_income_cents || 0)) return [false, `Requiere ${money(reward.min_income_cents)} generados`];
+  if (reward.max_recent_incidents != null && metrics.recent_incidents > reward.max_recent_incidents) return [false, "Requiere historial reciente sin incidentes"];
+  return [true, "Disponible para canjear"];
+}
+function rewardCard(reward, metrics) {
+  const [eligible, reason] = rewardEligibility(reward, metrics);
+  return `<article class="reward-card ${eligible ? "eligible" : ""}"><div class="reward-icon">${I(reward.icon || "gift")}</div><div class="reward-card-copy"><div class="row between wrap"><h3>${e(reward.name)}</h3><strong>${reward.automatic ? "Meta automática" : `${reward.points_cost} pts`}</strong></div><p>${e(reward.description)}</p><small>${e(reason)}${reward.partner_name ? ` · ${e(reward.partner_name)}` : ""}</small></div>${!reward.automatic ? `<button class="btn ${eligible ? "" : "secondary"}" data-redeem="${e(reward.id)}" ${eligible ? "" : "disabled"}>${eligible ? "Canjear" : "Aún no disponible"}</button>` : ""}</article>`;
+}
 function rewards() {
+  const wallet = S.data.reward_wallet || {};
+  const driver = S.profile.role === "driver";
+  const available = Number(wallet.available_points || 0);
+  const lifetime = Number(wallet.lifetime_points || 0);
+  const next = wallet.next_level_points ? Math.max(0, Number(wallet.next_level_points) - lifetime) : 0;
+  const levelProgress = wallet.next_level_points
+    ? Math.min(100, Math.round((lifetime / Number(wallet.next_level_points)) * 100))
+    : 100;
+  const catalog = (wallet.catalog || []).filter((reward) => !reward.automatic);
+  const redemptions = wallet.redemptions || [];
+  const activeBenefits = redemptions.filter((item) => ["available", "requested", "applied"].includes(item.status));
+  const entries = wallet.entries || [];
+  const freeRides = redemptions.filter((item) => item.kind === "free_local_trip" && item.status === "available");
   shell(
-    `<div class="rewards">${I("gift")}<div><div class="eyebrow">YAVOI! TE RECOMPENSA</div><h2>Cada buen viaje cuenta.</h2><p>Los viajes completados suman 10 puntos.</p></div><div class="points">${S.data.points}<small>PUNTOS ACUMULADOS</small></div></div><div class="grid2"><section class="panel"><h2>Un registro transparente</h2><p>Los puntos se asignan una sola vez por viaje, incluso si se repite la confirmación.</p><div class="hint">El catálogo de canjes aún no está activo. Tus puntos registrados permanecerán en tu cuenta.</div></section><section class="panel"><h2>${S.profile.role === "driver" ? "Un servicio que se nota" : "Gracias por viajar con nosotros"}</h2><p>${S.profile.role === "driver" ? "Tus evaluaciones reflejan la experiencia de los pasajeros. La calificación no se modifica desde tu perfil." : "Después de cada viaje puedes evaluar el trato, la comodidad y la seguridad."}</p><a class="btn secondary" href="#trips">Ver mis viajes ${I("arrow-right")}</a></section></div>`,
-    "Tus viajes suman.",
-    "Consulta tus puntos y la experiencia que estás construyendo.",
+    `<div class="rewards reward-hero">${I(driver ? "star" : "gift")}<div><div class="eyebrow">${driver ? "RATING YAVOI!" : "PUNTOS VIAJEROS"}</div><h2>${driver ? `${e(wallet.level || "Activo")} · ${wallet.rating ? `${decimal(wallet.rating)}/5` : "sin rating aún"}` : `${e(wallet.level || "Explorador")} · cada viaje te acerca`}</h2><p>${driver ? "Suma por viajes, ingresos y calificaciones. Un historial limpio habilita mejores beneficios." : "Acumula puntos, canjea amenidades y descuentos, y recibe un viaje local Básico gratis cada 15 viajes."}</p></div><div class="points">${available}<small>PUNTOS DISPONIBLES</small></div></div><section class="panel reward-progress"><div class="row between wrap"><div><small>NIVEL ACTUAL</small><h2>${e(wallet.level || (driver ? "Activo" : "Explorador"))}</h2></div><div class="reward-metrics"><span><strong>${wallet.trip_count || 0}</strong> viajes</span>${driver ? `<span><strong>${wallet.rating ? decimal(wallet.rating) : "—"}</strong> rating</span><span><strong>${money(wallet.income_cents || 0)}</strong> generados</span><span><strong>${wallet.recent_incidents || 0}</strong> incidentes recientes</span>` : `<span><strong>${freeRides.length}</strong> viajes gratis guardados</span><span><strong>${wallet.trips_to_free_ride || 15}</strong> para el siguiente gratis</span>`}</div></div><progress max="100" value="${levelProgress}">${levelProgress}%</progress><p>${wallet.next_level ? `Faltan ${next} puntos para llegar a ${e(wallet.next_level)}.` : "Alcanzaste el nivel más alto del programa actual."}</p></section>${activeBenefits.length ? `<section class="panel section-gap"><h2>Tus recompensas activas</h2><div class="reward-redemptions">${activeBenefits.map((item) => `<article><div><strong>${e(item.name)}</strong><small>${e(item.code)} · ${e(rewardStatusName[item.status] || item.status)}${item.expires_at ? ` · vence ${date(item.expires_at)}` : ""}</small></div><span class="badge ${item.status === "requested" ? "pending" : ""}">${e(rewardStatusName[item.status] || item.status)}</span></article>`).join("")}</div></section>` : ""}<section class="section-gap"><div class="row between wrap reward-heading"><div><h2>${driver ? "Beneficios para tu unidad y tu trabajo" : "Elige tu próxima recompensa"}</h2><p>${driver ? "Los requisitos se revisan al canjear: actividad, ingresos, rating e incidentes recientes." : "Tus puntos no vencen. Los cupones de viaje quedan guardados hasta que decidas usarlos."}</p></div><span class="badge neutral">${catalog.filter((reward) => reward.active).length} beneficios activos</span></div><div class="reward-catalog">${catalog.map((reward) => rewardCard(reward, wallet)).join("")}</div></section><section class="panel section-gap"><h2>Cómo sumas</h2><div class="grid3 reward-rules">${driver ? `<div>${I("route")}<strong>12 puntos base</strong><p>Por cada viaje completado, más un bono gradual según el ingreso del servicio.</p></div><div>${I("star")}<strong>Hasta 8 puntos extra</strong><p>Las calificaciones de cuatro y cinco estrellas reconocen la calidad del servicio.</p></div><div>${I("shield-check")}<strong>Historial confiable</strong><p>Los mejores beneficios requieren rating alto y no presentar incidentes recientes.</p></div>` : `<div>${I("route")}<strong>10 puntos</strong><p>Por cada viaje completado.</p></div><div>${I("star")}<strong>2 puntos</strong><p>Al evaluar el viaje y ayudar a cuidar la comunidad.</p></div><div>${I("car-front")}<strong>Viaje gratis</strong><p>Cada 15 viajes se agrega automáticamente un viaje local Básico que puedes acumular.</p></div>`}</div></section><details class="panel section-gap reward-history"><summary>Ver movimientos de puntos</summary>${entries.length ? entries.map((entry) => `<div class="receipt-row"><div><strong>${e(entry.description || entry.entry_type)}</strong><small>${date(entry.created_at)}</small></div><strong class="${entry.points < 0 ? "negative-points" : "positive-points"}">${entry.points > 0 ? "+" : ""}${entry.points}</strong></div>`).join("") : '<p class="muted">Tus movimientos aparecerán después del primer viaje o canje.</p>'}</details>`,
+    driver ? "Tu buen servicio se recompensa." : "Viaja, suma y disfruta.",
+    driver ? "Beneficios graduales para cuidar tu unidad y reconocer tu desempeño." : "Puntos Viajeros y recompensas que puedes guardar para cuando las necesites.",
   );
+  $$('[data-redeem]').forEach((item) => item.onclick = () => {
+    const reward = catalog.find((entry) => entry.id === item.dataset.redeem);
+    openModal(
+      "Confirmar canje",
+      `<div class="reward-confirm">${I(reward.icon || "gift")}<h3>${e(reward.name)}</h3><p>${e(reward.description)}</p><div class="receipt-row total"><span>Costo</span><strong>${reward.points_cost} puntos</strong></div><p class="hint">${["fare_discount_fixed", "fare_discount_percent", "ride_amenity"].includes(reward.kind) ? "La recompensa quedará guardada para elegirla al confirmar un próximo viaje." : "Operaciones revisará el canje y te avisará cuando el beneficio esté listo."}</p><button class="btn wide" id="confirm-reward">Canjear recompensa ${I("arrow-right")}</button></div>`,
+    );
+    $("#confirm-reward").onclick = () => run(async () => {
+      await rpc("redeem_reward", { reward_id: reward.id });
+      closeModal();
+      S.data = await rpc("dashboard");
+      rewards();
+      notify("Recompensa canjeada y registrada.");
+    });
+  });
+}
+function maybeShowRewardPromo() {
+  if (!S.profile || S.profile.role === "admin" || modal.open || !S.data.reward_wallet) return;
+  const wallet = S.data.reward_wallet;
+  const today = new Date().toISOString().slice(0, 10);
+  const key = `yavoi-reward-promo:${S.user.id}:${today}`;
+  try {
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "shown");
+  } catch {}
+  const catalog = (wallet.catalog || []).filter((reward) => reward.active && !reward.automatic);
+  const nextReward = catalog
+    .filter((reward) => reward.points_cost > Number(wallet.available_points || 0))
+    .sort((a, b) => a.points_cost - b.points_cost)[0] || catalog[0];
+  const driver = S.profile.role === "driver";
+  const freeRides = (wallet.redemptions || []).filter(
+    (reward) => reward.kind === "free_local_trip" && reward.status === "available",
+  ).length;
+  openModal(
+    driver ? "Tu desempeño también suma" : "Tus Puntos Viajeros te esperan",
+    `<div class="reward-welcome">${I(driver ? "star" : "gift")}<div><span class="badge">Nivel ${e(wallet.level)}</span><h3>${wallet.available_points} puntos disponibles</h3><p>${driver ? `${wallet.trip_count} viajes · ${wallet.rating ? `${decimal(wallet.rating)}/5 de rating` : "completa tus primeros viajes para formar tu rating"}.` : `${wallet.trip_count} viajes completados · ${freeRides} viajes locales gratis guardados.`}</p></div></div>${nextReward ? `<div class="next-reward"><small>PRÓXIMA META</small><strong>${e(nextReward.name)}</strong><p>${Number(wallet.available_points || 0) >= nextReward.points_cost ? "Ya tienes puntos para solicitarla." : `Te faltan ${nextReward.points_cost - Number(wallet.available_points || 0)} puntos para alcanzarla.`}</p></div>` : ""}<button class="btn wide" id="open-rewards">Ver mis recompensas ${I("arrow-right")}</button>`,
+  );
+  $("#open-rewards").onclick = () => {
+    closeModal();
+    location.hash = "rewards";
+  };
 }
 async function upload(file, bucket) {
   if (!file || !file.size) return null;
@@ -1455,10 +1555,15 @@ function adminHome() {
   );
 }
 function fleet() {
+  const rewardOperations = S.data.reward_operations || { drivers: [], pending: [] };
+  const driverRewards = new Map(
+    (rewardOperations.drivers || []).map((item) => [item.id, item.rewards || {}]),
+  );
   const cards = S.data.drivers.map((d) => {
     const progress = driverDossierStatus(d, d);
+    const reward = driverRewards.get(d.id) || {};
     const doc = (path, label) => path ? `<button class="btn secondary" data-document="${e(path)}">${I("file-check")} ${label}</button>` : "";
-    return `<article class="offer dossier-card"><div class="row between"><div><h3>${e(d.full_name)}</h3><p>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</p></div><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span></div><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} requisitos${progress.missing.length ? ` · Faltan: ${e(progress.missing.slice(0, 3).join(", "))}${progress.missing.length > 3 ? "…" : ""}` : " · Expediente completo"}</small></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.license_path, "Licencia")}${doc(d.insurance_path, "Seguro")}${doc(d.criminal_record_path, "No antecedentes")}${doc(d.policy_commitment_path, "Políticas Yavoi!")}${doc(d.traffic_law_commitment_path, "Obligaciones viales")}<button class="btn" data-review="${e(d.id)}">Revisar autorización ${I("arrow-right")}</button></div>${d.advertising_interest ? "<small>Interesado en convenios de publicidad</small>" : ""}</article>`;
+    return `<article class="offer dossier-card"><div class="row between"><div><h3>${e(d.full_name)}</h3><p>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</p></div><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span></div><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} requisitos${progress.missing.length ? ` · Faltan: ${e(progress.missing.slice(0, 3).join(", "))}${progress.missing.length > 3 ? "…" : ""}` : " · Expediente completo"}</small></div><div class="driver-reward-summary"><span><small>NIVEL RATING</small><strong>${e(reward.level || "Activo")}</strong></span><span><small>PUNTOS</small><strong>${Number(reward.available_points || 0)}</strong></span><span><small>VIAJES</small><strong>${Number(reward.trip_count || 0)}</strong></span><span><small>CALIFICACIÓN</small><strong>${reward.rating ? `${decimal(reward.rating)}/5` : "—"}</strong></span><span><small>INGRESOS</small><strong>${money(reward.income_cents || 0)}</strong></span><span><small>INCIDENTES 90 DÍAS</small><strong>${Number(reward.recent_incidents || 0)}</strong></span></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.license_path, "Licencia")}${doc(d.insurance_path, "Seguro")}${doc(d.criminal_record_path, "No antecedentes")}${doc(d.policy_commitment_path, "Políticas Yavoi!")}${doc(d.traffic_law_commitment_path, "Obligaciones viales")}<button class="btn" data-review="${e(d.id)}">Revisar autorización ${I("arrow-right")}</button></div>${d.advertising_interest ? "<small>Interesado en convenios de publicidad</small>" : ""}</article>`;
   }).join("");
   const managedProfiles = (S.data.managed_profiles || []).map((managed) => {
     const editState = profileEditState(managed);
@@ -1472,8 +1577,11 @@ function fleet() {
       : "";
     return `<article class="managed-profile"><div><strong>${e(managed.full_name || "Perfil sin nombre")}</strong><small>${e(roles[managed.role])} · ${e(managed.phone || "Sin teléfono")} · ${e(managed.id.slice(0, 8))}</small></div>${status}${accessButton}</article>`;
   }).join("");
+  const pendingRewards = (rewardOperations.pending || []).map((redemption) =>
+    `<article class="reward-operation-card"><div class="reward-icon">${I(redemption.icon || "gift")}</div><div><strong>${e(redemption.name)}</strong><small>${e(redemption.driver_name)} · ${e(redemption.code)} · ${redemption.points_spent} puntos</small><p>${e(redemption.description || "Beneficio solicitado por el conductor.")}</p></div><span class="badge pending">Por entregar</span><div class="row wrap"><button class="btn" data-reward-review="${e(redemption.id)}" data-result="fulfilled">Marcar entregada</button><button class="btn secondary" data-reward-review="${e(redemption.id)}" data-result="cancelled">Cancelar y devolver puntos</button></div></article>`,
+  ).join("");
   shell(
-    `<section class="panel"><div class="row between"><div><h2>Expedientes de conductores</h2><p>La aprobación sólo se habilita con los 16 requisitos completos y documentos vigentes.</p></div><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Ley oficial ${I("external-link")}</a></div>${S.data.drivers.length ? cards : '<div class="empty"><p>Los conductores aparecerán al crear su cuenta y completar el perfil.</p></div>'}</section><section class="panel section-gap"><h2>Control de edición de perfiles</h2><p>Los perfiles completos permanecen protegidos. Una autorización abre una ventana de 24 horas y queda registrada en auditoría.</p><div class="managed-profiles">${managedProfiles || '<div class="empty"><p>No hay perfiles para administrar.</p></div>'}</div></section>`,
+    `<section class="panel"><div class="row between"><div><h2>Expedientes de conductores</h2><p>La aprobación sólo se habilita con los 16 requisitos completos y documentos vigentes.</p></div><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Ley oficial ${I("external-link")}</a></div>${S.data.drivers.length ? cards : '<div class="empty"><p>Los conductores aparecerán al crear su cuenta y completar el perfil.</p></div>'}</section><section class="panel section-gap"><div class="row between wrap"><div><h2>Canjes para conductores</h2><p>Entrega beneficios físicos y registra el resultado. Una cancelación devuelve los puntos automáticamente.</p></div><span class="badge ${pendingRewards ? "pending" : "neutral"}">${(rewardOperations.pending || []).length} pendientes</span></div><div class="reward-operations">${pendingRewards || "<div class=\"empty\"><p>No hay recompensas pendientes de entrega.</p></div>"}</div></section><section class="panel section-gap"><h2>Control de edición de perfiles</h2><p>Los perfiles completos permanecen protegidos. Una autorización abre una ventana de 24 horas y queda registrada en auditoría.</p><div class="managed-profiles">${managedProfiles || '<div class="empty"><p>No hay perfiles para administrar.</p></div>'}</div></section>`,
     "Conductores y flotilla",
     "Revisa identidad, documentación y capacidades antes de autorizar una unidad.",
   );
@@ -1543,6 +1651,25 @@ function fleet() {
         closeModal();
         await refreshPage();
         notify(allowed ? "Edición autorizada por 24 horas." : "Autorización revocada.");
+      });
+    };
+  });
+  $$("[data-reward-review]").forEach((item) => {
+    item.onclick = () => {
+      const fulfilled = item.dataset.result === "fulfilled";
+      openModal(
+        fulfilled ? "Confirmar entrega" : "Cancelar recompensa",
+        `<form id="reward-review"><p>${fulfilled ? "Confirma que el conductor recibió el beneficio." : "Los puntos se devolverán al conductor y el canje quedará cancelado."}</p><label>Nota de Operaciones<textarea name="note" required minlength="5" maxlength="500" placeholder="Folio, proveedor o motivo de la decisión."></textarea></label><button class="btn wide" type="submit">${fulfilled ? "Registrar entrega" : "Cancelar y devolver puntos"}</button></form>`,
+      );
+      bindForm("#reward-review", async (values) => {
+        await rpc("review_reward_redemption", {
+          redemption_id: item.dataset.rewardReview,
+          status: item.dataset.result,
+          note: values.note,
+        });
+        closeModal();
+        await refreshPage();
+        notify(fulfilled ? "Entrega registrada." : "Canje cancelado y puntos devueltos.");
       });
     };
   });
@@ -1788,9 +1915,13 @@ async function handleAction(action, b) {
       await tripView(t.id);
     });
   if (action === "finish") {
+    const freeRewardTrip = Number(t.total_cents || 0) === 0;
+    const cashConfirmation = freeRewardTrip
+      ? '<label class="check"><input type="checkbox" required>Confirmo que el viaje cubierto por la recompensa llegó al destino.</label>'
+      : '<label class="check"><input name="cash_received" type="checkbox" required>Recibí el pago y entregué el cambio correspondiente.</label>';
     openModal(
-      t.payment_method === "card" ? "Llegada confirmada" : "Llegada y pago en efectivo",
-      `<p>Confirma con el pasajero que llegaron al destino antes de cerrar el viaje.</p><div class="receipt-row"><span>Total</span><strong>${money(t.total_cents || t.fare_cents)}</strong></div>${t.payment_method === "cash" ? `<div class="receipt-row"><span>Paga con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row total"><span>Entrega de cambio</span><strong>${money(changeDue(t.total_cents || t.fare_cents, t.cash_tender_cents))}</strong></div>` : `<div class="hint">Pago con tarjeta confirmado por Mercado Pago.</div>`}<form id="finish">${t.payment_method === "cash" ? '<label class="check"><input name="cash_received" type="checkbox" required>Recibí el pago y entregué el cambio correspondiente.</label>' : '<label class="check"><input type="checkbox" required>Confirmo que el pasajero llegó al destino.</label>'}<button class="btn wide" type="submit">Completar viaje ${I("check")}</button></form>`,
+      freeRewardTrip ? "Llegada con recompensa" : t.payment_method === "card" ? "Llegada confirmada" : "Llegada y pago en efectivo",
+      `<p>Confirma con el pasajero que llegaron al destino antes de cerrar el viaje.</p><div class="receipt-row"><span>Total</span><strong>${money(t.total_cents || 0)}</strong></div>${t.reward_discount_cents ? `<div class="receipt-row positive-points"><span>Recompensa aplicada</span><strong>-${money(t.reward_discount_cents)}</strong></div>` : ""}${t.payment_method === "cash" && !freeRewardTrip ? `<div class="receipt-row"><span>Paga con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row total"><span>Entrega de cambio</span><strong>${money(changeDue(t.total_cents ?? t.fare_cents, t.cash_tender_cents))}</strong></div>` : t.payment_method === "card" ? `<div class="hint">Pago con tarjeta confirmado por Mercado Pago.</div>` : '<div class="hint">La tarifa está cubierta por Puntos Viajeros.</div>'}<form id="finish">${t.payment_method === "cash" ? cashConfirmation : '<label class="check"><input type="checkbox" required>Confirmo que el pasajero llegó al destino.</label>'}<button class="btn wide" type="submit">Completar viaje ${I("check")}</button></form>`,
     );
     bindForm("#finish", async () => {
       await rpc("transition", { trip_id: t.id, status: "completed", cash_received: t.payment_method === "cash" });
@@ -1858,7 +1989,7 @@ async function handleAction(action, b) {
   if (action === "receipt") {
     openModal(
       "Comprobante del viaje",
-      `<p>Yavoi! · ${e(t.id.slice(0, 8).toUpperCase())}</p><div class="route-line">${e(t.origin)} → ${e(t.destination)}</div><div class="receipt-row"><span>Finalizó</span><span>${date(t.completed_at)}</span></div><div class="receipt-row"><span>Método</span><strong>${t.payment_method === "card" ? "Tarjeta · Mercado Pago" : "Efectivo recibido"}</strong></div><div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total</span><strong>${money(t.total_cents || t.fare_cents)}</strong></div><p class="hint">Este comprobante de servicio no es una factura fiscal.</p>`,
+      `<p>Yavoi! · ${e(t.id.slice(0, 8).toUpperCase())}</p><div class="route-line">${e(t.origin)} → ${e(t.destination)}</div><div class="receipt-row"><span>Finalizó</span><span>${date(t.completed_at)}</span></div><div class="receipt-row"><span>Método</span><strong>${Number(t.total_cents) === 0 ? "Puntos Viajeros" : t.payment_method === "card" ? "Tarjeta · Mercado Pago" : "Efectivo recibido"}</strong></div><div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.reward_discount_cents ? `<div class="receipt-row positive-points"><span>Recompensa aplicada</span><strong>-${money(t.reward_discount_cents)}</strong></div>` : ""}${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div><p class="hint">Este comprobante de servicio no es una factura fiscal.</p>`,
     );
     return;
   }

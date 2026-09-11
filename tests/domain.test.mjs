@@ -11,6 +11,8 @@ import {
   driverDossierStatus,
   passengerProfileStatus,
   profileEditState,
+  rewardEligibleForTrip,
+  rewardDiscountCents,
   navs,
 } from "../src/domain.js";
 test("cash amounts round to cents and invalid amounts are rejected", () => {
@@ -137,4 +139,37 @@ test("passenger profile progress requires safety policy and emergency data", () 
   });
   assert.equal(complete.percent, 100);
   assert.deepEqual(complete.missing, []);
+});
+test("travel rewards are eligible and calculated transparently", () => {
+  const quote = { category: "basic", service_zone: "local", fare_cents: 6500 };
+  assert.equal(
+    rewardDiscountCents({ kind: "fare_discount_fixed", value_cents: 2000 }, quote),
+    2000,
+  );
+  assert.equal(
+    rewardDiscountCents(
+      { kind: "fare_discount_percent", value_percent: 15, max_discount_cents: 4000 },
+      quote,
+    ),
+    975,
+  );
+  assert.equal(rewardDiscountCents({ kind: "free_local_trip" }, quote), 6500);
+  assert.equal(
+    rewardEligibleForTrip({ kind: "free_local_trip" }, { ...quote, service_zone: "regional" }),
+    false,
+  );
+  assert.equal(
+    rewardDiscountCents(
+      { kind: "fare_discount_fixed", value_cents: 9000, eligible_category: "basic" },
+      quote,
+    ),
+    6500,
+  );
+  assert.equal(
+    rewardEligibleForTrip(
+      { kind: "fare_discount_fixed", eligible_category: "plus" },
+      quote,
+    ),
+    false,
+  );
 });
