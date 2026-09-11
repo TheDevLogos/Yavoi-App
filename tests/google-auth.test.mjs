@@ -37,4 +37,11 @@ test("portal exchanges the Google credential directly with Supabase", async () =
   assert.match(portal, /signInWithIdToken/);
   assert.match(portal, /provider:\s*"google"/);
   assert.match(portal, /nonce:\s*raw/);
+  assert.match(
+    portal,
+    /903354099441-4la2ivgqknn9q8kj1ghku6caebc1a4ar\.apps\.googleusercontent\.com/,
+  );
+  assert.doesNotMatch(portal, /Continuar con (Microsoft|Apple)/);
+  assert.match(portal, /Servicio para personas con alguna discapacidad/);
+  assert.doesNotMatch(portal, />Reservación</);
 });

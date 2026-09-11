@@ -4,7 +4,7 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 
 ## Experiencia disponible
 
-- Acceso único con correo verificado, recuperación de contraseña, sesión persistente y botones OAuth preparados para Google, Microsoft y Apple.
+- Acceso único con correo verificado, recuperación de contraseña, sesión persistente y botón oficial de Google preparado con Google Identity Services.
 - Alta de pasajero o conductor; el rol de Operaciones no puede elegirse durante el registro.
 - Paneles y rutas separados por rol, con validación adicional en PostgreSQL.
 - Perfil de pasajero, expediente privado de conductor con avance de 16 requisitos y revisión reforzada por Operaciones.
@@ -35,7 +35,7 @@ La presencia de un conductor vence a los 90 segundos sin señal. Esto impide nue
 
 ## Estimador de tarifa
 
-La tarifa se calcula en PostgreSQL y se conserva en la cotización durante cinco minutos. Usa tarifa base, kilómetros estimados de recorrido, minutos estimados, cuota de reservación, tarifa mínima, zona y accesibilidad. La distancia de recogida utiliza la posición reciente de una unidad compatible; cuando no existe, muestra una referencia operativa de zona.
+La tarifa se calcula en PostgreSQL y se conserva en la cotización durante cinco minutos. Usa inicio del servicio, kilómetros estimados, minutos estimados, tarifa mínima, zona y accesibilidad. No cobra reservación. La recogida lejana sólo se agrega cuando el pasajero elige una unidad ubicada a más de 7 km, y se cobra únicamente el excedente. La asignación automática sigue priorizando la unidad compatible más cercana.
 
 La búsqueda de calles y lugares usa un servicio protegido del backend con caché. El mapa traza la ruta vial y el servidor conserva su propio cálculo de tarifa para impedir que un cliente altere el precio.
 
@@ -58,6 +58,6 @@ Las migraciones versionadas están en `supabase/migrations`. La integración con
 4. Registrar y verificar `admin.yavoi@gmail.com`, y después activar MFA.
 5. Aprobar conductores únicamente después de completar los 16 requisitos, incluidos los cinco documentos privados y sus vigencias.
 6. Completar la guía [Activar Mercado Pago](docs/mercado-pago.md). La tarjeta permanece bloqueada hasta terminar esos pasos.
-7. Completar la guía [Activar Google, Microsoft y Apple](docs/oauth-providers.md). Google usa su botón oficial, un token de identidad validado por Supabase y un nonce de un solo uso; los proveedores permanecen bloqueados hasta habilitar sus credenciales oficiales.
+7. Completar la guía [Activar Google](docs/oauth-providers.md). El Client ID público ya está integrado; falta guardar el Client Secret sólo en Supabase y habilitar el proveedor.
 
 Diseño y desarrollo: **TheDevLogos Creación Inteligente**.

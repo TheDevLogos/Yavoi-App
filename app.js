@@ -25,15 +25,15 @@ $$('#mainNav a').forEach(link => link.addEventListener('click', () => {
 }));
 
 let selectedCategory = 'Básico';
-let selectedPrice = 68;
+let selectedPrice = 65;
 
 $$('.category-card').forEach(card => card.addEventListener('click', () => {
   $$('.category-card').forEach(item => item.classList.remove('selected'));
   card.classList.add('selected');
   selectedCategory = card.dataset.category || 'Básico';
-  selectedPrice = Number(card.dataset.price || 68);
+  selectedPrice = Number(card.dataset.price || 65);
   updateRiderEstimate();
-  showToast(`${selectedCategory} seleccionado. Tarifa base desde $${selectedPrice}.`);
+  showToast(`${selectedCategory} seleccionado. Estimado de viaje actualizado a $${selectedPrice}.`);
 }));
 
 const DELICIAS = [28.1902, -105.4701];

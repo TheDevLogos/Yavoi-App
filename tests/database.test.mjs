@@ -54,8 +54,31 @@ test("Postgres security and complete ride lifecycle", async () => {
     (await db.query("select role from public.profiles where id=$1", [ids.admin])).rows[0].role,
     "admin",
   );
+  assert.deepEqual(
+    (await db.query("select id,base_cents,km_cents,booking_fee_cents from public.categories order by id")).rows,
+    [
+      { id: "basic", base_cents: 2300, km_cents: 630, booking_fee_cents: 0 },
+      { id: "commercial", base_cents: 7800, km_cents: 980, booking_fee_cents: 0 },
+      { id: "large", base_cents: 3300, km_cents: 840, booking_fee_cents: 0 },
+      { id: "pickup", base_cents: 9600, km_cents: 1190, booking_fee_cents: 0 },
+      { id: "plus", base_cents: 3900, km_cents: 910, booking_fee_cents: 0 },
+    ],
+  );
   await as(ids.rider);
   await rpc("onboard", { role: "passenger", name: "Pasajero Prueba", phone: "6391234567" });
+  const riderAvatar = `${ids.rider}/avatar.png`;
+  await db.exec("reset role");
+  await db.query("insert into storage.objects(bucket_id,name) values('yavoi-avatars',$1)", [riderAvatar]);
+  await as(ids.rider);
+  await rpc("profile", {
+    name: "Pasajero Prueba",
+    phone: "6391234567",
+    emergency_name: "Contacto Pasajero",
+    emergency_phone: "6397654321",
+    avatar_path: riderAvatar,
+    accept_passenger_policy: true,
+    passenger_policy_version: "2026-09-10",
+  });
   await expectError(
     () =>
       rpc("review_driver", { driver_id: ids.driver, approved: true, note: "Intento ilegítimo" }),
@@ -67,6 +90,18 @@ test("Postgres security and complete ride lifecycle", async () => {
   );
   await as(ids.other);
   await rpc("onboard", { role: "passenger", name: "Otro Pasajero", phone: "6391234568" });
+  await expectError(
+    () => rpc("quote", {
+      origin: "Centro",
+      destination: "Tecnológico",
+      origin_lat: 28.19065,
+      origin_lng: -105.47045,
+      dest_lat: 28.18415,
+      dest_lng: -105.4593,
+      category: "basic",
+    }),
+    /políticas de seguridad/,
+  );
   for (const id of [ids.driver, ids.driver2]) {
     await as(id);
     await rpc("onboard", { role: "driver", name: "Conductor Prueba", phone: "6391234569" });
@@ -182,8 +217,21 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.ok(Number(q.pickup_distance_km) < 1);
   assert.ok(q.pickup_eta_minutes >= 3);
   assert.ok(q.trip_eta_minutes >= 5);
-  assert.equal(q.booking_fee_cents, 900);
+  assert.equal(q.booking_fee_cents, 0);
   assert.equal(q.pickup_surcharge_cents, 0);
+  assert.equal(q.fare_cents, 4900);
+  assert.equal(q.distance_charge_cents + q.time_charge_cents + q.minimum_adjustment_cents + 2300, q.fare_cents);
+  const typical = await rpc("quote", {
+    origin: "Centro",
+    destination: "Zona urbana",
+    origin_lat: 28.1902,
+    origin_lng: -105.4701,
+    dest_lat: 28.2212,
+    dest_lng: -105.4701,
+    category: "basic",
+  });
+  assert.ok(typical.fare_cents >= 6200 && typical.fare_cents <= 6800);
+  assert.equal(typical.booking_fee_cents, 0);
   const units = await rpc("available_units", {
     lat: 28.19065,
     lng: -105.47045,
@@ -445,10 +493,29 @@ test("Postgres security and complete ride lifecycle", async () => {
     category: "basic",
   });
   assert.equal(regional.service_zone, "regional");
-  assert.equal(regional.zone_surcharge_cents, 2500);
+  assert.equal(regional.zone_surcharge_cents, 1500);
   assert.ok(Number(regional.pickup_distance_km) > 3);
-  assert.ok(regional.pickup_surcharge_cents > 0);
+  assert.equal(regional.pickup_surcharge_cents, 0);
   assert.ok(regional.fare_cents > q.fare_cents);
+  const selectedRegional = await rpc("quote", {
+    origin: "Zona norte",
+    destination: "Centro de Meoqui",
+    origin_lat: 28.25,
+    origin_lng: -105.475,
+    dest_lat: 28.27215,
+    dest_lng: -105.48075,
+    category: "basic",
+    preferred_driver_id: ids.driver,
+  });
+  assert.equal(selectedRegional.preferred_driver_id, ids.driver);
+  assert.ok(Number(selectedRegional.pickup_distance_km) > 7);
+  assert.ok(selectedRegional.pickup_surcharge_cents > 0);
+  assert.equal(
+    2300 + selectedRegional.distance_charge_cents + selectedRegional.time_charge_cents +
+      selectedRegional.minimum_adjustment_cents + selectedRegional.pickup_surcharge_cents +
+      selectedRegional.zone_surcharge_cents + selectedRegional.accessibility_surcharge_cents,
+    selectedRegional.fare_cents,
+  );
   await expectError(
     () =>
       rpc("category", {
@@ -482,14 +549,15 @@ test("Postgres security and complete ride lifecycle", async () => {
   await as(ids.admin, "aal2");
   await rpc("category", {
     id: "basic",
-    base_cents: 3900,
-    km_cents: 1150,
-    minute_cents: 160,
-    minimum_cents: 5900,
+    base_cents: 2300,
+    km_cents: 630,
+    minute_cents: 75,
+    minimum_cents: 4900,
     booking_fee_cents: 900,
     commission_bps: 2000,
     active: true,
   });
+  assert.equal((await db.query("select booking_fee_cents from public.categories where id='basic'")).rows[0].booking_fee_cents, 0);
   await rpc("resolve_complaint", {
     id: complaint.id,
     response: "Consulta atendida.",

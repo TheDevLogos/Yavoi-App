@@ -9,6 +9,7 @@ import {
   mfaQrSource,
   serviceAsset,
   driverDossierStatus,
+  passengerProfileStatus,
 } from "../src/domain.js";
 test("cash amounts round to cents and invalid amounts are rejected", () => {
   assert.equal(cents("100.25"), 10025);
@@ -78,4 +79,20 @@ test("driver dossier progress requires every current document and expiration", (
   assert.equal(expired.percent, 88);
   assert.ok(expired.missing.includes("Vigencia de licencia"));
   assert.ok(expired.missing.includes("Carta de no antecedentes penales"));
+});
+test("passenger profile progress requires safety policy and emergency data", () => {
+  const partial = passengerProfileStatus({ full_name: "Ana Pérez", phone: "6391234567" });
+  assert.equal(partial.completed, 2);
+  assert.equal(partial.percent, 33);
+  const complete = passengerProfileStatus({
+    full_name: "Ana Pérez",
+    phone: "6391234567",
+    avatar_path: "avatar.png",
+    emergency_name: "Contacto Seguro",
+    emergency_phone: "6397654321",
+    passenger_policy_accepted_at: "2026-09-10T12:00:00Z",
+    passenger_policy_version: "2026-09-10",
+  });
+  assert.equal(complete.percent, 100);
+  assert.deepEqual(complete.missing, []);
 });

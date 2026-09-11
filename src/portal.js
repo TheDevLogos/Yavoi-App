@@ -12,6 +12,8 @@ import {
   cents,
   changeDue,
   driverDossierStatus,
+  passengerProfileStatus,
+  PASSENGER_POLICY_VERSION,
   allowedView,
   mfaQrSource,
   serviceAsset,
@@ -22,7 +24,10 @@ import {
 const $ = (s, el = document) => el.querySelector(s),
   $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const I = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
-const GOOGLE_CLIENT_ID = String(import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
+const GOOGLE_CLIENT_ID = String(
+  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+    "903354099441-4la2ivgqknn9q8kj1ghku6caebc1a4ar.apps.googleusercontent.com",
+).trim();
 const button = (text, action, kind = "", icon = "arrow-right") =>
   `<button class="btn ${kind}" data-action="${action}">${text}${I(icon)}</button>`;
 const S = {
@@ -46,7 +51,7 @@ const S = {
   factor: null,
   authView: "login",
   authError: "",
-  socialProviders: { google: false, azure: false, apple: false },
+  socialProviders: { google: false },
   connected: navigator.onLine,
   avatarUrls: {},
   refreshing: false,
@@ -70,13 +75,7 @@ const modal = $("#modal");
 let toastTimer, pollTimer;
 const socialIcons = {
   google: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285f4" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.4a4.7 4.7 0 0 1-2 3v2.5h3.3c1.9-1.8 2.9-4.4 2.9-7.4Z"/><path fill="#34a853" d="M12 22c2.7 0 5-.9 6.7-2.4l-3.3-2.5c-.9.6-2 1-3.4 1a5.9 5.9 0 0 1-5.5-4.1H3.1v2.6A10 10 0 0 0 12 22Z"/><path fill="#fbbc05" d="M6.5 14a6 6 0 0 1 0-3.9V7.4H3.1A10 10 0 0 0 3.1 16.6L6.5 14Z"/><path fill="#ea4335" d="M12 5.9c1.6 0 3 .5 4.1 1.6l3.1-3.1A10 10 0 0 0 3.1 7.4l3.4 2.7A5.9 5.9 0 0 1 12 5.9Z"/></svg>`,
-  azure: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#f35325" d="M2 2h9.4v9.4H2z"/><path fill="#81bc06" d="M12.6 2H22v9.4h-9.4z"/><path fill="#05a6f0" d="M2 12.6h9.4V22H2z"/><path fill="#ffba08" d="M12.6 12.6H22V22h-9.4z"/></svg>`,
-  apple: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.7 12.8c0-2.6 2.1-3.9 2.2-4-1.2-1.8-3.1-2-3.8-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.3-.9-1.7 0-3.3 1-4.2 2.5-1.8 3.1-.5 7.7 1.3 10.2.9 1.3 1.9 2.7 3.3 2.6 1.3-.1 1.8-.8 3.4-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.2-2.6 1-1.5 1.5-3 1.5-3.1-.1 0-3-.9-3.1-3.6ZM14.1 5.1c.7-.9 1.2-2.1 1.1-3.2-1.1 0-2.4.7-3.2 1.6-.7.8-1.3 2-1.2 3.1 1.2.1 2.5-.6 3.3-1.5Z"/></svg>`,
 };
-function socialAuthButton(provider, label) {
-  const enabled = S.socialProviders[provider];
-  return `<button type="button" data-oauth="${provider}" ${enabled ? "" : "disabled"}>${socialIcons[provider]}<span>Continuar con ${label}</span>${enabled ? "" : "<small>Pendiente de activación</small>"}</button>`;
-}
 function googleAuthMarkup() {
   if (S.socialProviders.google && validGoogleClientId(GOOGLE_CLIENT_ID)) {
     return '<div id="google-button" class="google-auth-host"><span>Cargando acceso seguro de Google...</span></div>';
@@ -302,26 +301,11 @@ function authPage(view = "login", message = "") {
         ? "Elige una nueva contraseña"
         : "Bienvenido a Yavoi!";
   $("#app").innerHTML =
-    `<div class="auth-layout"><aside class="auth-art"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><h1>Tu ciudad.<br>Tu camino.<br><span>Tu Yavoi!</span></h1><p>Una sola cuenta para moverte o conducir. Tu espacio, tu información y el control de cada viaje.</p><div class="auth-values"><div>${I("shield-check")} Acceso personal y datos protegidos</div><div>${I("banknote")} Precio claro antes de confirmar</div><div>${I("map-pin")} Hecho para Delicias y su gente</div></div></aside><main class="auth-main"><div class="auth-box"><img class="auth-logo-mobile" src="/assets/yavoi-logo.png" alt="Yavoi!"><a class="top-back" href="/">${I("arrow-left")} Volver a Yavoi!</a><div class="eyebrow">TU RAITE, AL INSTANTE</div><h2>${title}</h2><p>${signup ? "Crea tu acceso. Después podrás completar tu perfil de pasajero o conductor." : forgot ? "Te enviaremos un enlace si existe una cuenta con ese correo." : recovery ? "Usa al menos 12 caracteres y una contraseña que no utilices en otro lugar." : "Ingresa con tu cuenta. Te llevaremos al espacio que corresponde a tu perfil."}</p>${message ? `<div class="hint" role="status">${e(message)}</div>` : ""}${!forgot && !recovery ? `<div class="social-auth">${googleAuthMarkup()}${socialAuthButton("azure", "Microsoft")}${socialAuthButton("apple", "Apple")}</div><div class="auth-divider"><span>o usa tu correo</span></div>` : ""}<form id="auth-form">${!recovery ? '<label>Correo electrónico<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="tu@correo.com"></label>' : ""}${!forgot ? `<label>Contraseña<input name="password" type="password" autocomplete="${signup || recovery ? "new-password" : "current-password"}" required minlength="${signup || recovery ? 12 : 1}" maxlength="128" placeholder="${signup || recovery ? "Al menos 12 caracteres" : "Tu contraseña"}"></label>` : ""}${signup ? '<label class="check"><input required type="checkbox" name="consent">Entiendo que mi cuenta es personal y que debo verificar mi correo.</label>' : ""}<button class="btn wide" type="submit">${signup ? "Crear cuenta" : forgot ? "Enviar enlace" : recovery ? "Guardar contraseña" : "Ingresar"}${I("arrow-right")}</button></form><div class="auth-links"><button class="link" id="auth-switch">${signup || forgot || recovery ? "Ya tengo cuenta" : "Crear una cuenta"}</button>${!signup && !forgot && !recovery ? '<button class="link" id="forgot">Olvidé mi contraseña</button>' : ""}</div><p class="auth-note">Tu navegador puede guardar la contraseña en su administrador seguro. Nunca la guardamos en el historial de viajes.</p></div></main></div>`;
+    `<div class="auth-layout"><aside class="auth-art"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><h1>Tu ciudad.<br>Tu camino.<br><span>Tu Yavoi!</span></h1><p>Una sola cuenta para moverte o conducir. Tu espacio, tu información y el control de cada viaje.</p><div class="auth-values"><div>${I("shield-check")} Acceso personal y datos protegidos</div><div>${I("banknote")} Precio claro antes de confirmar</div><div>${I("map-pin")} Hecho para Delicias y su gente</div></div></aside><main class="auth-main"><div class="auth-box"><img class="auth-logo-mobile" src="/assets/yavoi-logo.png" alt="Yavoi!"><a class="top-back" href="/">${I("arrow-left")} Volver a Yavoi!</a><div class="eyebrow">TU RAITE, AL INSTANTE</div><h2>${title}</h2><p>${signup ? "Crea tu acceso. Después podrás completar tu perfil de pasajero o conductor." : forgot ? "Te enviaremos un enlace si existe una cuenta con ese correo." : recovery ? "Usa al menos 12 caracteres y una contraseña que no utilices en otro lugar." : "Ingresa con tu cuenta. Te llevaremos al espacio que corresponde a tu perfil."}</p>${message ? `<div class="hint" role="status">${e(message)}</div>` : ""}${!forgot && !recovery ? `<div class="social-auth">${googleAuthMarkup()}</div><div class="auth-divider"><span>o usa tu correo</span></div>` : ""}<form id="auth-form">${!recovery ? '<label>Correo electrónico<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="tu@correo.com"></label>' : ""}${!forgot ? `<label>Contraseña<input name="password" type="password" autocomplete="${signup || recovery ? "new-password" : "current-password"}" required minlength="${signup || recovery ? 12 : 1}" maxlength="128" placeholder="${signup || recovery ? "Al menos 12 caracteres" : "Tu contraseña"}"></label>` : ""}${signup ? '<label class="check"><input required type="checkbox" name="consent">Entiendo que mi cuenta es personal y que debo verificar mi correo.</label>' : ""}<button class="btn wide" type="submit">${signup ? "Crear cuenta" : forgot ? "Enviar enlace" : recovery ? "Guardar contraseña" : "Ingresar"}${I("arrow-right")}</button></form><div class="auth-links"><button class="link" id="auth-switch">${signup || forgot || recovery ? "Ya tengo cuenta" : "Crear una cuenta"}</button>${!signup && !forgot && !recovery ? '<button class="link" id="forgot">Olvidé mi contraseña</button>' : ""}</div><p class="auth-note">Tu navegador puede guardar la contraseña en su administrador seguro. Nunca la guardamos en el historial de viajes.</p></div></main></div>`;
   iconsNow();
   if (!forgot && !recovery && S.socialProviders.google && validGoogleClientId(GOOGLE_CLIENT_ID)) {
     renderOfficialGoogleButton(view);
   }
-  $$('[data-oauth]').forEach((control) => control.addEventListener("click", async () => {
-    if (S.busy) return;
-    S.busy = true;
-    const provider = control.dataset.oauth;
-    $$("[data-oauth]").forEach((button) => (button.disabled = true));
-    try {
-      const options = { redirectTo: location.origin + "/portal.html" };
-      if (provider === "azure") options.scopes = "email";
-      const { error } = await db.auth.signInWithOAuth({ provider, options });
-      if (error) throw error;
-    } catch (error) {
-      S.busy = false;
-      authPage(view, errorMessage(error));
-    }
-  }));
   $("#auth-switch").onclick = () => authPage(view === "login" ? "signup" : "login");
   $("#forgot")?.addEventListener("click", () => authPage("forgot"));
   bindForm("#auth-form", async (v) => {
@@ -615,14 +599,16 @@ function drawPoints(t = null) {
     );
   }
   if (!t)
-    S.units.forEach((unit) => {
+    S.units.forEach((unit, index) => {
       const marker = L.marker([unit.lat, unit.lng], { icon: vehicleIcon(0, S.selectedUnit === unit.unit_id) })
-        .bindTooltip(`Unidad disponible · ${decimal(unit.pickup_km)} km · ${unit.pickup_minutes} min`)
+        .bindTooltip(`${index === 0 ? "Recomendada por cercanía" : "Unidad disponible"} · ${decimal(unit.pickup_km)} km · ${unit.pickup_minutes} min`)
         .on("click", () => {
           S.selectedUnit = S.selectedUnit === unit.unit_id ? null : unit.unit_id;
           drawPoints();
           const label = $("#unit-selection");
-          if (label) label.textContent = S.selectedUnit ? `Unidad elegida · llegada estimada ${unit.pickup_minutes} min` : "Asignación automática por cercanía";
+          if (label) label.textContent = S.selectedUnit
+            ? `${index === 0 ? "Unidad más cercana elegida" : "Unidad elegida por ti"} · ${decimal(unit.pickup_km)} km · ${unit.pickup_minutes} min`
+            : "Asignación automática a la unidad más cercana";
         })
         .addTo(S.map);
       S.markers.push(marker);
@@ -685,6 +671,15 @@ function riderHome() {
     location.hash = "trip/" + current.id;
     return;
   }
+  const passengerProgress = passengerProfileStatus(S.profile);
+  if (passengerProgress.percent < 100) {
+    shell(
+      `<section class="panel profile-required"><div class="profile-head"><div class="profile-lock">${I("shield-check")}</div><div><div class="eyebrow">SEGURIDAD ANTES DEL PRIMER VIAJE</div><h2>Completa tu perfil de pasajero</h2><p>Necesitamos tus datos de contacto, fotografía, contacto de emergencia y aceptación de las reglas de seguridad.</p></div></div><div class="dossier-progress"><div class="row between"><strong>${passengerProgress.percent}% completo</strong><b>${passengerProgress.completed} de ${passengerProgress.total}</b></div><progress max="100" value="${passengerProgress.percent}">${passengerProgress.percent}%</progress><p>Falta: ${e(passengerProgress.missing.join(", "))}.</p></div><a class="btn" href="#profile">Completar mi perfil ${I("arrow-right")}</a></section>`,
+      "Prepara tu cuenta",
+      "Completa estos datos una sola vez para solicitar viajes con mayor seguridad.",
+    );
+    return;
+  }
   const draft = S.data.ride_draft;
   if (draft) {
     S.origin = draftPoint(draft, "origin") || S.origin;
@@ -693,7 +688,7 @@ function riderHome() {
   const cats = S.categories.filter((category) => category.active);
   const selectedCategory = draft?.category || cats[0]?.id;
   shell(
-    `<div class="booking"><section class="panel"><div class="row between"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" list="places" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}</button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="places" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Calle, número o lugar" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}</button></div><datalist id="places">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Marcar origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Marcar destino</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt=""></div><div><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.base_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div><div class="grid2 service-request"><label>Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label><label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label></div><label class="check women">${I("shield-check")} Prefiero una conductora<input name="women_only" type="checkbox" ${draft?.women_only ? "checked" : ""}></label><label class="check"><input name="accessible" type="checkbox" ${draft?.accessible ? "checked" : ""}>Necesito una unidad con accesibilidad verificada</label><div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""> <div><strong id="unit-selection">Asignación por cercanía con aceptación del conductor</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local" value="${e(draft?.scheduled_at || "")}"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">Guardamos este plan en tu cuenta. Si recargas o cierras por accidente, podrás continuar. La solicitud se envía primero a la unidad compatible más cercana y el conductor decide si la acepta.</p></form></section>${mapFrame()}</div>`,
+    `<div class="booking"><section class="panel"><div class="row between"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" list="places" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}</button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="places" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Calle, número o lugar" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}</button></div><datalist id="places">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Marcar origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Marcar destino</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt=""></div><div><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div><div class="grid2 service-request"><label>Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label><label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label></div><label class="check women">${I("shield-check")} Prefiero una conductora<input name="women_only" type="checkbox" ${draft?.women_only ? "checked" : ""}></label><label class="check accessible-service">${I("accessibility")}<span>Servicio para personas con alguna discapacidad</span><input name="accessible" type="checkbox" ${draft?.accessible ? "checked" : ""}></label><div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""> <div><strong id="unit-selection">Asignación automática a la unidad más cercana</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local" value="${e(draft?.scheduled_at || "")}"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">Guardamos este plan en tu cuenta. Si recargas o cierras por accidente, podrás continuar. Yavoi! recomienda la unidad compatible más cercana, pero puedes elegir cualquier unidad visible; el conductor conserva la decisión de aceptar.</p></form></section>${mapFrame()}</div>`,
     `¿A dónde vamos, ${e(S.profile.full_name.split(" ")[0])}?`,
     "Elige tu destino, necesidades y revisa el precio antes de confirmar.",
   );
@@ -758,6 +753,7 @@ function riderHome() {
       women_only: values.women_only === "on",
       accessible: values.accessible === "on",
       scheduled_at: values.scheduled_at ? new Date(values.scheduled_at).toISOString() : null,
+      preferred_driver_id: S.selectedUnit,
     });
     if (S.roadRoute) {
       S.quote.road_distance_km = S.roadRoute.distance_km;
@@ -770,12 +766,27 @@ function paymentModal() {
   const q = S.quote;
   const category = S.categories.find((c) => c.id === q.category);
   const pickupBasis =
-    q.estimate_source === "nearby_online_unit"
+    q.preferred_driver_id
+      ? "Unidad elegida por ti"
+      : q.estimate_source === "nearby_online_unit"
       ? "Unidad disponible cercana"
       : "Referencia operativa de la zona";
+  const transparentFare =
+    Number(category?.base_cents || 0) +
+    Number(q.distance_charge_cents || 0) +
+    Number(q.time_charge_cents || 0) +
+    Number(q.minimum_adjustment_cents || 0) +
+    Number(q.pickup_surcharge_cents || 0) +
+    Number(q.zone_surcharge_cents || 0) +
+    Number(q.accessibility_surcharge_cents || 0);
+  if (transparentFare !== Number(q.fare_cents)) {
+    S.quote = null;
+    notify("La cotización no pasó la validación de suma. Calcula nuevamente para proteger tu cobro.");
+    return;
+  }
   openModal(
     "Tu viaje, con todo claro",
-    `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.road_distance_km || q.distance_km)} km · ${q.road_duration_minutes || q.trip_eta_minutes} min</strong><span>${q.road_distance_km ? "Ruta vial trazada" : zoneLabel(q.service_zone)}</span></div></div><p class="hint">Distancias y tiempos estimados; pueden cambiar por tráfico, cierre de calles y ubicación de la unidad. ${q.scheduled_at ? "Programado: " + date(q.scheduled_at) : ""}</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Reservación</span><span>${money(q.booking_fee_cents)}</span></div>${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Recogida lejana · excedente de 3 km</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Unidad con accesibilidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}<div class="receipt-row"><span>Propina voluntaria</span><strong id="tip-preview">$0.00</strong></div><div class="receipt-row total"><span>Total</span><strong id="total-preview">${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>Agrega una propina (opcional)</h3><div class="tip-options"><label><input type="radio" name="tip" value="0" checked>Sin propina</label><label><input type="radio" name="tip" value="10">10%</label><label><input type="radio" name="tip" value="15">15%</label><label><input type="radio" name="tip" value="custom">Otro</label></div><label id="custom-tip-label" class="hidden">Propina (MXN)<input name="custom_tip" type="number" min="1" max="1000" step="0.01"></label><h3>¿Cómo quieres pagar?</h3><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo al finalizar el viaje</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago ${S.cardEnabled ? "" : "· lista para activar"}</label><p class="hint">Los datos de tarjeta se capturan en el formulario seguro de Mercado Pago y Yavoi! no recibe ni almacena el número o CVV.</p><div id="cash-options"><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="3000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p></div><button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`,
+    `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.distance_km)} km · ${q.trip_eta_minutes} min</strong><span>${zoneLabel(q.service_zone)}</span></div></div><p class="hint">El precio usa la distancia y duración estimadas por el servidor. Puede variar en una nueva cotización por tráfico, cierre de calles o disponibilidad. ${q.scheduled_at ? "Programado: " + date(q.scheduled_at) : ""}</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Distancia · ${decimal(q.distance_km)} km</span><span>${money(q.distance_charge_cents)}</span></div><div class="receipt-row"><span>Tiempo estimado · ${q.trip_eta_minutes} min</span><span>${money(q.time_charge_cents)}</span></div>${q.minimum_adjustment_cents ? `<div class="receipt-row"><span>Ajuste a tarifa mínima</span><span>${money(q.minimum_adjustment_cents)}</span></div>` : ""}${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Unidad elegida a más de 7 km · sólo excedente</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Servicio para personas con alguna discapacidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}<div class="receipt-row"><span>Propina voluntaria</span><strong id="tip-preview">$0.00</strong></div><div class="receipt-row total"><span>Total</span><strong id="total-preview">${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>Agrega una propina (opcional)</h3><div class="tip-options"><label><input type="radio" name="tip" value="0" checked>Sin propina</label><label><input type="radio" name="tip" value="10">10%</label><label><input type="radio" name="tip" value="15">15%</label><label><input type="radio" name="tip" value="custom">Otro</label></div><label id="custom-tip-label" class="hidden">Propina (MXN)<input name="custom_tip" type="number" min="1" max="1000" step="0.01"></label><h3>¿Cómo quieres pagar?</h3><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo al finalizar el viaje</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago ${S.cardEnabled ? "" : "· lista para activar"}</label><p class="hint">Los datos de tarjeta se capturan en el formulario seguro de Mercado Pago y Yavoi! no recibe ni almacena el número o CVV.</p><div id="cash-options"><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="3000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p></div><button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`,
   );
   const tipCents = () => {
     const choice = $('[name=tip]:checked').value;
@@ -817,7 +828,7 @@ function paymentModal() {
       payment_method: method,
       cash_tender_cents: method === "cash" ? ($("#need-change").checked ? cents(v.cash_tender) : total) : null,
       tip_cents: tip,
-      preferred_driver_id: S.selectedUnit,
+      preferred_driver_id: q.preferred_driver_id,
     });
     closeModal();
     S.quote = null;
@@ -1201,6 +1212,19 @@ function driverProgressMarkup(profile, driver) {
     : "Expediente completo. Guarda el avance para enviarlo a Operaciones.";
   return `<section class="dossier-progress" aria-labelledby="dossier-progress-title"><div class="row between"><div><small id="dossier-progress-title">AVANCE DEL EXPEDIENTE</small><strong id="dossier-progress-label">${status.percent}% completo</strong></div><b id="dossier-progress-count">${status.completed} de ${status.total}</b></div><progress id="dossier-progress" max="100" value="${status.percent}">${status.percent}%</progress><p id="dossier-progress-missing">${e(missing)}</p></section>`;
 }
+function passengerProgressMarkup(profile) {
+  const status = passengerProfileStatus(profile);
+  const missing = status.missing.length
+    ? `Faltan ${status.missing.length}: ${status.missing.join(", ")}.`
+    : "Perfil completo. Ya puedes solicitar viajes.";
+  return `<section class="dossier-progress passenger-progress" aria-labelledby="passenger-progress-title"><div class="row between"><div><small id="passenger-progress-title">AVANCE DEL PERFIL</small><strong id="passenger-progress-label">${status.percent}% completo</strong></div><b id="passenger-progress-count">${status.completed} de ${status.total}</b></div><progress id="passenger-progress" max="100" value="${status.percent}">${status.percent}%</progress><p id="passenger-progress-missing">${e(missing)}</p></section>`;
+}
+function passengerPolicyMarkup(profile) {
+  const accepted =
+    profile.passenger_policy_accepted_at &&
+    profile.passenger_policy_version === PASSENGER_POLICY_VERSION;
+  return `<section class="passenger-policy"><div class="row between"><div><div class="eyebrow">POLÍTICAS DE SEGURIDAD</div><h3>Reglas para viajar en Yavoi!</h3></div><span class="badge ${accepted ? "" : "pending"}">${accepted ? "Aceptadas" : "Pendientes"}</span></div><details ${accepted ? "" : "open"}><summary>Leer políticas obligatorias</summary><div class="policy-copy"><p>Al viajar, cada pasajero debe:</p><ul><li>Usar cinturón de seguridad durante todo el trayecto y asegurar correctamente a menores de edad.</li><li>Mantener limpia la unidad y responder por daños causados de forma intencional o negligente.</li><li>No fumar ni vapear, y no consumir alcohol, drogas, estupefacientes u otras sustancias dentro del vehículo.</li><li>No portar armas, materiales peligrosos ni objetos que pongan en riesgo a otras personas.</li><li>Tratar con respeto al conductor y a los acompañantes; no se permite acoso, discriminación, amenazas ni violencia.</li><li>Respetar la capacidad de la categoría, informar equipaje o carga especial y seguir las indicaciones de seguridad.</li><li>No distraer al conductor, interferir con la conducción ni pedir maniobras contrarias a la ley.</li><li>Estar listo en el punto acordado y verificar la placa, unidad y conductor antes de abordar.</li></ul><p>El conductor puede reportar incumplimientos. Ante una conducta grave o un riesgo inmediato, puede detenerse en un lugar seguro, cancelar el servicio y solicitar el descenso. Yavoi! puede revisar el caso, restringir la cuenta y compartir información con autoridades cuando exista obligación legal. En una emergencia llama al 911.</p></div></details><label class="check policy-accept"><input name="accept_passenger_policy" type="checkbox" ${accepted ? "checked" : ""} required>He leído y acepto estas políticas de seguridad, versión ${PASSENGER_POLICY_VERSION}.</label></section>`;
+}
 function documentField(name, title, path, note = "") {
   return `<label class="document-upload"><span>${e(title)}</span><input name="${name}" type="file" accept="application/pdf,image/jpeg,image/png"><small>${path ? "Documento recibido. Puedes reemplazarlo." : "Pendiente de cargar"}${note ? ` · ${e(note)}` : ""}</small></label>`;
 }
@@ -1208,9 +1232,10 @@ function profile() {
   const p = S.profile,
     d = S.driver || {};
   const driver = p.role === "driver";
+  const passenger = p.role === "passenger";
   const dossier = driver ? driverDossierStatus(p, d) : null;
   shell(
-    `<section class="panel"><div class="profile-head">${avatar(p.full_name, p.avatar_path, "big")}<div><h2>${e(p.full_name)}</h2><p>${e(S.user.email)} · ${e(roles[p.role])}</p><small>El tipo de cuenta se protege en el servidor.</small></div></div><form id="profile-form"><div class="grid2"><label>Nombre completo<input name="name" autocomplete="name" required minlength="2" maxlength="100" value="${e(p.full_name)}"></label><label>Teléfono de contacto<input name="phone" type="tel" autocomplete="tel" required minlength="10" maxlength="25" value="${e(p.phone)}"></label><label>Contacto de emergencia<input name="emergency_name" maxlength="100" value="${e(p.emergency_name)}"></label><label>Teléfono de emergencia<input name="emergency_phone" type="tel" maxlength="25" value="${e(p.emergency_phone)}"></label></div><label>Fotografía de perfil · JPG, PNG o WebP, hasta 2 MB<input name="avatar" type="file" accept="image/jpeg,image/png,image/webp"></label><button type="submit" class="btn">Guardar perfil ${I("check")}</button></form></section>${driver ? `<section class="panel section-gap"><div class="row between"><div><h2>Mi unidad y documentos</h2><p>Completa cada requisito antes de solicitar autorización.</p></div><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : dossier.percent === 100 ? "Listo para revisión" : `${dossier.percent}% completo`}</span></div>${driverProgressMarkup(p, d)}<p class="hint">Al guardar cambios la autorización anterior se pausa hasta una nueva revisión. Los documentos son privados y sólo el conductor y Operaciones pueden consultarlos.</p>${d.review_note ? `<p class="hint">Revisión: ${e(d.review_note)}</p>` : ""}<form id="vehicle-form"><h3>Datos de la unidad</h3><div class="grid2"><label>Marca<input name="vehicle_make" required minlength="2" maxlength="50" value="${e(d.vehicle_make)}" placeholder="Nissan"></label><label>Modelo<input name="vehicle_model" required minlength="1" maxlength="50" value="${e(d.vehicle_model)}" placeholder="Versa"></label><label>Año<input name="vehicle_year" type="number" min="1990" max="${new Date().getFullYear() + 1}" required value="${e(d.vehicle_year || "")}"></label><label>Color<input name="vehicle_color" required minlength="3" maxlength="40" value="${e(d.vehicle_color)}" placeholder="Gris"></label><label>Placas<input name="plate" required minlength="5" maxlength="20" value="${e(d.plate)}"></label><label>Categoría<select name="category">${S.categories.map((c) => `<option value="${c.id}" ${d.category === c.id ? "selected" : ""}>${e(c.name)}</option>`).join("")}</select></label><label>Número de licencia<input name="license_number" required maxlength="50" value="${e(d.license_number)}"></label><label>Vencimiento de licencia<input name="license_expires" type="date" required value="${e(d.license_expires)}"></label><label>Vencimiento de seguro<input name="insurance_expires" type="date" required value="${e(d.insurance_expires)}"></label></div><h3 class="section-gap">Documentos privados</h3><div class="driver-documents">${documentField("license_file", "Licencia de conducir", d.license_path)}${documentField("insurance_file", "Póliza de seguro", d.insurance_path)}${documentField("criminal_record_file", "Carta de no antecedentes penales", d.criminal_record_path, "carga el documento oficial vigente")}${documentField("policy_commitment_file", "Carta de compromiso y políticas Yavoi! firmada", d.policy_commitment_path)}${documentField("traffic_law_commitment_file", "Carta de aceptación de obligaciones viales firmada", d.traffic_law_commitment_path)}</div><div class="document-templates"><div>${I("file-down")}<span><strong>Plantillas para firma</strong><small>Descarga, completa, firma y carga el documento entero.</small></span></div><a class="btn secondary" href="/documents/carta-compromiso-politicas-yavoi.pdf" download>Políticas Yavoi! ${I("download")}</a><a class="btn secondary" href="/documents/carta-aceptacion-vialidad-chihuahua.pdf" download>Obligaciones viales ${I("download")}</a><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Consultar ley oficial ${I("external-link")}</a></div><label class="check"><input type="checkbox" name="advertising_interest" ${d.advertising_interest ? "checked" : ""}>Me interesa participar en convenios de publicidad</label><button type="submit" class="btn">Guardar y enviar expediente ${I("shield-check")}</button></form></section>` : ""}<section class="panel section-gap"><h2>Acceso y seguridad</h2><p>Tu sesión es personal. Puedes cambiar tu contraseña o cerrar sesión en todos tus dispositivos.</p><div class="row wrap">${button("Cambiar contraseña", "password", "secondary", "key-round")}${button("Cerrar mis sesiones", "logout", "secondary", "log-out")}</div>${p.role === "admin" ? '<p class="hint">Operaciones exige autenticación en dos pasos. Conserva acceso a tu aplicación autenticadora.</p>' : ""}</section>`,
+    `<section class="panel"><div class="profile-head">${avatar(p.full_name, p.avatar_path, "big")}<div><h2>${e(p.full_name)}</h2><p>${e(S.user.email)} · ${e(roles[p.role])}</p><small>El tipo de cuenta se protege en el servidor.</small></div></div>${passenger ? passengerProgressMarkup(p) : ""}<form id="profile-form"><div class="grid2"><label>Nombre completo<input name="name" autocomplete="name" required minlength="2" maxlength="100" value="${e(p.full_name)}"></label><label>Teléfono de contacto<input name="phone" type="tel" autocomplete="tel" required minlength="10" maxlength="25" value="${e(p.phone)}"></label><label>Contacto de emergencia<input name="emergency_name" ${passenger ? "required minlength=\"2\"" : ""} maxlength="100" value="${e(p.emergency_name)}"></label><label>Teléfono de emergencia<input name="emergency_phone" type="tel" ${passenger ? "required minlength=\"10\"" : ""} maxlength="25" value="${e(p.emergency_phone)}"></label></div><label>Fotografía de perfil · JPG, PNG o WebP, hasta 2 MB<input name="avatar" type="file" accept="image/jpeg,image/png,image/webp" ${passenger && !p.avatar_path ? "required" : ""}></label>${passenger ? passengerPolicyMarkup(p) : ""}<button type="submit" class="btn">Guardar perfil ${I("check")}</button></form></section>${driver ? `<section class="panel section-gap"><div class="row between"><div><h2>Mi unidad y documentos</h2><p>Completa cada requisito antes de solicitar autorización.</p></div><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : dossier.percent === 100 ? "Listo para revisión" : `${dossier.percent}% completo`}</span></div>${driverProgressMarkup(p, d)}<p class="hint">Al guardar cambios la autorización anterior se pausa hasta una nueva revisión. Los documentos son privados y sólo el conductor y Operaciones pueden consultarlos.</p>${d.review_note ? `<p class="hint">Revisión: ${e(d.review_note)}</p>` : ""}<form id="vehicle-form"><h3>Datos de la unidad</h3><div class="grid2"><label>Marca<input name="vehicle_make" required minlength="2" maxlength="50" value="${e(d.vehicle_make)}" placeholder="Nissan"></label><label>Modelo<input name="vehicle_model" required minlength="1" maxlength="50" value="${e(d.vehicle_model)}" placeholder="Versa"></label><label>Año<input name="vehicle_year" type="number" min="1990" max="${new Date().getFullYear() + 1}" required value="${e(d.vehicle_year || "")}"></label><label>Color<input name="vehicle_color" required minlength="3" maxlength="40" value="${e(d.vehicle_color)}" placeholder="Gris"></label><label>Placas<input name="plate" required minlength="5" maxlength="20" value="${e(d.plate)}"></label><label>Categoría<select name="category">${S.categories.map((c) => `<option value="${c.id}" ${d.category === c.id ? "selected" : ""}>${e(c.name)}</option>`).join("")}</select></label><label>Número de licencia<input name="license_number" required maxlength="50" value="${e(d.license_number)}"></label><label>Vencimiento de licencia<input name="license_expires" type="date" required value="${e(d.license_expires)}"></label><label>Vencimiento de seguro<input name="insurance_expires" type="date" required value="${e(d.insurance_expires)}"></label></div><h3 class="section-gap">Documentos privados</h3><div class="driver-documents">${documentField("license_file", "Licencia de conducir", d.license_path)}${documentField("insurance_file", "Póliza de seguro", d.insurance_path)}${documentField("criminal_record_file", "Carta de no antecedentes penales", d.criminal_record_path, "carga el documento oficial vigente")}${documentField("policy_commitment_file", "Carta de compromiso y políticas Yavoi! firmada", d.policy_commitment_path)}${documentField("traffic_law_commitment_file", "Carta de aceptación de obligaciones viales firmada", d.traffic_law_commitment_path)}</div><div class="document-templates"><div>${I("file-down")}<span><strong>Plantillas para firma</strong><small>Descarga, completa, firma y carga el documento entero.</small></span></div><a class="btn secondary" href="/documents/carta-compromiso-politicas-yavoi.pdf" download>Políticas Yavoi! ${I("download")}</a><a class="btn secondary" href="/documents/carta-aceptacion-vialidad-chihuahua.pdf" download>Obligaciones viales ${I("download")}</a><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Consultar ley oficial ${I("external-link")}</a></div><label class="check"><input type="checkbox" name="advertising_interest" ${d.advertising_interest ? "checked" : ""}>Me interesa participar en convenios de publicidad</label><button type="submit" class="btn">Guardar y enviar expediente ${I("shield-check")}</button></form></section>` : ""}<section class="panel section-gap"><h2>Acceso y seguridad</h2><p>Tu sesión es personal. Puedes cambiar tu contraseña o cerrar sesión en todos tus dispositivos.</p><div class="row wrap">${button("Cambiar contraseña", "password", "secondary", "key-round")}${button("Cerrar mis sesiones", "logout", "secondary", "log-out")}</div>${p.role === "admin" ? '<p class="hint">Operaciones exige autenticación en dos pasos. Conserva acceso a tu aplicación autenticadora.</p>' : ""}</section>`,
     "Mi perfil",
     "Tu información, tu unidad y las opciones de tu cuenta.",
   );
@@ -1222,6 +1247,8 @@ function profile() {
       emergency_name: v.emergency_name,
       emergency_phone: v.emergency_phone,
       ...(path ? { avatar_path: path } : {}),
+      accept_passenger_policy: v.accept_passenger_policy === "on",
+      passenger_policy_version: PASSENGER_POLICY_VERSION,
     });
     await loadSession();
     notify("Perfil actualizado.");
@@ -1251,6 +1278,31 @@ function profile() {
     await loadSession();
     notify("Expediente enviado a revisión.");
   });
+  if (passenger) {
+    const form = $("#profile-form");
+    const updatePassengerProgress = () => {
+      const values = Object.fromEntries(new FormData(form));
+      const snapshot = {
+        ...p,
+        full_name: values.name,
+        phone: values.phone,
+        emergency_name: values.emergency_name,
+        emergency_phone: values.emergency_phone,
+        avatar_path: form.elements.avatar.files?.[0] ? "selected" : p.avatar_path,
+        passenger_policy_accepted_at: values.accept_passenger_policy === "on" ? new Date().toISOString() : null,
+        passenger_policy_version: values.accept_passenger_policy === "on" ? PASSENGER_POLICY_VERSION : null,
+      };
+      const status = passengerProfileStatus(snapshot);
+      $("#passenger-progress").value = status.percent;
+      $("#passenger-progress-label").textContent = `${status.percent}% completo`;
+      $("#passenger-progress-count").textContent = `${status.completed} de ${status.total}`;
+      $("#passenger-progress-missing").textContent = status.missing.length
+        ? `Faltan ${status.missing.length}: ${status.missing.join(", ")}.`
+        : "Perfil completo. Guarda los cambios para solicitar viajes.";
+    };
+    form.addEventListener("input", updatePassengerProgress);
+    form.addEventListener("change", updatePassengerProgress);
+  }
   if (driver) {
     const form = $("#vehicle-form");
     const updateProgress = () => {
@@ -1438,7 +1490,7 @@ function fleet() {
 }
 function rates() {
   shell(
-    `<div class="notice-strip">El estimador considera acercamiento de la unidad, recorrido, duración y zona de servicio. Los cambios sólo afectan nuevas cotizaciones y quedan registrados.</div><div class="grid2">${S.categories.map((c) => `<section class="panel"><h2>Yavoi! ${e(c.name)}</h2><form data-category="${c.id}"><label>Tarifa base (MXN)<input name="base" type="number" min="0" max="1000" step="0.01" required value="${c.base_cents / 100}"></label><label>Precio por km estimado (MXN)<input name="km" type="number" min="0" max="100" step="0.01" required value="${c.km_cents / 100}"></label><label>Precio por minuto estimado (MXN)<input name="minute" type="number" min="0" max="100" step="0.01" required value="${c.minute_cents / 100}"></label><label>Tarifa mínima (MXN)<input name="minimum" type="number" min="0" max="1000" step="0.01" required value="${c.minimum_cents / 100}"></label><label>Cuota de reservación (MXN)<input name="booking" type="number" min="0" max="500" step="0.01" required value="${c.booking_fee_cents / 100}"></label><label>Comisión (%)<input name="commission" type="number" min="0" max="50" step="0.01" required value="${c.commission_bps / 100}"></label><label class="check"><input name="active" type="checkbox" ${c.active ? "checked" : ""}>Categoría disponible</label><button class="btn" type="submit">Guardar tarifa</button></form></section>`).join("")}</div>`,
+    `<div class="notice-strip">El estimador considera inicio, recorrido, duración y zona. No cobra reservación. La recogida lejana sólo aplica a una unidad elegida por el pasajero cuando está a más de 7 km. Los cambios afectan nuevas cotizaciones y quedan registrados.</div><div class="grid2">${S.categories.map((c) => `<section class="panel"><h2>Yavoi! ${e(c.name)}</h2><form data-category="${c.id}"><label>Inicio del servicio (MXN)<input name="base" type="number" min="0" max="1000" step="0.01" required value="${c.base_cents / 100}"></label><label>Precio por km estimado (MXN)<input name="km" type="number" min="0" max="100" step="0.01" required value="${c.km_cents / 100}"></label><label>Precio por minuto estimado (MXN)<input name="minute" type="number" min="0" max="100" step="0.01" required value="${c.minute_cents / 100}"></label><label>Tarifa mínima (MXN)<input name="minimum" type="number" min="0" max="1000" step="0.01" required value="${c.minimum_cents / 100}"></label><label>Comisión (%)<input name="commission" type="number" min="0" max="50" step="0.01" required value="${c.commission_bps / 100}"></label><label class="check"><input name="active" type="checkbox" ${c.active ? "checked" : ""}>Categoría disponible</label><button class="btn" type="submit">Guardar tarifa</button></form></section>`).join("")}</div>`,
     "Tarifas y categorías",
     "Precios calculados en el servidor, con registro de cada cambio.",
   );
@@ -1451,7 +1503,6 @@ function rates() {
         km_cents: cents(v.km),
         minute_cents: cents(v.minute),
         minimum_cents: cents(v.minimum),
-        booking_fee_cents: cents(v.booking),
         commission_bps: cents(v.commission),
         active: v.active === "on",
       });

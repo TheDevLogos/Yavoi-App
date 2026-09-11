@@ -62,6 +62,30 @@ export const serviceAssets = Object.freeze({
   pickup: "/assets/services/pickup.webp",
 });
 export const serviceAsset = (category) => serviceAssets[category] || serviceAssets.basic;
+export const PASSENGER_POLICY_VERSION = "2026-09-10";
+export const passengerProfileStatus = (profile = {}) => {
+  const isComplete = (value) =>
+    typeof value === "boolean" ? value : String(value ?? "").trim().length > 0;
+  const requirements = [
+    ["Nombre completo", String(profile.full_name || "").trim().length >= 2],
+    ["Teléfono", String(profile.phone || "").trim().length >= 10],
+    ["Fotografía", profile.avatar_path],
+    ["Contacto de emergencia", String(profile.emergency_name || "").trim().length >= 2],
+    ["Teléfono de emergencia", String(profile.emergency_phone || "").trim().length >= 10],
+    [
+      "Políticas de seguridad aceptadas",
+      profile.passenger_policy_accepted_at &&
+        profile.passenger_policy_version === PASSENGER_POLICY_VERSION,
+    ],
+  ];
+  const completed = requirements.filter(([, value]) => isComplete(value)).length;
+  return {
+    completed,
+    total: requirements.length,
+    percent: Math.round((completed / requirements.length) * 100),
+    missing: requirements.filter(([, value]) => !isComplete(value)).map(([label]) => label),
+  };
+};
 export const driverDossierStatus = (profile = {}, driver = {}) => {
   const today = new Date().toISOString().slice(0, 10);
   const isComplete = (value) =>
