@@ -4,10 +4,11 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 
 ## Experiencia disponible
 
-- Acceso único con correo verificado, recuperación de contraseña y sesión persistente.
+- Acceso único con correo verificado, recuperación de contraseña, sesión persistente y botones OAuth preparados para Google, Microsoft y Apple.
 - Alta de pasajero o conductor; el rol de Operaciones no puede elegirse durante el registro.
 - Paneles y rutas separados por rol, con validación adicional en PostgreSQL.
-- Perfil de pasajero, expediente privado de conductor y revisión por Operaciones.
+- Perfil de pasajero, expediente privado de conductor con avance de 16 requisitos y revisión reforzada por Operaciones.
+- PWA instalable en Android y iOS, con iconos Yavoi!, modo independiente y recuperación de la interfaz sin conexión.
 - Cotización en servidor por categoría, kilómetros estimados, duración y zona.
 - Unidades compatibles en mapa, selección opcional y oferta automática a la unidad más cercana; el conductor acepta o rechaza después de revisar la solicitud.
 - Avisos de nuevas solicitudes, disponibilidad voluntaria y presencia GPS renovada mientras el portal del conductor permanece abierto.
@@ -55,7 +56,8 @@ Las migraciones versionadas están en `supabase/migrations`. La integración con
 2. Configurar la URL pública en Supabase Auth y permitir `/portal.html` como URL de confirmación y recuperación.
 3. Publicar el resultado de `npm run build` con HTTPS.
 4. Registrar y verificar `admin.yavoi@gmail.com`, y después activar MFA.
-5. Aprobar conductores únicamente después de revisar fotografía, licencia, seguro y vigencias.
+5. Aprobar conductores únicamente después de completar los 16 requisitos, incluidos los cinco documentos privados y sus vigencias.
 6. Completar la guía [Activar Mercado Pago](docs/mercado-pago.md). La tarjeta permanece bloqueada hasta terminar esos pasos.
+7. Completar la guía [Activar Google, Microsoft y Apple](docs/oauth-providers.md). Los botones muestran un mensaje seguro hasta habilitar las credenciales oficiales.
 
 Diseño y desarrollo: **TheDevLogos Creación Inteligente**.

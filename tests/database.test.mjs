@@ -81,12 +81,52 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal((await db.query("select * from public.trips")).rows.length, 0);
   await as(ids.admin, "aal2");
   await rpc("dashboard");
-  await db.exec("reset role");
+  await expectError(
+    () => rpc("review_driver", { driver_id: ids.driver, approved: true, note: "Expediente revisado" }),
+    /expediente requiere/,
+  );
+  for (const [index, id] of [ids.driver, ids.driver2].entries()) {
+    const avatarPath = `${id}/avatar.png`;
+    const documents = {
+      license_path: `${id}/license.pdf`,
+      insurance_path: `${id}/insurance.pdf`,
+      criminal_record_path: `${id}/criminal-record.pdf`,
+      policy_commitment_path: `${id}/policy-commitment.pdf`,
+      traffic_law_commitment_path: `${id}/traffic-law-commitment.pdf`,
+    };
+    await db.exec("reset role");
+    await db.query("insert into storage.objects(bucket_id,name) values('yavoi-avatars',$1)", [avatarPath]);
+    for (const path of Object.values(documents))
+      await db.query("insert into storage.objects(bucket_id,name) values('yavoi-documents',$1)", [path]);
+    await as(id);
+    await rpc("profile", {
+      name: `Conductor Prueba ${index + 1}`,
+      phone: `639123456${index + 9}`,
+      avatar_path: avatarPath,
+    });
+    const submitted = await rpc("driver_profile", {
+      vehicle_make: "Nissan",
+      vehicle_model: "Versa",
+      vehicle_year: 2024,
+      vehicle_color: "Gris",
+      plate: `YAV${index + 1}01`,
+      category: "basic",
+      license_number: `LIC-${index + 1}`,
+      license_expires: "2099-12-31",
+      insurance_expires: "2099-12-31",
+      ...documents,
+    });
+    assert.equal(submitted.complete, true);
+  }
+  await as(ids.admin, "aal2");
   for (const id of [ids.driver, ids.driver2])
-    await db.query(
-      "update public.drivers set approved=true,online=true,vehicle='Versa 2024',plate=$2,license_expires=current_date+365,insurance_expires=current_date+365 where id=$1",
-      [id, id.slice(-5)],
-    );
+    await rpc("review_driver", {
+      driver_id: id,
+      approved: true,
+      note: "Expediente completo y vigencias verificadas.",
+    });
+  await db.exec("reset role");
+  await db.query("update public.drivers set online=true where id in ($1,$2)", [ids.driver, ids.driver2]);
   await as(ids.driver);
   await expectError(
     () => rpc("presence", { lat: 27.5, lng: -105.47, accuracy: 10 }),
@@ -350,7 +390,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   const paidCardTrip = await rpc("trip", { trip_id: cardTrip.id });
   assert.equal(paidCardTrip.trip.status, "accepted");
   assert.equal(paidCardTrip.trip.payment_status, "paid");
-  assert.equal(paidCardTrip.driver.vehicle, "Versa 2024");
+  assert.equal(paidCardTrip.driver.vehicle, "Nissan Versa 2024");
   assert.equal(paidCardTrip.matching.attempts, 2);
   const cardPin = paidCardTrip.pin;
   await as(ids.driver2);

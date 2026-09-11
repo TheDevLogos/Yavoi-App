@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 112" role="img" aria-labelledby="title">
+  <title id="title">Unidad Yavoi disponible</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset=".5" stop-color="#e9eef2"/><stop offset="1" stop-color="#cbd4dd"/></linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#173e60"/><stop offset="1" stop-color="#06192c"/></linearGradient>
+    <filter id="s" x="-50%" y="-30%" width="200%" height="180%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#001628" flood-opacity=".35"/></filter>
+  </defs>
+  <g filter="url(#s)">
+    <rect x="8" y="8" width="56" height="96" rx="22" fill="url(#body)" stroke="#071d33" stroke-width="3"/>
+    <path d="M17 42 23 22c1.2-4 5-7 9-7h8c4 0 7.8 3 9 7l6 20Z" fill="url(#glass)"/>
+    <path d="M17 69h38l-4 22c-.7 4-4.4 7-8.6 7H29.6c-4.2 0-7.9-3-8.6-7Z" fill="url(#glass)"/>
+    <path d="M12 50h48M13 62h46" stroke="#aebbc6" stroke-width="2"/>
+    <path d="M17 14h12M43 14h12" stroke="#ff650a" stroke-width="4" stroke-linecap="round"/>
+    <path d="M18 98h13M41 98h13" stroke="#ffb079" stroke-width="3" stroke-linecap="round"/>
+    <rect x="2" y="28" width="7" height="22" rx="3.5" fill="#071d33"/><rect x="63" y="28" width="7" height="22" rx="3.5" fill="#071d33"/>
+    <rect x="2" y="67" width="7" height="22" rx="3.5" fill="#071d33"/><rect x="63" y="67" width="7" height="22" rx="3.5" fill="#071d33"/>
+  </g>
+</svg>

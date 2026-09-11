@@ -4,9 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#06192c" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Yavoi!" />
   <meta name="description" content="Yavoi! Tu raite, al instante. Movilidad segura, transparente y cercana en Delicias, Chihuahua." />
   <title>Yavoi! | Tu raite, al instante</title>
-  <link rel="icon" href="/assets/yavoi-logo.svg" type="image/svg+xml" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/yavoi-app-icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -39,7 +45,7 @@
         <a href="#seguridad">Seguridad</a>
         <a href="#simulador">Simulador</a><a href="/portal.html">Mi cuenta</a>
       </nav>
-      <a class="btn btn-outline nav-cta" href="/portal.html">Ingresar a mi cuenta</a>
+      <a class="btn btn-outline nav-cta" href="/portal.html">¡Entra ya!</a>
     </div>
   </header>
 
@@ -105,9 +111,9 @@
               <div class="phone-notch"></div>
               <div class="phone-status"><strong>9:41</strong><span>Yavoi!</span></div>
               <div class="screen-copy compact"><small>Opciones cercanas</small><h3>Elige tu servicio</h3></div>
-              <div class="ride-option selected"><div class="mini-car"><svg><use href="#i-car"></use></svg></div><div><strong>Básico</strong><small>1 a 4 personas · 3 min</small></div><strong>$68</strong></div>
-              <div class="ride-option"><div class="mini-car"><svg><use href="#i-car"></use></svg></div><div><strong>Grande</strong><small>Más espacio · 5 min</small></div><strong>$92</strong></div>
-              <div class="ride-option"><div class="mini-car"><svg><use href="#i-box"></use></svg></div><div><strong>Comercial</strong><small>Entregas y comercios</small></div><strong>$108</strong></div>
+              <div class="ride-option selected"><div class="mini-car"><img src="/assets/services/basic.webp" alt=""></div><div><strong>Básico</strong><small>1 a 4 personas · 3 min</small></div><strong>$68</strong></div>
+              <div class="ride-option"><div class="mini-car"><img src="/assets/services/large.webp" alt=""></div><div><strong>Grande</strong><small>Más espacio · 5 min</small></div><strong>$92</strong></div>
+              <div class="ride-option"><div class="mini-car"><img src="/assets/services/commercial.webp" alt=""></div><div><strong>Comercial</strong><small>Entregas y comercios</small></div><strong>$108</strong></div>
               <div class="fare-box"><span>Tarifa estimada</span><strong>Visible antes de confirmar</strong></div>
               <button class="app-primary">Solicitar Yavoi!</button>
               <div class="app-tabs"><span class="active">Inicio</span><span>Viajes</span><span>Ayuda</span><span>Perfil</span></div>
@@ -137,11 +143,11 @@
       <div class="container">
         <div class="section-heading category-heading"><div><span class="eyebrow light">CATEGORÍAS YAVOI!</span><h2>La unidad adecuada para cada viaje.</h2></div><p>Selecciona una categoría y úsala directamente en el simulador de viaje.</p></div>
         <div class="category-grid">
-          <button class="category-card selected" data-category="Básico" data-price="68"><span class="category-icon"><svg><use href="#i-car"></use></svg></span><strong>Básico</strong><small>Práctico · 1 a 4 pasajeros</small><b>Desde $68</b></button>
-          <button class="category-card" data-category="Grande" data-price="92"><span class="category-icon large"><svg><use href="#i-car"></use></svg></span><strong>Grande</strong><small>Más espacio · hasta 7</small><b>Desde $92</b></button>
-          <button class="category-card" data-category="Comercial" data-price="108"><span class="category-icon"><svg><use href="#i-box"></use></svg></span><strong>Comercial</strong><small>Entregas y apoyo a comercios</small><b>Desde $108</b></button>
-          <button class="category-card" data-category="Plus" data-price="126"><span class="category-icon"><svg><use href="#i-star"></use></svg></span><strong>Plus</strong><small>Confort y servicio preferente</small><b>Desde $126</b></button>
-          <button class="category-card" data-category="Pickup" data-price="145"><span class="category-icon pickup"><svg><use href="#i-car"></use></svg></span><strong>Pickup</strong><small>Carga y apoyo especial</small><b>Desde $145</b></button>
+          <button class="category-card selected" data-category="Básico" data-price="68"><span class="category-vehicle"><img src="/assets/services/basic.webp" alt="Auto moderno Yavoi Básico"></span><strong>Básico</strong><small>Práctico · 1 a 4 pasajeros</small><b>Desde $68</b></button>
+          <button class="category-card" data-category="Grande" data-price="92"><span class="category-vehicle"><img src="/assets/services/large.webp" alt="SUV amplia Yavoi Grande"></span><strong>Grande</strong><small>Más espacio · hasta 7</small><b>Desde $92</b></button>
+          <button class="category-card" data-category="Comercial" data-price="108"><span class="category-vehicle"><img src="/assets/services/commercial.webp" alt="Van Yavoi Comercial"></span><strong>Comercial</strong><small>Entregas y apoyo a comercios</small><b>Desde $108</b></button>
+          <button class="category-card" data-category="Plus" data-price="126"><span class="category-vehicle"><img src="/assets/services/plus.webp" alt="Auto premium azul Yavoi Plus"></span><strong>Plus</strong><small>Confort y servicio preferente</small><b>Desde $126</b></button>
+          <button class="category-card" data-category="Pickup" data-price="145"><span class="category-vehicle"><img src="/assets/services/pickup.webp" alt="Camioneta con caja Yavoi Pickup"></span><strong>Pickup</strong><small>Carga y apoyo especial</small><b>Desde $145</b></button>
         </div>
       </div>
     </section>

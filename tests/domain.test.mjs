@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cents, changeDue, allowedView, escapeHtml, active, mfaQrSource } from "../src/domain.js";
+import {
+  cents,
+  changeDue,
+  allowedView,
+  escapeHtml,
+  active,
+  mfaQrSource,
+  serviceAsset,
+  driverDossierStatus,
+} from "../src/domain.js";
 test("cash amounts round to cents and invalid amounts are rejected", () => {
   assert.equal(cents("100.25"), 10025);
   assert.equal(changeDue(6850, 10000), 3150);
@@ -28,4 +37,45 @@ test("MFA QR accepts Supabase data URIs without double encoding", () => {
   assert.equal(mfaQrSource(dataUri), dataUri);
   assert.match(mfaQrSource("<svg>qr</svg>"), /^data:image\/svg\+xml;charset=utf-8,/);
   assert.throws(() => mfaQrSource("javascript:alert(1)"), /código QR/);
+});
+test("service categories use dedicated professional vehicle assets", () => {
+  assert.equal(serviceAsset("basic"), "/assets/services/basic.webp");
+  assert.equal(serviceAsset("large"), "/assets/services/large.webp");
+  assert.equal(serviceAsset("commercial"), "/assets/services/commercial.webp");
+  assert.equal(serviceAsset("plus"), "/assets/services/plus.webp");
+  assert.equal(serviceAsset("pickup"), "/assets/services/pickup.webp");
+  assert.equal(serviceAsset("unknown"), "/assets/services/basic.webp");
+});
+test("driver dossier progress requires every current document and expiration", () => {
+  const profile = { full_name: "Conductor Prueba", phone: "6391234567", avatar_path: "avatar.png" };
+  const complete = {
+    vehicle_make: "Nissan",
+    vehicle_model: "Versa",
+    vehicle_year: 2024,
+    vehicle_color: "Gris",
+    plate: "ABC123A",
+    license_number: "LIC123",
+    license_expires: "2099-12-31",
+    insurance_expires: "2099-12-31",
+    license_path: "license.pdf",
+    insurance_path: "insurance.pdf",
+    criminal_record_path: "record.pdf",
+    policy_commitment_path: "policy.pdf",
+    traffic_law_commitment_path: "traffic.pdf",
+  };
+  assert.deepEqual(driverDossierStatus(profile, complete), {
+    completed: 16,
+    total: 16,
+    percent: 100,
+    missing: [],
+  });
+  const expired = driverDossierStatus(profile, {
+    ...complete,
+    license_expires: "2020-01-01",
+    criminal_record_path: null,
+  });
+  assert.equal(expired.completed, 14);
+  assert.equal(expired.percent, 88);
+  assert.ok(expired.missing.includes("Vigencia de licencia"));
+  assert.ok(expired.missing.includes("Carta de no antecedentes penales"));
 });

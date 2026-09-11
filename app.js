@@ -66,16 +66,10 @@ function interpolateRoute(a, b, bends = 5) {
   return points;
 }
 
-const carSvg = `
-  <div class="map-car-marker" aria-label="Unidad Yavoi">
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 14.5V12l2.1-5.1A2 2 0 0 1 8 5.7h8a2 2 0 0 1 1.9 1.2L20 12v2.5M5.5 14.5h13M7 12h10M6.5 18.3v-2.1M17.5 18.3v-2.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="7" cy="14.5" r="1"/><circle cx="17" cy="14.5" r="1"/>
-    </svg>
-  </div>`;
+const carSvg = `<div class="map-car-marker" aria-label="Unidad Yavoi"><img src="/assets/map-car-top.svg" alt=""></div>`;
 
 function carIcon() {
-  return L.divIcon({ className:'', html:carSvg, iconSize:[46,46], iconAnchor:[23,23] });
+  return L.divIcon({ className:'', html:carSvg, iconSize:[46,62], iconAnchor:[23,31] });
 }
 
 function baseMap(id, zoom = 14, interactive = true) {
@@ -103,8 +97,10 @@ function drawRoute(map, points, color = '#06192c', weight = 6) {
 
 function addEndpoints(map, points) {
   if (!map || !points?.length) return [];
-  const start = L.circleMarker(points[0], { radius:7, color:'#fff', weight:3, fillColor:'#1f7aff', fillOpacity:1 }).addTo(map);
-  const end = L.circleMarker(points[points.length - 1], { radius:7, color:'#fff', weight:3, fillColor:'#ff6a00', fillOpacity:1 }).addTo(map);
+  const startIcon = L.icon({ iconUrl:'/assets/map-origin.svg', iconSize:[42,50], iconAnchor:[21,46], tooltipAnchor:[0,-43] });
+  const endIcon = L.icon({ iconUrl:'/assets/map-destination.svg', iconSize:[42,50], iconAnchor:[21,46], tooltipAnchor:[0,-43] });
+  const start = L.marker(points[0], { icon:startIcon, zIndexOffset:1000 }).bindTooltip('Punto de partida').addTo(map);
+  const end = L.marker(points[points.length - 1], { icon:endIcon, zIndexOffset:1000 }).bindTooltip('Destino').addTo(map);
   return [start, end];
 }
 
@@ -133,6 +129,11 @@ function animateMarker(marker, points, duration = 9000, loop = false, progressCa
     const lat = a[0] + (b[0] - a[0]) * local;
     const lng = a[1] + (b[1] - a[1]) * local;
     marker.setLatLng([lat,lng]);
+    const visual = marker.getElement()?.querySelector('img');
+    if (visual) {
+      const heading = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+      visual.style.transform = `rotate(${heading}deg)`;
+    }
     if (typeof progressCallback === 'function') progressCallback(normalized);
     if (!loop && raw >= 1) {
       if (typeof completeCallback === 'function') completeCallback();
@@ -426,6 +427,10 @@ $$('.regional-destinations button').forEach(button => button.addEventListener('c
     showToast(`${city}: ruta regional disponible como concepto de expansión Yavoi!.`);
   }
 }));
+
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
 
 updateRiderEstimate();
 startDriverCountdown();

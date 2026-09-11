@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Yavoi!</title>
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="#fff"/>
+  <path fill="#ff650a" d="M256 82c-68 0-123 54-123 121 0 90 123 182 123 182s123-92 123-182c0-67-55-121-123-121Zm0 69c30 0 54 23 54 52s-24 52-54 52-54-23-54-52 24-52 54-52Z"/>
+  <path d="M115 330c34 65 85 98 141 98s107-33 141-98" fill="none" stroke="#ff650a" stroke-width="38" stroke-linecap="round"/>
+</svg>

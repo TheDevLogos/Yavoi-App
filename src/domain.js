@@ -54,6 +54,44 @@ export const cents = (value) => {
   return Math.round(number * 100);
 };
 export const changeDue = (fare, tender) => Math.max(0, (tender ?? fare) - fare);
+export const serviceAssets = Object.freeze({
+  basic: "/assets/services/basic.webp",
+  large: "/assets/services/large.webp",
+  commercial: "/assets/services/commercial.webp",
+  plus: "/assets/services/plus.webp",
+  pickup: "/assets/services/pickup.webp",
+});
+export const serviceAsset = (category) => serviceAssets[category] || serviceAssets.basic;
+export const driverDossierStatus = (profile = {}, driver = {}) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const isComplete = (value) =>
+    typeof value === "boolean" ? value : String(value ?? "").trim().length > 0;
+  const requirements = [
+    ["Nombre completo", profile.full_name],
+    ["Teléfono", profile.phone],
+    ["Fotografía", profile.avatar_path || driver.avatar_path],
+    ["Marca", driver.vehicle_make],
+    ["Modelo", driver.vehicle_model],
+    ["Año", driver.vehicle_year],
+    ["Color", driver.vehicle_color],
+    ["Placas", driver.plate],
+    ["Número de licencia", driver.license_number],
+    ["Vigencia de licencia", driver.license_expires && driver.license_expires >= today],
+    ["Vigencia de seguro", driver.insurance_expires && driver.insurance_expires >= today],
+    ["Licencia", driver.license_path],
+    ["Póliza de seguro", driver.insurance_path],
+    ["Carta de no antecedentes penales", driver.criminal_record_path],
+    ["Carta de políticas Yavoi! firmada", driver.policy_commitment_path],
+    ["Carta de obligaciones viales firmada", driver.traffic_law_commitment_path],
+  ];
+  const completed = requirements.filter(([, value]) => isComplete(value)).length;
+  return {
+    completed,
+    total: requirements.length,
+    percent: Math.round((completed / requirements.length) * 100),
+    missing: requirements.filter(([, value]) => !isComplete(value)).map(([label]) => label),
+  };
+};
 export const allowedView = (role, view) => navs[role]?.some(([v]) => v === view) || view === "trip";
 export const mfaQrSource = (value) => {
   const qr = String(value || "").trim();
@@ -72,6 +110,8 @@ export function errorMessage(error) {
   const m = String(error?.message || error || "");
   if (/Invalid login credentials/i.test(m)) return "Correo o contraseña incorrectos.";
   if (/Email not confirmed/i.test(m)) return "Verifica tu correo antes de ingresar.";
+  if (/provider.*not enabled|unsupported provider/i.test(m))
+    return "Este acceso ya está preparado, pero falta activar las credenciales del proveedor en Yavoi!. Puedes continuar con correo y contraseña.";
   if (/rate limit/i.test(m)) return "Demasiados intentos. Espera unos minutos.";
   if (/Failed to fetch|NetworkError|fetch failed/i.test(m))
     return "No hay conexión. Tus cambios no se guardaron. Inténtalo de nuevo.";

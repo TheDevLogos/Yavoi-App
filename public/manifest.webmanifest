@@ -1,0 +1,23 @@
+{
+  "id": "/portal.html",
+  "name": "Yavoi! Tu raite, al instante",
+  "short_name": "Yavoi!",
+  "description": "Solicita, conduce y administra viajes Yavoi! en Delicias, Chihuahua.",
+  "lang": "es-MX",
+  "start_url": "/portal.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#071d33",
+  "categories": ["travel", "navigation", "business"],
+  "icons": [
+    { "src": "/icons/yavoi-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/yavoi-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/yavoi-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Pedir un viaje", "short_name": "Pedir viaje", "url": "/portal.html#home", "icons": [{ "src": "/icons/yavoi-192.png", "sizes": "192x192" }] },
+    { "name": "Mi perfil", "short_name": "Perfil", "url": "/portal.html#profile", "icons": [{ "src": "/icons/yavoi-192.png", "sizes": "192x192" }] }
+  ]
+}
