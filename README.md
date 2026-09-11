@@ -24,6 +24,9 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 - Solicitud y cobro idempotentes, PIN de inicio, ubicación, trayectoria, chat y estados del viaje.
 - Cierre con confirmación de efectivo, recibo, valoración mutua, propina, recompensas y quejas.
 - Centro de Operaciones con mapa de flotilla en vivo, trayectorias GPS, expedientes, viajes, conciliación de efectivo o tarjeta, reembolsos, cuotas semanales, reportes, tarifas y auditoría.
+- Auditoría simplificada con responsable, persona o viaje afectado, filtros por área y búsqueda, además de detalle colapsable en lenguaje claro.
+- Informes operativos por día, semana, mes, año o rango personalizado: viajes, ingresos, comisión, pagos, incidentes, valoraciones, rendimiento individual de conductores y vigencia de seguros; disponibles para imprimir o exportar a PDF con identidad Yavoi!.
+- Pólizas de seguro resguardadas como PDF privado, con fecha de caducidad, semáforo de vigencia y alertas anticipadas para Operaciones.
 - Cuota semanal dentro del perfil del conductor y expediente de unidad colapsado automáticamente al llegar al 100%.
 - Perfiles completos protegidos contra cambios; Operaciones con MFA puede abrir o revocar una autorización temporal de 24 horas con motivo y registro de auditoría.
 - Recuperación del viaje y del plan de solicitud desde Supabase después de recargar, cerrar o volver a abrir el navegador.

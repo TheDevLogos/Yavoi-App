@@ -4,6 +4,17 @@ import { createIcons, icons } from "lucide";
 import { authProviderSettings, db, rpc } from "./client.js";
 import { createGoogleNonce, loadGoogleIdentity, validGoogleClientId } from "./google-auth.js";
 import {
+  auditActionInfo,
+  auditDetailItems,
+  buildOperationsPdf,
+  imageUrlToDataUrl,
+  insuranceStatus,
+  periodNames,
+  reportNames,
+  reportPeriodLabel,
+  reportPrintHtml,
+} from "./operations-report.js";
+import {
   roles,
   statuses,
   navs,
@@ -73,6 +84,8 @@ const S = {
   knownOfferIds: new Set(),
   offersInitialized: false,
   draftTimer: null,
+  auditReport: null,
+  auditFilters: { report: "overview", period: "month", driver_id: "", from: "", to: "" },
 };
 const modal = $("#modal");
 let toastTimer, pollTimer;
@@ -284,6 +297,7 @@ function clearSession() {
   S.roadRoute = null;
   S.units = [];
   S.selectedUnit = null;
+  S.auditReport = null;
   S.avatarUrls = {};
   S.knownOfferIds = new Set();
   S.offersInitialized = false;
@@ -432,6 +446,7 @@ async function loadSession() {
   }
   await loadAvatar(S.profile.avatar_path);
   S.data = await rpc("dashboard");
+  S.auditReport = null;
   await renderRoute();
   startUpdates();
   if (S.profile.role === "driver" && S.driver?.online) startDriverTracking();
@@ -1697,12 +1712,128 @@ function rates() {
     });
   });
 }
-function audit() {
+function auditKpis(summary = {}) {
+  return `<div class="grid4 stats report-kpis"><div class="stat"><small>Viajes completados</small><strong>${summary.completed || 0}</strong><p>${summary.cancelled || 0} cancelados · ${summary.active || 0} en operación</p></div><div class="stat"><small>Ingresos registrados</small><strong>${money(summary.gross_cents)}</strong><p>Ticket promedio ${money(summary.average_ticket_cents)}</p></div><div class="stat"><small>Ganancia de plataforma</small><strong>${money(summary.platform_commission_cents)}</strong><p>Ingreso estimado por comisiones</p></div><div class="stat"><small>Calidad y seguridad</small><strong>${summary.average_rating ? `${decimal(summary.average_rating)}/5` : "Sin datos"}</strong><p>${summary.incidents || 0} incidentes · ${summary.open_incidents || 0} abiertos</p></div></div>`;
+}
+function overviewReport(report) {
+  const periodCards = ["day", "week", "month", "year"].map((key) => {
+    const item = report.periods?.[key] || {};
+    return `<article><small>${e(periodNames[key])}</small><strong>${item.completed || 0} viajes</strong><span>${money(item.gross_cents)} registrados</span><span>${money(item.platform_commission_cents)} comisión</span></article>`;
+  }).join("");
+  const series = report.series || [];
+  const max = Math.max(1, ...series.map((item) => Number(item.gross_cents || 0)));
+  const chart = series.slice(-31).map((item) => `<div class="report-bar" title="${e(item.day)} · ${money(item.gross_cents)}"><span style="height:${Math.max(3, Math.round((Number(item.gross_cents || 0) / max) * 100))}%"></span><small>${e(String(item.day).slice(8))}</small></div>`).join("");
+  return `<section class="period-comparison">${periodCards}</section><div class="grid2 report-grid"><section class="panel"><div class="row between wrap"><div><h2>Actividad e ingresos</h2><p>Últimos ${Math.min(31, series.length)} días del periodo elegido.</p></div><span class="badge neutral">${decimal(report.summary?.distance_km)} km recorridos</span></div><div class="report-chart">${chart || '<div class="empty"><p>Sin actividad en este periodo.</p></div>'}</div></section><section class="panel"><h2>Distribución económica</h2><div class="receipt-row"><span>Tarifas de viaje</span><strong>${money(report.summary?.fares_cents)}</strong></div><div class="receipt-row"><span>Propinas</span><strong>${money(report.summary?.tips_cents)}</strong></div><div class="receipt-row"><span>Descuentos y recompensas</span><strong>${money(report.summary?.discounts_cents)}</strong></div><div class="receipt-row"><span>Pago en efectivo</span><strong>${money(report.summary?.cash_cents)}</strong></div><div class="receipt-row"><span>Pago con tarjeta</span><strong>${money(report.summary?.card_cents)}</strong></div><div class="receipt-row total"><span>Ingreso de conductores</span><strong>${money(report.summary?.driver_earnings_cents)}</strong></div></section></div><section class="panel section-gap"><h2>Rendimiento de la flotilla</h2><div class="table-wrap"><table><thead><tr><th>Conductor</th><th>Viajes</th><th>Ingresos</th><th>Comisión</th><th>Rating</th><th>Incidentes</th></tr></thead><tbody>${(report.drivers || []).map((item) => `<tr><td><strong>${e(item.full_name)}</strong><small>${e(item.vehicle || "Unidad pendiente")} · ${e(item.plate || "Sin placas")}</small></td><td>${item.completed}</td><td>${money(item.gross_cents)}</td><td>${money(item.platform_commission_cents)}</td><td>${item.rating ? `${decimal(item.rating)}/5` : "Sin datos"}</td><td>${item.incidents}</td></tr>`).join("") || '<tr><td colspan="6">Sin conductores registrados.</td></tr>'}</tbody></table></div></section>`;
+}
+function driversReport(report) {
+  return `<section class="panel"><h2>Resultados individuales</h2><p>Cada ficha separa ingresos cobrados, ingreso estimado del conductor, comisión, actividad, calificaciones e incidentes.</p><div class="driver-report-list">${(report.drivers || []).map((item, index) => `<details class="driver-report-card" ${index === 0 && S.auditFilters.driver_id ? "open" : ""}><summary><span><strong>${e(item.full_name)}</strong><small>${e(item.vehicle || "Unidad pendiente")} · ${e(item.plate || "Sin placas")}</small></span><span><strong>${item.completed} viajes</strong><small>${money(item.gross_cents)}</small></span>${I("chevron-down")}</summary><div class="driver-report-body"><div><small>Ingreso del conductor</small><strong>${money(item.driver_earnings_cents)}</strong></div><div><small>Comisión Yavoi!</small><strong>${money(item.platform_commission_cents)}</strong></div><div><small>Rating</small><strong>${item.rating ? `${decimal(item.rating)}/5 (${item.ratings_count})` : "Sin datos"}</strong></div><div><small>Incidentes</small><strong>${item.incidents}</strong></div><div><small>Viajes cancelados</small><strong>${item.cancelled}</strong></div><div><small>Último viaje</small><strong>${item.last_trip_at ? date(item.last_trip_at) : "Sin viajes"}</strong></div></div><a class="btn secondary" href="#audit" data-driver-report="${e(item.id)}">Generar informe individual ${I("file-text")}</a></details>`).join("") || '<div class="empty"><p>Sin conductores registrados.</p></div>'}</div></section>`;
+}
+function incidentsReport(report) {
+  return `<section class="panel"><div class="row between wrap"><div><h2>Incidentes y seguimiento</h2><p>Motivo, persona que reportó, viaje relacionado y respuesta de Operaciones.</p></div><span class="badge ${report.summary?.open_incidents ? "pending" : "neutral"}">${report.summary?.open_incidents || 0} pendientes</span></div><div class="audit-list">${(report.incidents || []).map((item) => `<details class="audit-event"><summary><span class="audit-event-icon">${I("message-square-warning")}</span><span><strong>${e(item.subject)}</strong><small>${date(item.created_at)} · Reportó ${e(item.reported_by)}</small></span><span class="badge ${item.status === "resolved" ? "" : "pending"}">${e({ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[item.status] || item.status)}</span>${I("chevron-down")}</summary><div class="audit-event-detail"><p>${e(item.body)}</p><div class="audit-detail-grid"><span><small>Conductor</small><strong>${e(item.driver_name || "Sin conductor asignado")}</strong></span><span><small>Viaje</small><strong>${e(item.origin || "Sin viaje")} ${item.destination ? `→ ${e(item.destination)}` : ""}</strong></span></div>${item.response ? `<div class="hint"><strong>Respuesta de Operaciones</strong><br>${e(item.response)}</div>` : '<p class="hint warning">Aún no hay respuesta registrada.</p>'}<a class="link" href="${item.trip_id ? `#trip/${e(item.trip_id)}` : "#help"}">${item.trip_id ? "Abrir viaje relacionado" : "Abrir bandeja de reportes"}</a></div></details>`).join("") || '<div class="empty"><p>No hay incidentes en este periodo.</p></div>'}</div></section>`;
+}
+function ratingsReport(report) {
+  const counts = [5, 4, 3, 2, 1].map((star) => ({ star, count: (report.ratings || []).filter((item) => Number(item.stars) === star).length }));
+  const max = Math.max(1, ...counts.map((item) => item.count));
+  return `<div class="grid2 report-grid"><section class="panel"><h2>Distribución de valoraciones</h2><div class="rating-distribution">${counts.map((item) => `<div><span>${item.star} ${I("star")}</span><progress max="${max}" value="${item.count}">${item.count}</progress><strong>${item.count}</strong></div>`).join("")}</div></section><section class="panel"><h2>Indicadores de calidad</h2><div class="receipt-row"><span>Promedio de conductores</span><strong>${report.summary?.average_rating ? `${decimal(report.summary.average_rating)}/5` : "Sin datos"}</strong></div><div class="receipt-row"><span>Evaluaciones recibidas</span><strong>${report.summary?.ratings_count || 0}</strong></div><div class="receipt-row"><span>Conductores evaluados</span><strong>${new Set((report.ratings || []).map((item) => item.driver_id)).size}</strong></div></section></div><section class="panel section-gap"><h2>Comentarios recientes</h2><div class="audit-list">${(report.ratings || []).map((item) => `<details class="audit-event"><summary><span class="audit-event-icon">${I("star")}</span><span><strong>${e(item.driver_name)}</strong><small>${date(item.created_at)} · Evaluó ${e(item.author_name)}</small></span><span class="badge">${item.stars}/5</span>${I("chevron-down")}</summary><div class="audit-event-detail"><div class="audit-detail-grid"><span><small>Comodidad</small><strong>${item.comfort || "—"}/5</strong></span><span><small>Seguridad</small><strong>${item.safety || "—"}/5</strong></span></div><p>${e(item.comment || "Sin comentario escrito.")}</p><a class="link" href="#trip/${e(item.trip_id)}">Abrir viaje relacionado</a></div></details>`).join("") || '<div class="empty"><p>No hay valoraciones en este periodo.</p></div>'}</div></section>`;
+}
+function insuranceReport(report) {
+  return `<section class="panel"><div class="row between wrap"><div><h2>Control de pólizas de seguro</h2><p>Los avisos comienzan 60 días antes del vencimiento. Una póliza vencida impide que la unidad reciba viajes.</p></div><button class="btn" data-renew-policy="">Registrar o renovar póliza ${I("file-plus-2")}</button></div><div class="insurance-list">${(report.insurance || []).map((item) => { const [label, kind] = insuranceStatus(item.status); return `<article class="insurance-card"><div class="insurance-status ${e(kind || "valid")}">${I(item.status === "valid" ? "shield-check" : "shield-alert")}</div><div><strong>${e(item.full_name)}</strong><p>${e(item.vehicle || "Unidad pendiente")} · ${e(item.plate || "Sin placas")}</p><small>Vigencia: ${item.insurance_expires ? date(item.insurance_expires) : "Sin fecha"}${item.days_remaining != null ? ` · ${item.days_remaining} días restantes` : ""}</small></div><span class="badge ${e(kind)}">${e(label)}</span><div class="row wrap">${item.insurance_path ? `<button class="btn secondary" data-policy="${e(item.insurance_path)}">Ver póliza PDF ${I("file-text")}</button>` : ""}<button class="btn" data-renew-policy="${e(item.id)}">${item.insurance_path ? "Renovar" : "Registrar"}</button></div></article>`; }).join("") || '<div class="empty"><p>No hay unidades registradas.</p></div>'}</div></section>`;
+}
+function auditLogReport(report) {
+  const actors = [...new Map((report.audit || []).map((item) => [item.actor_id, item.actor_name || item.actor_email || "Sin identificar"])).entries()];
+  const groups = [...new Set((report.audit || []).map((item) => auditActionInfo(item.action)[1]))].sort();
+  return `<section class="panel"><div class="row between wrap"><div><h2>Registro de cambios</h2><p>Consulta quién realizó cada acción, cuándo ocurrió y qué registro fue afectado.</p></div><div class="row wrap"><button class="btn secondary" data-audit-toggle="open">Abrir todos</button><button class="btn secondary" data-audit-toggle="close">Colapsar todos</button></div></div><form id="audit-log-filter" class="audit-log-filters"><label>Buscar<input name="search" placeholder="Acción, persona o detalle"></label><label>Área<select name="group"><option value="">Todas</option>${groups.map((group) => `<option>${e(group)}</option>`).join("")}</select></label><label>Responsable<select name="actor"><option value="">Todos</option>${actors.map(([id, name]) => `<option value="${e(id)}">${e(name)}</option>`).join("")}</select></label></form><div class="audit-list" id="audit-list">${(report.audit || []).map((item) => { const [label, group] = auditActionInfo(item.action); const target = item.target_name || (item.target_trip_origin ? `${item.target_trip_origin} → ${item.target_trip_destination}` : item.target_id ? `Registro ${String(item.target_id).slice(0, 8)}` : "Plataforma Yavoi!"); const details = auditDetailItems(item.detail); const search = `${label} ${group} ${item.actor_name} ${target} ${details.map((detail) => detail.value).join(" ")}`.toLowerCase(); return `<details class="audit-event" data-audit-group="${e(group)}" data-audit-actor="${e(item.actor_id)}" data-audit-search="${e(search)}"><summary><span class="audit-event-icon">${I(group === "Pagos" ? "credit-card" : group === "Conductores" ? "car-front" : group === "Incidentes" ? "shield-alert" : group === "Informes" ? "file-chart-column" : "history")}</span><span><strong>${e(label)}</strong><small>${date(item.created_at)} · ${e(item.actor_name || item.actor_email || "Responsable sin identificar")}</small></span><span class="badge neutral">${e(group)}</span>${I("chevron-down")}</summary><div class="audit-event-detail"><div class="audit-who"><div><small>REALIZADO POR</small><strong>${e(item.actor_name || "Sin nombre")}</strong><span>${e(item.actor_email || roles[item.actor_role] || "Operaciones")}</span></div><div><small>REGISTRO AFECTADO</small><strong>${e(target)}</strong><span>${e(item.target_role ? roles[item.target_role] : "")}</span></div></div>${details.length ? `<div class="audit-detail-grid">${details.map((detail) => `<span><small>${e(detail.label)}</small><strong>${e(detail.value)}</strong></span>`).join("")}</div>` : '<p class="hint">No se guardaron datos adicionales para esta acción.</p>'}<small>Folio de auditoría ${item.id}</small></div></details>`; }).join("") || '<div class="empty"><p>No hay cambios administrativos en este periodo.</p></div>'}</div><p class="hint hidden" id="audit-empty">Ningún cambio coincide con los filtros.</p></section>`;
+}
+function renderAuditReport() {
+  const report = S.auditReport;
+  const filters = S.auditFilters;
+  const custom = filters.period === "custom";
+  const reportContent = ({ overview: overviewReport, drivers: driversReport, incidents: incidentsReport, ratings: ratingsReport, insurance: insuranceReport, audit: auditLogReport })[filters.report](report);
   shell(
-    `<section class="panel"><h2>Registro de cambios</h2>${S.data.audit.length ? S.data.audit.map((a) => `<div class="audit-item"><strong>${e(a.action)}</strong><small>${date(a.created_at)} · Actor ${e(a.actor_id.slice(0, 8))}</small><p style="font-size:13px;word-break:break-word;margin-top:7px">${e(JSON.stringify(a.detail))}</p></div>`).join("") : '<div class="empty"><p>Aún no hay cambios administrativos registrados.</p></div>'}</section>`,
-    "Auditoría de operaciones",
-    "Un historial de autorizaciones, tarifas e intervenciones administrativas.",
+    `<form id="operations-report-filter" class="panel report-toolbar"><label>Informe<select name="report">${Object.entries(reportNames).map(([id, label]) => `<option value="${id}" ${filters.report === id ? "selected" : ""}>${e(label)}</option>`).join("")}</select></label><label>Periodo<select name="period">${Object.entries(periodNames).map(([id, label]) => `<option value="${id}" ${filters.period === id ? "selected" : ""}>${e(label)}</option>`).join("")}</select></label><label>Conductor<select name="driver_id"><option value="">Toda la flotilla</option>${(S.data.drivers || []).map((item) => `<option value="${e(item.id)}" ${filters.driver_id === item.id ? "selected" : ""}>${e(item.full_name)}</option>`).join("")}</select></label><label class="${custom ? "" : "hidden"}">Desde<input name="from" type="date" value="${e(filters.from)}"></label><label class="${custom ? "" : "hidden"}">Hasta<input name="to" type="date" value="${e(filters.to)}"></label><button class="btn" type="submit">Actualizar informe ${I("refresh-cw")}</button><div class="report-export-actions"><button class="btn navy" type="button" id="download-report">Descargar PDF ${I("file-down")}</button><button class="btn secondary" type="button" id="print-report">Imprimir ${I("printer")}</button></div></form><div class="report-period-label">${I("calendar-range")} ${e(reportPeriodLabel(report.meta))}${filters.driver_id ? ` · ${e(S.data.drivers.find((item) => item.id === filters.driver_id)?.full_name || "Conductor")}` : " · Toda la flotilla"}</div>${auditKpis(report.summary)}<div class="section-gap">${reportContent}</div>`,
+    "Informes y auditoría",
+    "Resultados claros de viajes, ingresos, conductores, seguridad, valoraciones, documentos y cambios administrativos.",
   );
+  bindOperationsReportActions();
+}
+async function loadOperationsReport() {
+  const payload = { ...S.auditFilters };
+  if (payload.period !== "custom") { delete payload.from; delete payload.to; }
+  S.auditReport = await rpc("operations_report", payload);
+}
+function audit() {
+  if (S.auditReport) return renderAuditReport();
+  shell('<section class="panel report-loading"><span></span><h2>Preparando tus indicadores</h2><p>Calculamos viajes, ingresos, valoraciones, incidentes y vigencias.</p></section>', "Informes y auditoría", "Información operativa protegida para la toma de decisiones.");
+  run(async () => { await loadOperationsReport(); renderAuditReport(); });
+}
+function bindOperationsReportActions() {
+  const filter = $("#operations-report-filter");
+  filter.querySelector('[name="period"]').onchange = (event) => {
+    const custom = event.target.value === "custom";
+    filter.querySelectorAll('[name="from"],[name="to"]').forEach((input) => input.closest("label").classList.toggle("hidden", !custom));
+  };
+  bindForm("#operations-report-filter", async (values) => {
+    if (values.period === "custom" && (!values.from || !values.to)) throw Error("Elige las dos fechas del periodo personalizado.");
+    S.auditFilters = { report: values.report, period: values.period, driver_id: values.driver_id || "", from: values.from || "", to: values.to || "" };
+    await loadOperationsReport();
+    renderAuditReport();
+  });
+  $$('[data-driver-report]').forEach((item) => item.onclick = async (event) => {
+    event.preventDefault();
+    S.auditFilters = { ...S.auditFilters, report: "drivers", driver_id: item.dataset.driverReport };
+    await run(async () => { await loadOperationsReport(); renderAuditReport(); });
+  });
+  $("#download-report").onclick = () => run(async () => {
+    const logo = await imageUrlToDataUrl("/assets/yavoi-logo.png");
+    await rpc("log_report_export", { report: S.auditFilters.report, format: "pdf", period: S.auditFilters.period, driver_id: S.auditFilters.driver_id || null });
+    const pdf = await buildOperationsPdf(S.auditReport, { type: S.auditFilters.report, logoDataUrl: logo });
+    const driverName = S.auditFilters.driver_id ? S.data.drivers.find((item) => item.id === S.auditFilters.driver_id)?.full_name : "flotilla";
+    pdf.save(`Yavoi-${S.auditFilters.report}-${String(driverName || "flotilla").replace(/[^a-z0-9]+/gi, "-")}.pdf`);
+    notify("Informe PDF generado correctamente.");
+  });
+  $("#print-report").onclick = () => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return notify("Permite ventanas emergentes para imprimir el informe.");
+    printWindow.opener = null;
+    run(async () => {
+      await rpc("log_report_export", { report: S.auditFilters.report, format: "print", period: S.auditFilters.period, driver_id: S.auditFilters.driver_id || null });
+      printWindow.document.write(reportPrintHtml(S.auditReport, S.auditFilters.report));
+      printWindow.document.close();
+    });
+  };
+  $$('[data-policy]').forEach((item) => item.onclick = () => run(async () => {
+    const { data, error } = await db.storage.from("yavoi-documents").createSignedUrl(item.dataset.policy, 90);
+    if (error) throw error;
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }));
+  $$('[data-renew-policy]').forEach((item) => item.onclick = () => {
+    const current = (S.auditReport.insurance || []).find((policy) => policy.id === item.dataset.renewPolicy);
+    openModal("Registrar póliza de seguro", `<form id="renew-policy"><label>Conductor<select name="driver_id" required><option value="">Selecciona una unidad</option>${(S.auditReport.insurance || []).map((policy) => `<option value="${e(policy.id)}" ${current?.id === policy.id ? "selected" : ""}>${e(policy.full_name)} · ${e(policy.plate || "Sin placas")}</option>`).join("")}</select></label><label>Nueva fecha de caducidad<input name="insurance_expires" type="date" min="${new Date().toISOString().slice(0, 10)}" required value="${e(current?.insurance_expires || "")}"></label><label>Póliza en PDF<input name="insurance_file" type="file" accept="application/pdf" required></label><label>Referencia de validación<textarea name="note" required minlength="5" maxlength="500" placeholder="Aseguradora, número de póliza o validación realizada."></textarea></label><p class="hint">El archivo se guarda en el depósito privado de documentos y sólo puede consultarlo su propietario y Operaciones.</p><button class="btn wide" type="submit">Guardar póliza y vigencia ${I("shield-check")}</button></form>`);
+    bindForm("#renew-policy", async (values) => {
+      const path = await upload(values.insurance_file, "yavoi-documents");
+      await rpc("update_driver_insurance", { driver_id: values.driver_id, insurance_path: path, insurance_expires: values.insurance_expires, note: values.note });
+      closeModal();
+      await loadOperationsReport();
+      renderAuditReport();
+      notify("Póliza y fecha de caducidad actualizadas.");
+    });
+  });
+  const auditFilter = $("#audit-log-filter");
+  if (auditFilter) {
+    const apply = () => {
+      const values = Object.fromEntries(new FormData(auditFilter));
+      let visible = 0;
+      $$("#audit-list .audit-event").forEach((item) => {
+        const show = (!values.group || item.dataset.auditGroup === values.group) && (!values.actor || item.dataset.auditActor === values.actor) && (!values.search || item.dataset.auditSearch.includes(values.search.toLowerCase()));
+        item.classList.toggle("hidden", !show);
+        if (show) visible += 1;
+      });
+      $("#audit-empty").classList.toggle("hidden", visible > 0);
+    };
+    auditFilter.oninput = apply;
+    auditFilter.onchange = apply;
+    $$('[data-audit-toggle]').forEach((item) => item.onclick = () => $$("#audit-list .audit-event:not(.hidden)").forEach((entry) => entry.open = item.dataset.auditToggle === "open"));
+  }
 }
 function browserPosition() {
   if (!navigator.geolocation)

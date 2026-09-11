@@ -643,7 +643,35 @@ test("Postgres security and complete ride lifecycle", async () => {
     response: "Consulta atendida.",
     status: "resolved",
   });
+  const insurancePath = ids.admin + "/renewed-policy.pdf";
+  await db.exec("reset role");
+  await db.query("insert into storage.objects(bucket_id,name) values('yavoi-documents',$1)", [insurancePath]);
+  await as(ids.admin, "aal2");
+  await rpc("update_driver_insurance", {
+    driver_id: ids.driver2,
+    insurance_path: insurancePath,
+    insurance_expires: "2026-10-01",
+    note: "Póliza revisada por Operaciones.",
+  });
+  await rpc("log_report_export", { report: "overview", format: "pdf", period: "month" });
+  const operationsReport = await rpc("operations_report", { report: "overview", period: "month" });
+  assert.ok(operationsReport.summary.completed >= 2);
+  assert.ok(operationsReport.summary.gross_cents > 0);
+  assert.ok(operationsReport.periods.day.completed >= 2);
+  assert.ok(operationsReport.drivers.some((driver) => driver.id === ids.driver2));
+  assert.ok(operationsReport.audit.some((entry) => entry.actor_email === "admin.yavoi@gmail.com"));
+  assert.ok(operationsReport.audit.some((entry) => entry.action === "operations_report_exported"));
+  assert.equal(
+    operationsReport.insurance.find((policy) => policy.id === ids.driver2).insurance_path,
+    insurancePath,
+  );
+  await expectError(
+    () => rpc("operations_report", { report: "overview", period: "custom", from: "2025-01-01", to: "2026-12-31" }),
+    /366 días/,
+  );
   assert.ok((await rpc("dashboard")).audit.length > 0);
+  await as(ids.rider);
+  await expectError(() => rpc("operations_report", { report: "overview", period: "month" }), /Operaciones/);
   await db.exec("reset role");
   await db.query("select set_config('request.jwt.claims','{}',false)");
   await db.exec("set role anon");
