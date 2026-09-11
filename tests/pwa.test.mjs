@@ -57,3 +57,15 @@ test("all map markers and service vehicle illustrations exist", async () => {
     "public/assets/services/pickup.webp",
   ]) await access(new URL(path, root));
 });
+
+test("production headers allow Google Identity without weakening page isolation", async () => {
+  const config = JSON.parse(await read("vercel.json"));
+  const headers = config.headers[0].headers;
+  const csp = headers.find((header) => header.key === "Content-Security-Policy")?.value || "";
+  assert.match(csp, /https:\/\/accounts\.google\.com\/gsi\/client/);
+  assert.match(csp, /frame-src[^;]*https:\/\/accounts\.google\.com/);
+  assert.equal(
+    headers.find((header) => header.key === "Cross-Origin-Opener-Policy")?.value,
+    "same-origin-allow-popups",
+  );
+});

@@ -2,6 +2,7 @@ import "./portal.css";
 import L from "leaflet";
 import { createIcons, icons } from "lucide";
 import { authProviderSettings, db, rpc } from "./client.js";
+import { createGoogleNonce, loadGoogleIdentity, validGoogleClientId } from "./google-auth.js";
 import {
   roles,
   statuses,
@@ -21,6 +22,7 @@ import {
 const $ = (s, el = document) => el.querySelector(s),
   $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const I = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
+const GOOGLE_CLIENT_ID = String(import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
 const button = (text, action, kind = "", icon = "arrow-right") =>
   `<button class="btn ${kind}" data-action="${action}">${text}${I(icon)}</button>`;
 const S = {
@@ -74,6 +76,73 @@ const socialIcons = {
 function socialAuthButton(provider, label) {
   const enabled = S.socialProviders[provider];
   return `<button type="button" data-oauth="${provider}" ${enabled ? "" : "disabled"}>${socialIcons[provider]}<span>Continuar con ${label}</span>${enabled ? "" : "<small>Pendiente de activación</small>"}</button>`;
+}
+function googleAuthMarkup() {
+  if (S.socialProviders.google && validGoogleClientId(GOOGLE_CLIENT_ID)) {
+    return '<div id="google-button" class="google-auth-host"><span>Cargando acceso seguro de Google...</span></div>';
+  }
+  const detail = validGoogleClientId(GOOGLE_CLIENT_ID)
+    ? "Pendiente de activación"
+    : "Faltan credenciales";
+  return `<button type="button" class="google-auth-pending" disabled>${socialIcons.google}<span>Continuar con Google</span><small>${detail}</small></button>`;
+}
+async function renderOfficialGoogleButton(view) {
+  const host = $("#google-button");
+  if (!host) return;
+  try {
+    const [{ raw, hashed }, googleIdentity] = await Promise.all([
+      createGoogleNonce(),
+      loadGoogleIdentity(),
+    ]);
+    if (!host.isConnected) return;
+    googleIdentity.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      nonce: hashed,
+      ux_mode: "popup",
+      auto_select: false,
+      cancel_on_tap_outside: true,
+      use_fedcm_for_prompt: true,
+      callback: async (response) => {
+        if (!response?.credential || S.busy) return;
+        S.busy = true;
+        authLoading = true;
+        try {
+          const { error } = await db.auth.signInWithIdToken({
+            provider: "google",
+            token: response.credential,
+            nonce: raw,
+          });
+          if (error) throw error;
+          await loadSession();
+        } catch (error) {
+          authPage(view, errorMessage(error));
+        } finally {
+          S.busy = false;
+          authLoading = false;
+        }
+      },
+    });
+    host.replaceChildren();
+    googleIdentity.accounts.id.renderButton(host, {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text: view === "signup" ? "signup_with" : "signin_with",
+      shape: "rectangular",
+      logo_alignment: "left",
+      locale: "es",
+      width: Math.min(400, Math.max(240, Math.floor(host.getBoundingClientRect().width || 400))),
+    });
+  } catch (error) {
+    if (!host.isConnected) return;
+    host.replaceChildren();
+    const unavailable = document.createElement("button");
+    unavailable.type = "button";
+    unavailable.disabled = true;
+    unavailable.textContent = "Google no está disponible en este momento";
+    host.append(unavailable);
+    notify(errorMessage(error));
+  }
 }
 function iconsNow() {
   createIcons({ icons, attrs: { "stroke-width": 1.8 } });
@@ -233,8 +302,11 @@ function authPage(view = "login", message = "") {
         ? "Elige una nueva contraseña"
         : "Bienvenido a Yavoi!";
   $("#app").innerHTML =
-    `<div class="auth-layout"><aside class="auth-art"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><h1>Tu ciudad.<br>Tu camino.<br><span>Tu Yavoi!</span></h1><p>Una sola cuenta para moverte o conducir. Tu espacio, tu información y el control de cada viaje.</p><div class="auth-values"><div>${I("shield-check")} Acceso personal y datos protegidos</div><div>${I("banknote")} Precio claro antes de confirmar</div><div>${I("map-pin")} Hecho para Delicias y su gente</div></div></aside><main class="auth-main"><div class="auth-box"><img class="auth-logo-mobile" src="/assets/yavoi-logo.png" alt="Yavoi!"><a class="top-back" href="/">${I("arrow-left")} Volver a Yavoi!</a><div class="eyebrow">TU RAITE, AL INSTANTE</div><h2>${title}</h2><p>${signup ? "Crea tu acceso. Después podrás completar tu perfil de pasajero o conductor." : forgot ? "Te enviaremos un enlace si existe una cuenta con ese correo." : recovery ? "Usa al menos 12 caracteres y una contraseña que no utilices en otro lugar." : "Ingresa con tu cuenta. Te llevaremos al espacio que corresponde a tu perfil."}</p>${message ? `<div class="hint" role="status">${e(message)}</div>` : ""}${!forgot && !recovery ? `<div class="social-auth">${socialAuthButton("google", "Google")}${socialAuthButton("azure", "Microsoft")}${socialAuthButton("apple", "Apple")}</div><div class="auth-divider"><span>o usa tu correo</span></div>` : ""}<form id="auth-form">${!recovery ? '<label>Correo electrónico<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="tu@correo.com"></label>' : ""}${!forgot ? `<label>Contraseña<input name="password" type="password" autocomplete="${signup || recovery ? "new-password" : "current-password"}" required minlength="${signup || recovery ? 12 : 1}" maxlength="128" placeholder="${signup || recovery ? "Al menos 12 caracteres" : "Tu contraseña"}"></label>` : ""}${signup ? '<label class="check"><input required type="checkbox" name="consent">Entiendo que mi cuenta es personal y que debo verificar mi correo.</label>' : ""}<button class="btn wide" type="submit">${signup ? "Crear cuenta" : forgot ? "Enviar enlace" : recovery ? "Guardar contraseña" : "Ingresar"}${I("arrow-right")}</button></form><div class="auth-links"><button class="link" id="auth-switch">${signup || forgot || recovery ? "Ya tengo cuenta" : "Crear una cuenta"}</button>${!signup && !forgot && !recovery ? '<button class="link" id="forgot">Olvidé mi contraseña</button>' : ""}</div><p class="auth-note">Tu navegador puede guardar la contraseña en su administrador seguro. Nunca la guardamos en el historial de viajes.</p></div></main></div>`;
+    `<div class="auth-layout"><aside class="auth-art"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><h1>Tu ciudad.<br>Tu camino.<br><span>Tu Yavoi!</span></h1><p>Una sola cuenta para moverte o conducir. Tu espacio, tu información y el control de cada viaje.</p><div class="auth-values"><div>${I("shield-check")} Acceso personal y datos protegidos</div><div>${I("banknote")} Precio claro antes de confirmar</div><div>${I("map-pin")} Hecho para Delicias y su gente</div></div></aside><main class="auth-main"><div class="auth-box"><img class="auth-logo-mobile" src="/assets/yavoi-logo.png" alt="Yavoi!"><a class="top-back" href="/">${I("arrow-left")} Volver a Yavoi!</a><div class="eyebrow">TU RAITE, AL INSTANTE</div><h2>${title}</h2><p>${signup ? "Crea tu acceso. Después podrás completar tu perfil de pasajero o conductor." : forgot ? "Te enviaremos un enlace si existe una cuenta con ese correo." : recovery ? "Usa al menos 12 caracteres y una contraseña que no utilices en otro lugar." : "Ingresa con tu cuenta. Te llevaremos al espacio que corresponde a tu perfil."}</p>${message ? `<div class="hint" role="status">${e(message)}</div>` : ""}${!forgot && !recovery ? `<div class="social-auth">${googleAuthMarkup()}${socialAuthButton("azure", "Microsoft")}${socialAuthButton("apple", "Apple")}</div><div class="auth-divider"><span>o usa tu correo</span></div>` : ""}<form id="auth-form">${!recovery ? '<label>Correo electrónico<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="tu@correo.com"></label>' : ""}${!forgot ? `<label>Contraseña<input name="password" type="password" autocomplete="${signup || recovery ? "new-password" : "current-password"}" required minlength="${signup || recovery ? 12 : 1}" maxlength="128" placeholder="${signup || recovery ? "Al menos 12 caracteres" : "Tu contraseña"}"></label>` : ""}${signup ? '<label class="check"><input required type="checkbox" name="consent">Entiendo que mi cuenta es personal y que debo verificar mi correo.</label>' : ""}<button class="btn wide" type="submit">${signup ? "Crear cuenta" : forgot ? "Enviar enlace" : recovery ? "Guardar contraseña" : "Ingresar"}${I("arrow-right")}</button></form><div class="auth-links"><button class="link" id="auth-switch">${signup || forgot || recovery ? "Ya tengo cuenta" : "Crear una cuenta"}</button>${!signup && !forgot && !recovery ? '<button class="link" id="forgot">Olvidé mi contraseña</button>' : ""}</div><p class="auth-note">Tu navegador puede guardar la contraseña en su administrador seguro. Nunca la guardamos en el historial de viajes.</p></div></main></div>`;
   iconsNow();
+  if (!forgot && !recovery && S.socialProviders.google && validGoogleClientId(GOOGLE_CLIENT_ID)) {
+    renderOfficialGoogleButton(view);
+  }
   $$('[data-oauth]').forEach((control) => control.addEventListener("click", async () => {
     if (S.busy) return;
     S.busy = true;

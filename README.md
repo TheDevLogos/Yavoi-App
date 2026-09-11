@@ -58,6 +58,6 @@ Las migraciones versionadas están en `supabase/migrations`. La integración con
 4. Registrar y verificar `admin.yavoi@gmail.com`, y después activar MFA.
 5. Aprobar conductores únicamente después de completar los 16 requisitos, incluidos los cinco documentos privados y sus vigencias.
 6. Completar la guía [Activar Mercado Pago](docs/mercado-pago.md). La tarjeta permanece bloqueada hasta terminar esos pasos.
-7. Completar la guía [Activar Google, Microsoft y Apple](docs/oauth-providers.md). Los botones muestran un mensaje seguro hasta habilitar las credenciales oficiales.
+7. Completar la guía [Activar Google, Microsoft y Apple](docs/oauth-providers.md). Google usa su botón oficial, un token de identidad validado por Supabase y un nonce de un solo uso; los proveedores permanecen bloqueados hasta habilitar sus credenciales oficiales.
 
 Diseño y desarrollo: **TheDevLogos Creación Inteligente**.
