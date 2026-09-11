@@ -22,9 +22,7 @@ export const navs = {
     ["home", "navigation", "Conducir"],
     ["trips", "route", "Mis viajes"],
     ["wallet", "wallet", "Mis ingresos"],
-    ["weekly", "calendar-check", "Cuota semanal"],
     ["rewards", "gift", "Recompensas"],
-    ["help", "shield-check", "Ayuda y seguridad"],
     ["profile", "user-round", "Mi perfil"],
   ],
   admin: [
@@ -63,6 +61,16 @@ export const serviceAssets = Object.freeze({
 });
 export const serviceAsset = (category) => serviceAssets[category] || serviceAssets.basic;
 export const PASSENGER_POLICY_VERSION = "2026-09-10";
+export const profileEditState = (profile = {}, now = Date.now()) => {
+  const locked = Boolean(profile.profile_locked_at);
+  const authorizedUntil = Date.parse(profile.profile_edit_allowed_until || "");
+  const authorized = Number.isFinite(authorizedUntil) && authorizedUntil > now;
+  return {
+    locked,
+    authorized,
+    editable: profile.role === "admin" || !locked || authorized,
+  };
+};
 export const passengerProfileStatus = (profile = {}) => {
   const isComplete = (value) =>
     typeof value === "boolean" ? value : String(value ?? "").trim().length > 0;

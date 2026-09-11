@@ -10,6 +10,8 @@ import {
   serviceAsset,
   driverDossierStatus,
   passengerProfileStatus,
+  profileEditState,
+  navs,
 } from "../src/domain.js";
 test("cash amounts round to cents and invalid amounts are rejected", () => {
   assert.equal(cents("100.25"), 10025);
@@ -23,6 +25,46 @@ test("role navigation never grants passenger or driver admin views", () => {
     for (const view of ["fleet", "audit", "rates"]) assert.equal(allowedView(role, view), false);
   assert.equal(allowedView("admin", "fleet"), true);
   assert.equal(allowedView("passenger", "profile"), true);
+  assert.deepEqual(
+    navs.driver.map(([view]) => view),
+    ["home", "trips", "wallet", "rewards", "profile"],
+  );
+});
+test("completed profiles stay locked outside an active Operations window", () => {
+  const now = Date.parse("2026-09-11T12:00:00Z");
+  assert.equal(profileEditState({ role: "passenger" }, now).editable, true);
+  assert.equal(
+    profileEditState({ role: "passenger", profile_locked_at: "2026-09-11T10:00:00Z" }, now)
+      .editable,
+    false,
+  );
+  assert.equal(
+    profileEditState(
+      {
+        role: "driver",
+        profile_locked_at: "2026-09-11T10:00:00Z",
+        profile_edit_allowed_until: "2026-09-12T10:00:00Z",
+      },
+      now,
+    ).editable,
+    true,
+  );
+  assert.equal(
+    profileEditState(
+      {
+        role: "driver",
+        profile_locked_at: "2026-09-10T10:00:00Z",
+        profile_edit_allowed_until: "2026-09-11T11:59:59Z",
+      },
+      now,
+    ).editable,
+    false,
+  );
+  assert.equal(
+    profileEditState({ role: "admin", profile_locked_at: "2026-09-11T10:00:00Z" }, now)
+      .editable,
+    true,
+  );
 });
 test("untrusted content is escaped before rendering", () => {
   assert.equal(escapeHtml('<img onerror="alert(1)">'), "&lt;img onerror=&quot;alert(1)&quot;&gt;");

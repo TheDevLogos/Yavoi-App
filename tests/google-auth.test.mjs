@@ -44,4 +44,9 @@ test("portal exchanges the Google credential directly with Supabase", async () =
   assert.doesNotMatch(portal, /Continuar con (Microsoft|Apple)/);
   assert.match(portal, /Servicio para personas con alguna discapacidad/);
   assert.doesNotMatch(portal, />Reservación</);
+  assert.match(portal, /Reportar viaje/);
+  assert.match(portal, /Emergencias 911/);
+  assert.match(portal, /weeklyProfileMarkup/);
+  assert.match(portal, /Autorizar edición 24 h/);
+  assert.doesNotMatch(portal, /weekly:\s*weeklyView/);
 });

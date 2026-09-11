@@ -13,6 +13,7 @@ import {
   changeDue,
   driverDossierStatus,
   passengerProfileStatus,
+  profileEditState,
   PASSENGER_POLICY_VERSION,
   allowedView,
   mfaQrSource,
@@ -448,7 +449,7 @@ function shell(content, title, subtitle = "") {
   teardownMap();
   const p = S.profile;
   $("#app").innerHTML =
-    `<div class="app-shell"><aside class="sidebar"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><div class="city">${I("map-pin")} Delicias, Chihuahua</div><div class="nav-label">${e(roles[p.role]).toUpperCase()}</div><nav>${navs[p.role].map(([id, icon, label]) => `<a href="#${id}" class="${S.view === id ? "active" : ""}">${I(icon)}<span>${label}</span></a>`).join("")}</nav><div class="sidebar-bottom"><a class="sidebar-user" href="#profile">${avatar(p.full_name, p.avatar_path)}<div><strong>${e(p.full_name)}</strong><small>${e(roles[p.role])}</small></div></a><button class="logout" data-action="logout">${I("log-out")}<span>Cerrar sesión</span></button></div></aside><div class="workspace"><header class="topbar"><strong>Mi Yavoi! <span class="muted">/ ${e(roles[p.role])}</span></strong><div class="right"><span class="connection ${S.connected ? "" : "offline"}"><i></i>${S.connected ? "Conectado" : "Sin conexión"}</span><a class="landing-link link" href="/">Ir a la landing</a><a class="icon-btn" href="#help" aria-label="Ayuda">${I("headset")}</a><a class="icon-btn" href="#profile" aria-label="Mi perfil">${I("user-round")}</a></div></header><main><div class="page-title"><div><div class="eyebrow">${p.role === "admin" ? "CENTRO DE OPERACIÓN" : "TU CIUDAD. A TU RITMO."}</div><h1>${title}</h1><p>${subtitle}</p></div><span class="badge neutral">${I("shield-check")} Acceso personal</span></div><div id="page-content">${content}</div></main><div class="footer-note">Yavoi! · Tu raite, al instante · Delicias, Chihuahua</div></div></div>`;
+    `<div class="app-shell"><aside class="sidebar"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><div class="city">${I("map-pin")} Delicias, Chihuahua</div><div class="nav-label">${e(roles[p.role]).toUpperCase()}</div><nav>${navs[p.role].map(([id, icon, label]) => `<a href="#${id}" class="${S.view === id ? "active" : ""}">${I(icon)}<span>${label}</span></a>`).join("")}</nav><div class="sidebar-bottom"><a class="sidebar-user" href="#profile">${avatar(p.full_name, p.avatar_path)}<div><strong>${e(p.full_name)}</strong><small>${e(roles[p.role])}</small></div></a><button class="logout" data-action="logout">${I("log-out")}<span>Cerrar sesión</span></button></div></aside><div class="workspace"><header class="topbar"><strong>Mi Yavoi! <span class="muted">/ ${e(roles[p.role])}</span></strong><div class="right"><span class="connection ${S.connected ? "" : "offline"}"><i></i>${S.connected ? "Conectado" : "Sin conexión"}</span><a class="landing-link link" href="/">Ir a la landing</a><a class="icon-btn" href="${p.role === "driver" ? "#home" : "#help"}" aria-label="${p.role === "driver" ? "Ayuda y seguridad en Conducir" : "Ayuda"}">${I("headset")}</a><a class="icon-btn" href="#profile" aria-label="Mi perfil">${I("user-round")}</a></div></header><main><div class="page-title"><div><div class="eyebrow">${p.role === "admin" ? "CENTRO DE OPERACIÓN" : "TU CIUDAD. A TU RITMO."}</div><h1>${title}</h1><p>${subtitle}</p></div><span class="badge neutral">${I("shield-check")} Acceso personal</span></div><div id="page-content">${content}</div></main><div class="footer-note">Yavoi! · Tu raite, al instante · Delicias, Chihuahua</div></div></div>`;
   iconsNow();
   $$("[data-action]").forEach((b) => (b.onclick = () => handleAction(b.dataset.action, b)));
 }
@@ -902,6 +903,10 @@ function stats() {
         ];
   return `<div class="grid4 stats">${items.map(([a, b]) => `<div class="stat"><small>${a}</small><strong>${b}</strong><p>Registros de tu operación</p></div>`).join("")}</div>`;
 }
+function driverSafetyMarkup() {
+  const reports = (S.data.complaints || []).slice(0, 3);
+  return `<section class="panel section-gap driver-safety"><div><div class="eyebrow">AYUDA Y SEGURIDAD</div><h2>Asistencia desde Conducir</h2><p>Registra un incidente para seguimiento de Operaciones. Si existe peligro inmediato, llama directamente a emergencias.</p></div><div class="driver-safety-buttons">${button("Crear reporte", "complaint", "secondary", "message-square-warning")}<a class="btn danger" href="tel:911">${I("phone-call")} Emergencias 911</a></div>${reports.length ? `<details><summary>Mis reportes recientes</summary>${reports.map((report) => `<article class="audit-item"><div class="row between"><strong>${e(report.subject)}</strong><span class="badge ${report.status === "resolved" ? "" : "pending"}">${e({ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[report.status] || report.status)}</span></div><small>${date(report.created_at)} · ${e(report.id.slice(0, 8))}</small>${report.response ? `<p class="hint">Respuesta: ${e(report.response)}</p>` : ""}</article>`).join("")}</details>` : ""}</section>`;
+}
 async function driverHome() {
   const activeTrip = S.data.trips.find((trip) => trip.driver_id === S.user.id && active(trip));
   if (activeTrip) {
@@ -911,7 +916,7 @@ async function driverHome() {
   const driver = S.driver;
   if (!driver?.approved) {
     shell(
-      `<section class="panel"><span class="badge pending">Expediente pendiente de aprobación</span><h2 class="section-gap">Tu próximo paso: completa tu perfil</h2><p>Necesitamos tu fotografía, licencia, seguro y datos de la unidad. Operaciones revisará el expediente antes de que puedas recibir viajes.</p>${driver?.review_note ? `<p class="hint">${e(driver.review_note)}</p>` : ""}<a class="btn" href="#profile">Completar mi expediente ${I("arrow-right")}</a></section>`,
+      `<section class="panel"><span class="badge pending">Expediente pendiente de aprobación</span><h2 class="section-gap">Tu próximo paso: completa tu perfil</h2><p>Necesitamos tu fotografía, licencia, seguro y datos de la unidad. Operaciones revisará el expediente antes de que puedas recibir viajes.</p>${driver?.review_note ? `<p class="hint">${e(driver.review_note)}</p>` : ""}<a class="btn" href="#profile">Completar mi expediente ${I("arrow-right")}</a></section>${driverSafetyMarkup()}`,
       "Hola, " + e(S.profile.full_name.split(" ")[0]),
       "Tu actividad como conductor comienza con una revisión de seguridad.",
     );
@@ -919,7 +924,7 @@ async function driverHome() {
   }
   if (!driver.account_active) {
     shell(
-      `<section class="panel"><span class="badge cancelled">Cuenta sin acceso a viajes</span><h2 class="section-gap">Revisa tu cuota semanal</h2><p>Tu cuenta no puede conectarse hasta que Operaciones valide la cuota o reactive el acceso.</p><a class="btn" href="#weekly">Consultar cuota y comprobante ${I("arrow-right")}</a></section>`,
+      `<section class="panel"><span class="badge cancelled">Cuenta sin acceso a viajes</span><h2 class="section-gap">Revisa tu cuota semanal</h2><p>Tu cuenta no puede conectarse hasta que Operaciones valide la cuota o reactive el acceso.</p><a class="btn" href="#profile">Consultar cuota en mi perfil ${I("arrow-right")}</a></section>${driverSafetyMarkup()}`,
       "Acceso temporalmente desactivado",
       "Tu historial y tu perfil siguen disponibles.",
     );
@@ -942,7 +947,7 @@ async function driverHome() {
         .join("")
     : `<div class="empty">${I("navigation")}<h3>${driver.online ? "Esperando una solicitud compatible" : "Estás desconectado"}</h3><p>${driver.online ? "Tu presencia se renueva automáticamente. Cuando una solicitud llegue, verás sus datos aquí y recibirás un aviso si autorizaste las notificaciones." : "Conéctate para que el sistema pueda enviarte una solicitud por cercanía y disponibilidad."}</p></div>`;
   shell(
-    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Tú eliges cuándo comenzar"}</h2><p>${driver.online ? "Yavoi! actualiza tu presencia y ubicación mientras esta página permanece abierta." : "Conéctate cuando estés listo para recibir solicitudes dirigidas a tu unidad."}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">Tienes 60 segundos para revisar al pasajero, sus necesidades, el recorrido y el pago.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>`,
+    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Tú eliges cuándo comenzar"}</h2><p>${driver.online ? "Yavoi! actualiza tu presencia y ubicación mientras esta página permanece abierta." : "Conéctate cuando estés listo para recibir solicitudes dirigidas a tu unidad."}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">Tienes 60 segundos para revisar al pasajero, sus necesidades, el recorrido y el pago.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>${driverSafetyMarkup()}`,
     "Un buen día para conducir.",
     "Tu tiempo, tus viajes y tus ganancias en un mismo lugar.",
   );
@@ -1054,8 +1059,13 @@ async function tripView(id) {
           ". Precisión: " +
           Math.round(loc.accuracy) +
           " m.";
+  const tripSafetyControls =
+    conductor && active(t)
+      ? `<section class="ride-safety-actions" aria-label="Ayuda y seguridad durante el viaje"><button class="btn secondary" data-action="trip-report">${I("message-square-warning")} Reportar viaje</button><a class="btn danger" href="tel:911">${I("phone-call")} Emergencias 911</a></section>`
+      : "";
+  const tripFooter = `<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}${conductor ? "" : `<a href="#help" class="btn secondary">${I("headset")} Ayuda</a>`}</div>`;
   shell(
-    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}<a href="#help" class="btn secondary">${I("headset")} Ayuda</a></div></section><div class="stack">${mapFrame("ride-map", e(geo))}<section class="panel"><h2>Mensajes del viaje</h2><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Escribe un mensaje…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
+    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${tripSafetyControls}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}${tripFooter}</section><div class="stack">${mapFrame("ride-map", e(geo))}<section class="panel"><h2>Mensajes del viaje</h2><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Escribe un mensaje…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
     "Tu viaje Yavoi!",
     "Folio " + e(t.id.slice(0, 8).toUpperCase()) + " · " + date(t.created_at),
   );
@@ -1126,15 +1136,14 @@ function wallet() {
     if (note) note.textContent = "Tarjeta protegida por Mercado Pago, disponible al solicitar el viaje y para propinas posteriores.";
   }
 }
-function weeklyView() {
+function weeklyProfileMarkup() {
   const fees = S.data.weekly_fees || [];
   const current = fees[0];
   const statusName = { pending: "Pendiente", submitted: "En revisión", paid: "Pagada", overdue: "Vencida", waived: "Condonada" };
-  shell(
-    `<div class="balance"><small>CUOTA SEMANAL DE USO</small><h2>${money(current?.amount_cents || 50000)}</h2><p>${current ? `Semana del ${new Date(current.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "long" })} · vence ${date(current.due_at)}` : "La cuota aparecerá al aprobarse tu expediente."}</p></div><div class="grid2"><section class="panel"><div class="row between"><h2>Semana actual</h2>${current ? `<span class="badge ${["pending", "submitted", "overdue"].includes(current.status) ? "pending" : ""}">${e(statusName[current.status])}</span>` : ""}</div>${current && !["paid", "waived"].includes(current.status) ? `<form id="weekly-proof"><p>Sube el comprobante de pago de $500. Operaciones verificará el depósito y habilitará la cuenta.</p><label>Comprobante · PDF, JPG o PNG hasta 5 MB<input name="proof" type="file" accept="application/pdf,image/jpeg,image/png" required></label><button class="btn wide" type="submit">Enviar comprobante ${I("upload")}</button></form>` : `<p>${current ? "Tu cuota de esta semana está cubierta." : "Aún no existe una cuota activa."}</p>`}</section><section class="panel"><h2>Calendario de cuotas</h2>${fees.length ? fees.map((fee) => `<div class="fee-row"><div><strong>${new Date(fee.week_start + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</strong><small>Vence ${date(fee.due_at)}</small></div><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><strong>${money(fee.amount_cents)}</strong></div>`).join("") : '<div class="empty"><p>Sin cuotas registradas.</p></div>'}</section></div>`,
-    "Tu acceso semanal",
-    "Consulta vencimientos y envía comprobantes desde un solo lugar.",
-  );
+  return `<details class="profile-section weekly-profile" open><summary><span>${I("calendar-check")}<strong>Cuota semanal</strong></span><span class="badge ${current && ["pending", "submitted", "overdue"].includes(current.status) ? "pending" : ""}">${current ? e(statusName[current.status]) : "Sin cuota activa"}</span></summary><div class="weekly-summary"><div><small>CUOTA SEMANAL DE USO</small><strong>${money(current?.amount_cents || 50000)}</strong><p>${current ? `Semana del ${new Date(current.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "long" })} · vence ${date(current.due_at)}` : "La cuota aparecerá al aprobarse tu expediente."}</p></div></div><div class="grid2 weekly-grid"><section><h3>Semana actual</h3>${current && !["paid", "waived"].includes(current.status) ? `<form id="weekly-proof"><p>Sube el comprobante de pago de $500. Operaciones verificará el depósito y habilitará la cuenta.</p><label>Comprobante · PDF, JPG o PNG hasta 5 MB<input name="proof" type="file" accept="application/pdf,image/jpeg,image/png" required></label><button class="btn wide" type="submit">Enviar comprobante ${I("upload")}</button></form>` : `<p>${current ? "Tu cuota de esta semana está cubierta." : "Aún no existe una cuota activa."}</p>`}</section><section><h3>Calendario de cuotas</h3>${fees.length ? fees.map((fee) => `<div class="fee-row"><div><strong>${new Date(fee.week_start + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</strong><small>Vence ${date(fee.due_at)}</small></div><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><strong>${money(fee.amount_cents)}</strong></div>`).join("") : '<p class="muted">Sin cuotas registradas.</p>'}</section></div></details>`;
+}
+function bindWeeklyProof() {
+  const current = (S.data.weekly_fees || [])[0];
   bindForm("#weekly-proof", async (_v, form) => {
     const path = await upload(form.elements.proof.files[0], "yavoi-payment-proofs");
     await rpc("submit_weekly_fee", { fee_id: current.id, proof_path: path });
@@ -1228,57 +1237,72 @@ function passengerPolicyMarkup(profile) {
 function documentField(name, title, path, note = "") {
   return `<label class="document-upload"><span>${e(title)}</span><input name="${name}" type="file" accept="application/pdf,image/jpeg,image/png"><small>${path ? "Documento recibido. Puedes reemplazarlo." : "Pendiente de cargar"}${note ? ` · ${e(note)}` : ""}</small></label>`;
 }
+function profileLockNotice(editState) {
+  if (!editState.locked) return "";
+  if (editState.authorized)
+    return `<div class="profile-lock-notice authorized">${I("lock-open")}<div><strong>Edición autorizada por Operaciones</strong><p>Puedes actualizar tus datos hasta ${date(S.profile.profile_edit_allowed_until)}. Cada cambio queda registrado.</p></div></div>`;
+  return `<div class="profile-lock-notice">${I("lock-keyhole")}<div><strong>Perfil protegido</strong><p>El expediente completo está disponible sólo para consulta. Operaciones debe autorizar cualquier modificación.</p></div></div>`;
+}
 function profile() {
-  const p = S.profile,
-    d = S.driver || {};
+  const p = S.profile;
+  const d = S.driver || {};
   const driver = p.role === "driver";
   const passenger = p.role === "passenger";
   const dossier = driver ? driverDossierStatus(p, d) : null;
+  const editState = profileEditState(p);
+  const formDisabled = editState.editable ? "" : "disabled";
+  const lockNotice = profileLockNotice(editState);
+  const personalForm = `<form id="profile-form"><fieldset ${formDisabled}><div class="grid2"><label>Nombre completo<input name="name" autocomplete="name" required minlength="2" maxlength="100" value="${e(p.full_name)}"></label><label>Teléfono de contacto<input name="phone" type="tel" autocomplete="tel" required minlength="10" maxlength="25" value="${e(p.phone)}"></label><label>Contacto de emergencia<input name="emergency_name" ${passenger ? 'required minlength="2"' : ""} maxlength="100" value="${e(p.emergency_name)}"></label><label>Teléfono de emergencia<input name="emergency_phone" type="tel" ${passenger ? 'required minlength="10"' : ""} maxlength="25" value="${e(p.emergency_phone)}"></label></div><label>Fotografía de perfil · JPG, PNG o WebP, hasta 2 MB<input name="avatar" type="file" accept="image/jpeg,image/png,image/webp" ${passenger && !p.avatar_path ? "required" : ""}></label>${passenger ? passengerPolicyMarkup(p) : ""}<button type="submit" class="btn">Guardar perfil ${I("check")}</button></fieldset></form>`;
+  const driverDossier = driver
+    ? `<details class="profile-section dossier-details" ${dossier.percent < 100 ? "open" : ""}><summary><span>${I("car-front")}<strong>Mi unidad y documentos</strong></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : dossier.percent === 100 ? "100% completo" : `${dossier.percent}% completo`}</span></summary><div class="profile-section-body">${driverProgressMarkup(p, d)}<p class="hint">Al modificar el expediente la autorización anterior se pausa hasta una nueva revisión. Los documentos son privados y sólo el conductor y Operaciones pueden consultarlos.</p>${d.review_note ? `<p class="hint">Revisión: ${e(d.review_note)}</p>` : ""}<form id="vehicle-form"><fieldset ${formDisabled}><h3>Datos de la unidad</h3><div class="grid2"><label>Marca<input name="vehicle_make" required minlength="2" maxlength="50" value="${e(d.vehicle_make)}" placeholder="Nissan"></label><label>Modelo<input name="vehicle_model" required minlength="1" maxlength="50" value="${e(d.vehicle_model)}" placeholder="Versa"></label><label>Año<input name="vehicle_year" type="number" min="1990" max="${new Date().getFullYear() + 1}" required value="${e(d.vehicle_year || "")}"></label><label>Color<input name="vehicle_color" required minlength="3" maxlength="40" value="${e(d.vehicle_color)}" placeholder="Gris"></label><label>Placas<input name="plate" required minlength="5" maxlength="20" value="${e(d.plate)}"></label><label>Categoría<select name="category">${S.categories.map((c) => `<option value="${c.id}" ${d.category === c.id ? "selected" : ""}>${e(c.name)}</option>`).join("")}</select></label><label>Número de licencia<input name="license_number" required maxlength="50" value="${e(d.license_number)}"></label><label>Vencimiento de licencia<input name="license_expires" type="date" required value="${e(d.license_expires)}"></label><label>Vencimiento de seguro<input name="insurance_expires" type="date" required value="${e(d.insurance_expires)}"></label></div><h3 class="section-gap">Documentos privados</h3><div class="driver-documents">${documentField("license_file", "Licencia de conducir", d.license_path)}${documentField("insurance_file", "Póliza de seguro", d.insurance_path)}${documentField("criminal_record_file", "Carta de no antecedentes penales", d.criminal_record_path, "carga el documento oficial vigente")}${documentField("policy_commitment_file", "Carta de compromiso y políticas Yavoi! firmada", d.policy_commitment_path)}${documentField("traffic_law_commitment_file", "Carta de aceptación de obligaciones viales firmada", d.traffic_law_commitment_path)}</div><div class="document-templates"><div>${I("file-down")}<span><strong>Plantillas para firma</strong><small>Descarga, completa, firma y carga el documento entero.</small></span></div><a class="btn secondary" href="/documents/carta-compromiso-politicas-yavoi.pdf" download>Políticas Yavoi! ${I("download")}</a><a class="btn secondary" href="/documents/carta-aceptacion-vialidad-chihuahua.pdf" download>Obligaciones viales ${I("download")}</a><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Consultar ley oficial ${I("external-link")}</a></div><label class="check"><input type="checkbox" name="advertising_interest" ${d.advertising_interest ? "checked" : ""}>Me interesa participar en convenios de publicidad</label><button type="submit" class="btn">Guardar y enviar expediente ${I("shield-check")}</button></fieldset></form></div></details>`
+    : "";
   shell(
-    `<section class="panel"><div class="profile-head">${avatar(p.full_name, p.avatar_path, "big")}<div><h2>${e(p.full_name)}</h2><p>${e(S.user.email)} · ${e(roles[p.role])}</p><small>El tipo de cuenta se protege en el servidor.</small></div></div>${passenger ? passengerProgressMarkup(p) : ""}<form id="profile-form"><div class="grid2"><label>Nombre completo<input name="name" autocomplete="name" required minlength="2" maxlength="100" value="${e(p.full_name)}"></label><label>Teléfono de contacto<input name="phone" type="tel" autocomplete="tel" required minlength="10" maxlength="25" value="${e(p.phone)}"></label><label>Contacto de emergencia<input name="emergency_name" ${passenger ? "required minlength=\"2\"" : ""} maxlength="100" value="${e(p.emergency_name)}"></label><label>Teléfono de emergencia<input name="emergency_phone" type="tel" ${passenger ? "required minlength=\"10\"" : ""} maxlength="25" value="${e(p.emergency_phone)}"></label></div><label>Fotografía de perfil · JPG, PNG o WebP, hasta 2 MB<input name="avatar" type="file" accept="image/jpeg,image/png,image/webp" ${passenger && !p.avatar_path ? "required" : ""}></label>${passenger ? passengerPolicyMarkup(p) : ""}<button type="submit" class="btn">Guardar perfil ${I("check")}</button></form></section>${driver ? `<section class="panel section-gap"><div class="row between"><div><h2>Mi unidad y documentos</h2><p>Completa cada requisito antes de solicitar autorización.</p></div><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : dossier.percent === 100 ? "Listo para revisión" : `${dossier.percent}% completo`}</span></div>${driverProgressMarkup(p, d)}<p class="hint">Al guardar cambios la autorización anterior se pausa hasta una nueva revisión. Los documentos son privados y sólo el conductor y Operaciones pueden consultarlos.</p>${d.review_note ? `<p class="hint">Revisión: ${e(d.review_note)}</p>` : ""}<form id="vehicle-form"><h3>Datos de la unidad</h3><div class="grid2"><label>Marca<input name="vehicle_make" required minlength="2" maxlength="50" value="${e(d.vehicle_make)}" placeholder="Nissan"></label><label>Modelo<input name="vehicle_model" required minlength="1" maxlength="50" value="${e(d.vehicle_model)}" placeholder="Versa"></label><label>Año<input name="vehicle_year" type="number" min="1990" max="${new Date().getFullYear() + 1}" required value="${e(d.vehicle_year || "")}"></label><label>Color<input name="vehicle_color" required minlength="3" maxlength="40" value="${e(d.vehicle_color)}" placeholder="Gris"></label><label>Placas<input name="plate" required minlength="5" maxlength="20" value="${e(d.plate)}"></label><label>Categoría<select name="category">${S.categories.map((c) => `<option value="${c.id}" ${d.category === c.id ? "selected" : ""}>${e(c.name)}</option>`).join("")}</select></label><label>Número de licencia<input name="license_number" required maxlength="50" value="${e(d.license_number)}"></label><label>Vencimiento de licencia<input name="license_expires" type="date" required value="${e(d.license_expires)}"></label><label>Vencimiento de seguro<input name="insurance_expires" type="date" required value="${e(d.insurance_expires)}"></label></div><h3 class="section-gap">Documentos privados</h3><div class="driver-documents">${documentField("license_file", "Licencia de conducir", d.license_path)}${documentField("insurance_file", "Póliza de seguro", d.insurance_path)}${documentField("criminal_record_file", "Carta de no antecedentes penales", d.criminal_record_path, "carga el documento oficial vigente")}${documentField("policy_commitment_file", "Carta de compromiso y políticas Yavoi! firmada", d.policy_commitment_path)}${documentField("traffic_law_commitment_file", "Carta de aceptación de obligaciones viales firmada", d.traffic_law_commitment_path)}</div><div class="document-templates"><div>${I("file-down")}<span><strong>Plantillas para firma</strong><small>Descarga, completa, firma y carga el documento entero.</small></span></div><a class="btn secondary" href="/documents/carta-compromiso-politicas-yavoi.pdf" download>Políticas Yavoi! ${I("download")}</a><a class="btn secondary" href="/documents/carta-aceptacion-vialidad-chihuahua.pdf" download>Obligaciones viales ${I("download")}</a><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Consultar ley oficial ${I("external-link")}</a></div><label class="check"><input type="checkbox" name="advertising_interest" ${d.advertising_interest ? "checked" : ""}>Me interesa participar en convenios de publicidad</label><button type="submit" class="btn">Guardar y enviar expediente ${I("shield-check")}</button></form></section>` : ""}<section class="panel section-gap"><h2>Acceso y seguridad</h2><p>Tu sesión es personal. Puedes cambiar tu contraseña o cerrar sesión en todos tus dispositivos.</p><div class="row wrap">${button("Cambiar contraseña", "password", "secondary", "key-round")}${button("Cerrar mis sesiones", "logout", "secondary", "log-out")}</div>${p.role === "admin" ? '<p class="hint">Operaciones exige autenticación en dos pasos. Conserva acceso a tu aplicación autenticadora.</p>' : ""}</section>`,
+    `<section class="panel"><div class="profile-head">${avatar(p.full_name, p.avatar_path, "big")}<div><h2>${e(p.full_name)}</h2><p>${e(S.user.email)} · ${e(roles[p.role])}</p><small>El tipo de cuenta se protege en el servidor.</small></div></div>${passenger ? passengerProgressMarkup(p) : ""}${lockNotice}${personalForm}</section>${driverDossier}${driver ? weeklyProfileMarkup() : ""}<section class="panel section-gap"><h2>Acceso y seguridad</h2><p>Tu sesión es personal. Puedes cambiar tu contraseña o cerrar sesión en todos tus dispositivos.</p><div class="row wrap">${button("Cambiar contraseña", "password", "secondary", "key-round")}${button("Cerrar mis sesiones", "logout", "secondary", "log-out")}</div>${p.role === "admin" ? '<p class="hint">Operaciones exige autenticación en dos pasos. Conserva acceso a tu aplicación autenticadora.</p>' : ""}</section>`,
     "Mi perfil",
     "Tu información, tu unidad y las opciones de tu cuenta.",
   );
-  bindForm("#profile-form", async (v, f) => {
-    const path = await upload(f.elements.avatar.files[0], "yavoi-avatars");
-    await rpc("profile", {
-      name: v.name,
-      phone: v.phone,
-      emergency_name: v.emergency_name,
-      emergency_phone: v.emergency_phone,
-      ...(path ? { avatar_path: path } : {}),
-      accept_passenger_policy: v.accept_passenger_policy === "on",
-      passenger_policy_version: PASSENGER_POLICY_VERSION,
+  if (editState.editable) {
+    bindForm("#profile-form", async (v, f) => {
+      const path = await upload(f.elements.avatar.files[0], "yavoi-avatars");
+      await rpc("profile", {
+        name: v.name,
+        phone: v.phone,
+        emergency_name: v.emergency_name,
+        emergency_phone: v.emergency_phone,
+        ...(path ? { avatar_path: path } : {}),
+        accept_passenger_policy: v.accept_passenger_policy === "on",
+        passenger_policy_version: PASSENGER_POLICY_VERSION,
+      });
+      await loadSession();
+      notify("Perfil actualizado.");
     });
-    await loadSession();
-    notify("Perfil actualizado.");
-  });
-  bindForm("#vehicle-form", async (v, f) => {
-    const [license, insurance, criminalRecord, policyCommitment, trafficLawCommitment] = await Promise.all([
-      upload(f.elements.license_file.files[0], "yavoi-documents"),
-      upload(f.elements.insurance_file.files[0], "yavoi-documents"),
-      upload(f.elements.criminal_record_file.files[0], "yavoi-documents"),
-      upload(f.elements.policy_commitment_file.files[0], "yavoi-documents"),
-      upload(f.elements.traffic_law_commitment_file.files[0], "yavoi-documents"),
-    ]);
-    await rpc("driver_profile", {
-      ...v,
-      license_file: undefined,
-      insurance_file: undefined,
-      criminal_record_file: undefined,
-      policy_commitment_file: undefined,
-      traffic_law_commitment_file: undefined,
-      ...(license ? { license_path: license } : {}),
-      ...(insurance ? { insurance_path: insurance } : {}),
-      ...(criminalRecord ? { criminal_record_path: criminalRecord } : {}),
-      ...(policyCommitment ? { policy_commitment_path: policyCommitment } : {}),
-      ...(trafficLawCommitment ? { traffic_law_commitment_path: trafficLawCommitment } : {}),
-      advertising_interest: v.advertising_interest === "on",
+    bindForm("#vehicle-form", async (v, f) => {
+      const [license, insurance, criminalRecord, policyCommitment, trafficLawCommitment] = await Promise.all([
+        upload(f.elements.license_file.files[0], "yavoi-documents"),
+        upload(f.elements.insurance_file.files[0], "yavoi-documents"),
+        upload(f.elements.criminal_record_file.files[0], "yavoi-documents"),
+        upload(f.elements.policy_commitment_file.files[0], "yavoi-documents"),
+        upload(f.elements.traffic_law_commitment_file.files[0], "yavoi-documents"),
+      ]);
+      await rpc("driver_profile", {
+        ...v,
+        license_file: undefined,
+        insurance_file: undefined,
+        criminal_record_file: undefined,
+        policy_commitment_file: undefined,
+        traffic_law_commitment_file: undefined,
+        ...(license ? { license_path: license } : {}),
+        ...(insurance ? { insurance_path: insurance } : {}),
+        ...(criminalRecord ? { criminal_record_path: criminalRecord } : {}),
+        ...(policyCommitment ? { policy_commitment_path: policyCommitment } : {}),
+        ...(trafficLawCommitment ? { traffic_law_commitment_path: trafficLawCommitment } : {}),
+        advertising_interest: v.advertising_interest === "on",
+      });
+      await loadSession();
+      notify("Expediente enviado a revisión.");
     });
-    await loadSession();
-    notify("Expediente enviado a revisión.");
-  });
-  if (passenger) {
+  }
+  if (passenger && editState.editable) {
     const form = $("#profile-form");
     const updatePassengerProgress = () => {
       const values = Object.fromEntries(new FormData(form));
@@ -1303,7 +1327,7 @@ function profile() {
     form.addEventListener("input", updatePassengerProgress);
     form.addEventListener("change", updatePassengerProgress);
   }
-  if (driver) {
+  if (driver && editState.editable) {
     const form = $("#vehicle-form");
     const updateProgress = () => {
       const values = Object.fromEntries(new FormData(form));
@@ -1329,6 +1353,7 @@ function profile() {
     form.addEventListener("input", updateProgress);
     form.addEventListener("change", updateProgress);
   }
+  if (driver) bindWeeklyProof();
 }
 function help() {
   const admin = S.profile.role === "admin";
@@ -1435,8 +1460,20 @@ function fleet() {
     const doc = (path, label) => path ? `<button class="btn secondary" data-document="${e(path)}">${I("file-check")} ${label}</button>` : "";
     return `<article class="offer dossier-card"><div class="row between"><div><h3>${e(d.full_name)}</h3><p>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</p></div><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span></div><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} requisitos${progress.missing.length ? ` · Faltan: ${e(progress.missing.slice(0, 3).join(", "))}${progress.missing.length > 3 ? "…" : ""}` : " · Expediente completo"}</small></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.license_path, "Licencia")}${doc(d.insurance_path, "Seguro")}${doc(d.criminal_record_path, "No antecedentes")}${doc(d.policy_commitment_path, "Políticas Yavoi!")}${doc(d.traffic_law_commitment_path, "Obligaciones viales")}<button class="btn" data-review="${e(d.id)}">Revisar autorización ${I("arrow-right")}</button></div>${d.advertising_interest ? "<small>Interesado en convenios de publicidad</small>" : ""}</article>`;
   }).join("");
+  const managedProfiles = (S.data.managed_profiles || []).map((managed) => {
+    const editState = profileEditState(managed);
+    const status = !editState.locked
+      ? '<span class="badge neutral">En captura</span>'
+      : editState.authorized
+        ? `<span class="badge pending">Edición hasta ${date(managed.profile_edit_allowed_until)}</span>`
+        : '<span class="badge">Protegido</span>';
+    const accessButton = editState.locked
+      ? `<button class="btn ${editState.authorized ? "danger" : "secondary"}" data-profile-edit="${e(managed.id)}" data-allowed="${editState.authorized ? "false" : "true"}">${I(editState.authorized ? "lock-keyhole" : "lock-open")}${editState.authorized ? "Revocar edición" : "Autorizar edición 24 h"}</button>`
+      : "";
+    return `<article class="managed-profile"><div><strong>${e(managed.full_name || "Perfil sin nombre")}</strong><small>${e(roles[managed.role])} · ${e(managed.phone || "Sin teléfono")} · ${e(managed.id.slice(0, 8))}</small></div>${status}${accessButton}</article>`;
+  }).join("");
   shell(
-    `<section class="panel"><div class="row between"><div><h2>Expedientes de conductores</h2><p>La aprobación sólo se habilita con los 16 requisitos completos y documentos vigentes.</p></div><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Ley oficial ${I("external-link")}</a></div>${S.data.drivers.length ? cards : '<div class="empty"><p>Los conductores aparecerán al crear su cuenta y completar el perfil.</p></div>'}</section>`,
+    `<section class="panel"><div class="row between"><div><h2>Expedientes de conductores</h2><p>La aprobación sólo se habilita con los 16 requisitos completos y documentos vigentes.</p></div><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Ley oficial ${I("external-link")}</a></div>${S.data.drivers.length ? cards : '<div class="empty"><p>Los conductores aparecerán al crear su cuenta y completar el perfil.</p></div>'}</section><section class="panel section-gap"><h2>Control de edición de perfiles</h2><p>Los perfiles completos permanecen protegidos. Una autorización abre una ventana de 24 horas y queda registrada en auditoría.</p><div class="managed-profiles">${managedProfiles || '<div class="empty"><p>No hay perfiles para administrar.</p></div>'}</div></section>`,
     "Conductores y flotilla",
     "Revisa identidad, documentación y capacidades antes de autorizar una unidad.",
   );
@@ -1487,6 +1524,28 @@ function fleet() {
         });
       }),
   );
+  $$("[data-profile-edit]").forEach((item) => {
+    item.onclick = () => {
+      const allowed = item.dataset.allowed === "true";
+      const managed = (S.data.managed_profiles || []).find(
+        (profile) => profile.id === item.dataset.profileEdit,
+      );
+      openModal(
+        allowed ? "Autorizar cambio de perfil" : "Revocar autorización",
+        `<p>${allowed ? "La persona podrá modificar sus datos durante las próximas 24 horas." : "El perfil volverá inmediatamente al modo protegido."}</p><form id="profile-edit-access"><label>Motivo<textarea name="note" required minlength="5" maxlength="500" placeholder="Describe la verificación realizada y el cambio solicitado."></textarea></label><p class="hint">Perfil: ${e(managed?.full_name || item.dataset.profileEdit)}. Esta acción exige verificación en dos pasos y queda registrada.</p><button class="btn wide" type="submit">${allowed ? "Autorizar por 24 horas" : "Revocar ahora"}</button></form>`,
+      );
+      bindForm("#profile-edit-access", async (values) => {
+        await rpc("authorize_profile_edit", {
+          profile_id: item.dataset.profileEdit,
+          allowed,
+          note: values.note,
+        });
+        closeModal();
+        await refreshPage();
+        notify(allowed ? "Edición autorizada por 24 horas." : "Autorización revocada.");
+      });
+    };
+  });
 }
 function rates() {
   shell(
@@ -1703,10 +1762,11 @@ async function handleAction(action, b) {
     });
     return;
   }
-  if (action === "complaint") {
+  if (action === "complaint" || action === "trip-report") {
+    const selectedTrip = action === "trip-report" ? S.trip?.trip?.id || "" : "";
     openModal(
-      "Cuéntanos qué ocurrió",
-      `<form id="complaint"><label>Viaje (opcional)<select name="trip_id"><option value="">Consulta general</option>${S.data.trips.map((t) => `<option value="${e(t.id)}">${e(t.id.slice(0, 8))} · ${e(t.destination)}</option>`).join("")}</select></label><label>Motivo<select name="subject"><option>Problema con el viaje</option><option>Tarifa o efectivo</option><option>Seguridad</option><option>Objeto olvidado</option><option>Otro</option></select></label><label>Descripción<textarea name="body" required minlength="10" maxlength="2000" placeholder="Cuéntanos lo ocurrido."></textarea></label><button class="btn wide" type="submit">Enviar reporte</button></form>`,
+      selectedTrip ? "Reportar este viaje" : "Cuéntanos qué ocurrió",
+      `<form id="complaint"><label>Viaje (opcional)<select name="trip_id"><option value="">Consulta general</option>${S.data.trips.map((t) => `<option value="${e(t.id)}" ${t.id === selectedTrip ? "selected" : ""}>${e(t.id.slice(0, 8))} · ${e(t.destination)}</option>`).join("")}</select></label><label>Motivo<select name="subject"><option>Problema con el viaje</option><option ${selectedTrip ? "selected" : ""}>Seguridad durante el viaje</option><option>Tarifa o efectivo</option><option>Objeto olvidado</option><option>Otro</option></select></label><label>Descripción<textarea name="body" required minlength="10" maxlength="2000" placeholder="Cuéntanos lo ocurrido."></textarea></label><button class="btn wide" type="submit">Enviar reporte</button></form>`,
     );
     bindForm("#complaint", async (v) => {
       await rpc("complaint", v);
@@ -1851,7 +1911,7 @@ async function renderRoute() {
     else if (S.profile.role === "driver") await driverHome();
     else adminHome();
   } else if (S.view === "opsmap") await operationsMapView();
-  else ({ trips: tripsView, profile, wallet, weekly: weeklyView, payments: paymentsView, rewards, help, fleet, rates, audit })[S.view]?.();
+  else ({ trips: tripsView, profile, wallet, payments: paymentsView, rewards, help, fleet, rates, audit })[S.view]?.();
 }
 async function refreshPage() {
   const b = await rpc("bootstrap");

@@ -70,7 +70,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   await db.exec("reset role");
   await db.query("insert into storage.objects(bucket_id,name) values('yavoi-avatars',$1)", [riderAvatar]);
   await as(ids.rider);
-  await rpc("profile", {
+  const riderProfile = {
     name: "Pasajero Prueba",
     phone: "6391234567",
     emergency_name: "Contacto Pasajero",
@@ -78,7 +78,17 @@ test("Postgres security and complete ride lifecycle", async () => {
     avatar_path: riderAvatar,
     accept_passenger_policy: true,
     passenger_policy_version: "2026-09-10",
-  });
+  };
+  await rpc("profile", riderProfile);
+  assert.ok(
+    (await db.query("select profile_locked_at from public.profiles where id=$1", [ids.rider])).rows[0]
+      .profile_locked_at,
+  );
+  await expectError(() => rpc("profile", { ...riderProfile, name: "Cambio sin permiso" }), /protegido/);
+  await expectError(
+    () => rpc("authorize_profile_edit", { profile_id: ids.rider, allowed: true, note: "Intento propio" }),
+    /Operaciones/,
+  );
   await expectError(
     () =>
       rpc("review_driver", { driver_id: ids.driver, approved: true, note: "Intento ilegítimo" }),
@@ -115,7 +125,28 @@ test("Postgres security and complete ride lifecycle", async () => {
   await expectError(() => rpc("dashboard"), /dos pasos/);
   assert.equal((await db.query("select * from public.trips")).rows.length, 0);
   await as(ids.admin, "aal2");
-  await rpc("dashboard");
+  const adminDashboard = await rpc("dashboard");
+  assert.ok(adminDashboard.managed_profiles.some((profile) => profile.id === ids.rider));
+  await rpc("authorize_profile_edit", {
+    profile_id: ids.rider,
+    allowed: true,
+    note: "Identidad del pasajero verificada por Operaciones.",
+  });
+  await as(ids.rider);
+  await rpc("profile", { ...riderProfile, name: "Pasajero Actualizado" });
+  assert.equal(
+    (await db.query("select full_name from public.profiles where id=$1", [ids.rider])).rows[0].full_name,
+    "Pasajero Actualizado",
+  );
+  await as(ids.admin, "aal2");
+  await rpc("authorize_profile_edit", {
+    profile_id: ids.rider,
+    allowed: false,
+    note: "Actualización concluida y revisada.",
+  });
+  await as(ids.rider);
+  await expectError(() => rpc("profile", riderProfile), /protegido/);
+  await as(ids.admin, "aal2");
   await expectError(
     () => rpc("review_driver", { driver_id: ids.driver, approved: true, note: "Expediente revisado" }),
     /expediente requiere/,
@@ -152,6 +183,11 @@ test("Postgres security and complete ride lifecycle", async () => {
       ...documents,
     });
     assert.equal(submitted.complete, true);
+    assert.ok(
+      (await db.query("select profile_locked_at from public.profiles where id=$1", [id])).rows[0]
+        .profile_locked_at,
+    );
+    await expectError(() => rpc("driver_profile", {}), /protegido/);
   }
   await as(ids.admin, "aal2");
   for (const id of [ids.driver, ids.driver2])
@@ -299,7 +335,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(firstOffer.id, t.id);
   assert.equal(firstOffer.party_size, 4);
   assert.equal(firstOffer.service_notes, "Requiero espacio para dos maletas.");
-  assert.equal(firstOffer.passenger_name, "Pasajero Prueba");
+  assert.equal(firstOffer.passenger_name, "Pasajero Actualizado");
   assert.ok(firstOffer.offer_id);
   const acceptedTrip = await rpc("accept", { offer_id: firstOffer.offer_id });
   assert.equal(acceptedTrip.status, "accepted");

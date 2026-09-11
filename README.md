@@ -12,6 +12,7 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 - Cotización en servidor por categoría, kilómetros estimados, duración y zona.
 - Unidades compatibles en mapa, selección opcional y oferta automática a la unidad más cercana; el conductor acepta o rechaza después de revisar la solicitud.
 - Avisos de nuevas solicitudes, disponibilidad voluntaria y presencia GPS renovada mientras el portal del conductor permanece abierto.
+- Ayuda y seguridad integrada en Conducir, con reporte asociado al viaje y acceso directo a Emergencias 911 durante un servicio activo.
 - Ficha previa del pasajero con fotografía, calificación, número de personas y peticiones de espacio o servicio.
 - Zonas central, urbana y regional; Meoqui se clasifica como servicio regional.
 - Preferencia de conductora verificada y unidad con accesibilidad verificada.
@@ -20,6 +21,8 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 - Solicitud y cobro idempotentes, PIN de inicio, ubicación, trayectoria, chat y estados del viaje.
 - Cierre con confirmación de efectivo, recibo, valoración mutua, propina, recompensas y quejas.
 - Centro de Operaciones con mapa de flotilla en vivo, trayectorias GPS, expedientes, viajes, conciliación de efectivo o tarjeta, reembolsos, cuotas semanales, reportes, tarifas y auditoría.
+- Cuota semanal dentro del perfil del conductor y expediente de unidad colapsado automáticamente al llegar al 100%.
+- Perfiles completos protegidos contra cambios; Operaciones con MFA puede abrir o revocar una autorización temporal de 24 horas con motivo y registro de auditoría.
 - Recuperación del viaje y del plan de solicitud desde Supabase después de recargar, cerrar o volver a abrir el navegador.
 - Exportación CSV segura para análisis operativo.
 
