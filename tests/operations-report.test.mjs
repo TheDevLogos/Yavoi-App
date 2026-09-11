@@ -44,6 +44,12 @@ test("audit terms identify the action, area and readable details", () => {
     { label: "Autorizado", value: "Sí" },
     { label: "Nota", value: "Revisado" },
   ]);
+  assert.deepEqual(auditActionInfo("driver_billing_changed"), ["Modalidad de cobro del conductor modificada", "Pagos"]);
+  assert.deepEqual(auditDetailItems({ billing_mode: "commission", weekly_fee_cents: 50000, card_commission_bps: 2000 }), [
+    { label: "Modalidad de cobro", value: "Comisión por viaje" },
+    { label: "Aportación semanal", value: "$500.00" },
+    { label: "Comisión electrónica", value: "20%" },
+  ]);
   assert.deepEqual(insuranceStatus("critical"), ["Vence en 30 días", "cancelled"]);
 });
 

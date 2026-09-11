@@ -56,6 +56,7 @@ const S = {
   busy: false,
   map: null,
   markers: [],
+  mapLiveLayer: null,
   origin: places[0],
   destination: null,
   pick: "destination",
@@ -282,6 +283,7 @@ function teardownMap() {
     S.map = null;
   }
   S.markers = [];
+  S.mapLiveLayer = null;
 }
 function clearSession() {
   teardownMap();
@@ -467,7 +469,7 @@ function shell(content, title, subtitle = "") {
   teardownMap();
   const p = S.profile;
   $("#app").innerHTML =
-    `<div class="app-shell"><aside class="sidebar"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><div class="city">${I("map-pin")} Delicias, Chihuahua</div><div class="nav-label">${e(roles[p.role]).toUpperCase()}</div><nav>${navs[p.role].map(([id, icon, label]) => `<a href="#${id}" class="${S.view === id ? "active" : ""}">${I(icon)}<span>${label}</span></a>`).join("")}</nav><div class="sidebar-bottom"><a class="sidebar-user" href="#profile">${avatar(p.full_name, p.avatar_path)}<div><strong>${e(p.full_name)}</strong><small>${e(roles[p.role])}</small></div></a><button class="logout" data-action="logout">${I("log-out")}<span>Cerrar sesión</span></button></div></aside><div class="workspace"><header class="topbar"><strong>Mi Yavoi! <span class="muted">/ ${e(roles[p.role])}</span></strong><div class="right"><span class="connection ${S.connected ? "" : "offline"}"><i></i>${S.connected ? "Conectado" : "Sin conexión"}</span><a class="landing-link link" href="/">Ir a la landing</a><a class="icon-btn" href="${p.role === "driver" ? "#home" : "#help"}" aria-label="${p.role === "driver" ? "Ayuda y seguridad en Conducir" : "Ayuda"}">${I("headset")}</a><a class="icon-btn" href="#profile" aria-label="Mi perfil">${I("user-round")}</a></div></header><main><div class="page-title"><div><div class="eyebrow">${p.role === "admin" ? "CENTRO DE OPERACIÓN" : "TU CIUDAD. A TU RITMO."}</div><h1>${title}</h1><p>${subtitle}</p></div><span class="badge neutral">${I("shield-check")} Acceso personal</span></div><div id="page-content">${content}</div></main><div class="footer-note">Yavoi! · Tu raite, al instante · Delicias, Chihuahua</div></div></div>`;
+    `<div class="app-shell"><aside class="sidebar"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><div class="city">${I("map-pin")} Delicias, Chihuahua</div><div class="nav-label">${e(roles[p.role]).toUpperCase()}</div><nav>${navs[p.role].map(([id, icon, label]) => `<a href="#${id}" class="${S.view === id ? "active" : ""}">${I(icon)}<span>${label}</span></a>`).join("")}</nav><div class="sidebar-bottom"><a class="sidebar-user" href="#profile">${avatar(p.full_name, p.avatar_path)}<div><strong>${e(p.full_name)}</strong><small>${e(roles[p.role])}</small></div></a><button class="logout" data-action="logout">${I("log-out")}<span>Cerrar sesión</span></button></div></aside><div class="workspace"><header class="topbar"><div class="topbar-brand"><img class="mobile-brand" src="/assets/yavoi-logo.png" alt="Yavoi!"><strong>Mi Yavoi! <span class="muted">/ ${e(roles[p.role])}</span></strong></div><div class="right"><span class="connection ${S.connected ? "" : "offline"}"><i></i>${S.connected ? "Conectado" : "Sin conexión"}</span><a class="landing-link link" href="/">Ir a la landing</a><a class="icon-btn" href="${p.role === "driver" ? "#home" : "#help"}" aria-label="${p.role === "driver" ? "Ayuda y seguridad en Conducir" : "Ayuda"}">${I("headset")}</a><a class="icon-btn" href="#profile" aria-label="Mi perfil">${I("user-round")}</a></div></header><main><div class="page-title"><div><div class="eyebrow">${p.role === "admin" ? "CENTRO DE OPERACIÓN" : "TU CIUDAD. A TU RITMO."}</div><h1>${title}</h1><p>${subtitle}</p></div><span class="badge neutral">${I("shield-check")} Acceso personal</span></div><div id="page-content">${content}</div></main><div class="footer-note">Yavoi! · Tu raite, al instante · Delicias, Chihuahua</div></div></div>`;
   iconsNow();
   $$("[data-action]").forEach((b) => (b.onclick = () => handleAction(b.dataset.action, b)));
 }
@@ -587,7 +589,7 @@ function startMap(trip = null) {
   loadRoadRoute(trip);
   setTimeout(() => S.map?.invalidateSize(), 70);
 }
-function drawPoints(t = null) {
+function drawPoints(t = null, { fit = true } = {}) {
   if (!S.map) return;
   S.markers.forEach((m) => m.remove());
   S.markers = [];
@@ -612,10 +614,11 @@ function drawPoints(t = null) {
         { color: "#183c54", weight: 5, opacity: 0.72 },
       ).addTo(S.map),
     );
-    S.map.fitBounds(
-      points.map((p) => [p.lat, p.lng]),
-      { padding: [55, 55], maxZoom: 15 },
-    );
+    if (fit)
+      S.map.fitBounds(
+        points.map((p) => [p.lat, p.lng]),
+        { padding: [55, 55], maxZoom: 15 },
+      );
   }
   if (!t)
     S.units.forEach((unit, index) => {
@@ -1009,13 +1012,13 @@ async function driverHome() {
   });
 }
 function tableTrips() {
-  return `<div class="table-wrap"><table><thead><tr><th>Folio / fecha</th><th>Recorrido</th><th>Estado</th><th>Pago</th><th>Importe</th><th></th></tr></thead><tbody id="trip-rows">${tripRows(S.data.trips)}</tbody></table></div>${!S.data.trips.length ? `<div class="empty">${I("route")}<h3>Tu historial empieza con el primer viaje</h3><p>Los viajes guardados aparecerán aquí.</p></div>` : ""}`;
+  return `<div class="table-wrap"><table><thead><tr><th>Folio / fecha</th><th>Recorrido</th><th>Estado</th><th>Pago</th><th>Importe</th><th>Valoración</th><th></th></tr></thead><tbody id="trip-rows">${tripRows(S.data.trips)}</tbody></table></div>${!S.data.trips.length ? `<div class="empty">${I("route")}<h3>Tu historial empieza con el primer viaje</h3><p>Los viajes guardados aparecerán aquí.</p></div>` : ""}`;
 }
 function tripRows(ts) {
   return ts
     .map(
       (t) =>
-        `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e({ paid: "Confirmado", pending: "Pendiente", failed: "No aprobado", refund_pending: "Reembolso pendiente", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</small></td><td>${money(t.total_cents ?? t.fare_cents)}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
+        `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e({ paid: "Confirmado", pending: "Pendiente", failed: "No aprobado", refund_pending: "Reembolso pendiente", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</small></td><td>${money(t.total_cents ?? t.fare_cents)}</td><td>${t.rating_given ? `<span class="trip-rating-inline">${I("star")} ${t.rating_given}/5</span><small>Tu valoración</small>` : t.rating_received ? `<span class="trip-rating-inline">${I("star")} ${t.rating_received}/5</span><small>Valoración recibida</small>` : '<small>Sin valorar</small>'}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
     )
     .join("");
 }
@@ -1042,6 +1045,17 @@ function tripsView() {
   };
   $("#search-trips").oninput = filter;
   $("#filter-status").onchange = filter;
+}
+function tripRatingsMarkup(ratings = []) {
+  const cards = ratings.map((rating) => {
+    const relationship = rating.author_id === S.user.id
+      ? `Tu valoración para ${rating.recipient_role === "driver" ? "el conductor" : "el pasajero"}`
+      : rating.recipient_id === S.user.id
+        ? `Valoración que recibiste de ${rating.author_role === "driver" ? "tu conductor" : "tu pasajero"}`
+        : `${rating.author_name} valoró a ${rating.recipient_name}`;
+    return `<article class="trip-rating-card"><div class="row between wrap"><div><small>${e(relationship)}</small><strong>${e(rating.author_name)} → ${e(rating.recipient_name)}</strong></div><span class="trip-rating-score">${I("star")} ${rating.stars}/5</span></div>${rating.comfort || rating.safety ? `<div class="meta-row">${rating.comfort ? `<span>Comodidad ${rating.comfort}/5</span>` : ""}${rating.safety ? `<span>Seguridad ${rating.safety}/5</span>` : ""}</div>` : ""}<p>${e(rating.comment || "Sin comentario escrito.")}</p><small>${date(rating.created_at)}</small></article>`;
+  }).join("");
+  return `<section class="trip-ratings"><h3>Valoraciones de este viaje</h3>${cards || '<p class="hint">Este viaje todavía no tiene una valoración registrada.</p>'}</section>`;
 }
 async function tripView(id) {
   S.trip = await rpc("trip", { trip_id: id });
@@ -1103,9 +1117,12 @@ async function tripView(id) {
     conductor && active(t)
       ? `<section class="ride-safety-actions" aria-label="Ayuda y seguridad durante el viaje"><button class="btn secondary" data-action="trip-report">${I("message-square-warning")} Reportar viaje</button><a class="btn danger" href="tel:911">${I("phone-call")} Emergencias 911</a></section>`
       : "";
+  const chatAction = t.driver_id && active(t) && (rider || conductor)
+    ? button(rider ? "Mensajear con mi conductor" : "Mensajear con mi pasajero", "open-chat", "secondary wide section-gap", "message-circle")
+    : "";
   const tripFooter = `<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}${conductor ? "" : `<a href="#help" class="btn secondary">${I("headset")} Ayuda</a>`}</div>`;
   shell(
-    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${tripSafetyControls}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}${tripFooter}</section><div class="stack">${mapFrame("ride-map", e(geo))}<section class="panel"><h2>Mensajes del viaje</h2><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Escribe un mensaje…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
+    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${chatAction}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${tripSafetyControls}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" ? tripRatingsMarkup(S.trip.ratings || []) : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}${tripFooter}</section><div class="stack">${mapFrame("ride-map", e(geo))}<section class="panel trip-chat-panel" id="trip-chat"><div class="row between wrap"><div><h2>Mensajes del viaje</h2><p>Disponible desde que el conductor acepta y mientras el viaje está activo.</p></div>${I("message-circle")}</div><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Confirma una entrada, referencia o indicación…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
     "Tu viaje Yavoi!",
     "Folio " + e(t.id.slice(0, 8).toUpperCase()) + " · " + date(t.created_at),
   );
@@ -1142,8 +1159,13 @@ async function refreshTrip() {
     return;
   }
   S.trip = next;
-  if ($("#chat")) $("#chat").innerHTML = messagesHtml(next.messages);
-  drawPoints(next.trip);
+  const chat = $("#chat");
+  if (chat) {
+    const followLatest = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 80;
+    chat.innerHTML = messagesHtml(next.messages);
+    if (followLatest) chat.scrollTop = chat.scrollHeight;
+  }
+  drawPoints(next.trip, { fit: false });
   const caption = $(".map-caption span");
   if (caption && next.location) {
     const l = next.location;
@@ -1156,16 +1178,28 @@ async function refreshTrip() {
       " m.";
   }
 }
+const settlementStatusName = { pending: "Pendiente", submitted: "En revisión", paid: "Pagada", overdue: "Vencida", waived: "Condonada" };
+function driverBillingCard() {
+  const d = S.driver || {};
+  const weekly = d.billing_mode !== "commission";
+  return `<section class="panel billing-summary"><div class="row between wrap"><div><div class="eyebrow">TU MODALIDAD ACTUAL</div><h2>${weekly ? "Aportación semanal" : "Comisión por viaje"}</h2></div><span class="badge">${weekly ? money(d.weekly_fee_cents || 50000) + " por semana" : "Sin aportación semanal"}</span></div><div class="grid2 billing-rules"><div>${I("banknote")}<span><small>VIAJES EN EFECTIVO</small><strong>${weekly ? "100% para ti" : `${100 - Number(d.cash_commission_bps || 2000) / 100}% para ti`}</strong><p>${weekly ? "No generan comisión adicional." : `${Number(d.cash_commission_bps || 2000) / 100}% se liquida semanalmente a Yavoi!.`}</p></span></div><div>${I("credit-card")}<span><small>PAGO ELECTRÓNICO</small><strong>${100 - Number(d.card_commission_bps || (weekly ? 1000 : 2000)) / 100}% para ti</strong><p>La comisión de ${Number(d.card_commission_bps || (weekly ? 1000 : 2000)) / 100}% se retiene al conciliar el pago.</p></span></div></div><p class="hint">Operaciones administra esta modalidad. Cada viaje conserva el porcentaje vigente cuando lo aceptaste.</p></section>`;
+}
+function driverSettlementsMarkup() {
+  const settlements = S.data.commission_settlements || [];
+  if (S.driver?.billing_mode !== "commission") return "";
+  return `<section class="panel section-gap"><div class="row between wrap"><div><h2>Liquidación semanal de efectivo</h2><p>Transfiere únicamente la comisión Yavoi! de los viajes que cobraste en efectivo.</p></div><span class="badge ${settlements.some((item) => ["pending", "overdue"].includes(item.status)) ? "pending" : ""}">${settlements.filter((item) => ["pending", "overdue", "submitted"].includes(item.status)).length} por conciliar</span></div><div class="settlement-list">${settlements.length ? settlements.map((item) => `<article class="settlement-card"><div><strong>Semana del ${new Date(item.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "medium" })}</strong><small>Vence ${date(item.due_at)} · Efectivo cobrado ${money(item.gross_cash_cents)}</small></div><div><small>COMISIÓN A TRANSFERIR</small><strong>${money(item.commission_due_cents)}</strong></div><span class="badge ${["pending", "overdue", "submitted"].includes(item.status) ? "pending" : ""}">${e(settlementStatusName[item.status] || item.status)}</span>${["pending", "overdue"].includes(item.status) ? `<form class="settlement-proof" data-settlement-form="${e(item.id)}"><label>Comprobante · PDF, JPG o PNG<input name="proof" type="file" accept="application/pdf,image/jpeg,image/png" required></label><button class="btn" type="submit">Enviar transferencia ${I("upload")}</button></form>` : item.proof_path ? '<small>Comprobante enviado a Operaciones.</small>' : ""}</article>`).join("") : '<div class="empty"><p>La primera liquidación aparecerá al completar un viaje en efectivo.</p></div>'}</div></section>`;
+}
 function wallet() {
   const driver = S.profile.role !== "passenger";
   const completed = S.data.trips.filter((t) => t.status === "completed");
   const total = driver
     ? S.data.ledger.reduce((n, l) => n + l.amount_cents, 0)
     : completed.reduce((n, t) => n + (t.total_cents ?? t.fare_cents), 0);
+  const ledgerNames = { fare: "Tarifa cobrada", commission: "Comisión Yavoi!", cash_tip: "Propina en efectivo", card_tip: "Propina electrónica" };
   shell(
-    `<div class="balance"><small>${driver ? "INGRESO NETO REGISTRADO" : "TOTAL DE VIAJES COMPLETADOS"}</small><h2>${money(total)}</h2><p>${driver ? "Tarifas cobradas, menos comisión, más propinas recibidas." : "Pagos en efectivo registrados por el conductor al terminar."}</p></div><div class="grid2"><section class="panel"><h2>${driver ? "Tus movimientos" : "Métodos de pago"}</h2>${driver ? (S.data.ledger.length ? S.data.ledger.map((l) => `<div class="receipt-row"><div>${e({ fare: "Tarifa cobrada", commission: "Comisión por pagar", cash_tip: "Propina en efectivo" }[l.kind])}<small style="display:block">${date(l.created_at)}</small></div><strong>${money(l.amount_cents)}</strong></div>`).join("") : "<p>Aún no hay movimientos.</p>") : `<div class="row">${I("banknote")}<strong>Efectivo</strong><span class="badge">Disponible</span></div><p class="hint">Indica si necesitas cambio antes de solicitar. El conductor verá el monto con el que pagarás.</p><div class="row muted">${I("credit-card")}<strong>Tarjeta</strong><span class="badge neutral">Próximamente</span></div><p class="hint">No se guardan datos de tarjeta. Esta opción se activará al conectar un proveedor de pagos.</p>`}</section><section class="panel"><h2>${driver ? "Comisiones y liquidaciones" : "Cada peso, con claridad"}</h2><p>${driver ? "Al cobrar en efectivo recibes la tarifa completa. La comisión registrada representa una cuenta pendiente con Yavoi!, no una transferencia ya realizada." : "La tarifa se muestra antes de confirmar. La propina es voluntaria y puedes entregarla directamente en efectivo."}</p><p class="hint">No hay retiros bancarios, cobros automáticos ni devoluciones electrónicas habilitados. Operaciones deberá conciliar el efectivo.</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></section></div>`,
+    `${driver ? driverBillingCard() : ""}<div class="balance ${driver ? "section-gap" : ""}"><small>${driver ? "INGRESO NETO REGISTRADO" : "TOTAL DE VIAJES COMPLETADOS"}</small><h2>${money(total)}</h2><p>${driver ? "Tarifas, menos la comisión aplicable a cada viaje, más todas tus propinas." : "Pagos registrados por viajes completados."}</p></div><div class="grid2"><section class="panel"><h2>${driver ? "Tus movimientos" : "Métodos de pago"}</h2>${driver ? (S.data.ledger.length ? S.data.ledger.map((l) => `<div class="receipt-row"><div>${e(ledgerNames[l.kind] || l.kind)}<small style="display:block">${date(l.created_at)}</small></div><strong>${money(l.amount_cents)}</strong></div>`).join("") : "<p>Aún no hay movimientos.</p>") : `<div class="row">${I("banknote")}<strong>Efectivo</strong><span class="badge">Disponible</span></div><p class="hint">Indica si necesitas cambio antes de solicitar. El conductor verá el monto con el que pagarás.</p><div class="row muted">${I("credit-card")}<strong>Tarjeta</strong><span class="badge neutral">Próximamente</span></div><p class="hint">No se guardan datos de tarjeta. Esta opción se activará al conectar un proveedor de pagos.</p>`}</section><section class="panel"><h2>${driver ? "Cómo se calcula" : "Cada peso, con claridad"}</h2><p>${driver ? "La tarifa y la propina se muestran por separado. Las propinas son 100% tuyas; el porcentaje comercial sólo se calcula sobre la tarifa del viaje." : "La tarifa se muestra antes de confirmar. La propina es voluntaria y puedes entregarla directamente en efectivo."}</p><p class="hint">${driver ? "En pagos electrónicos Yavoi! registra el monto neto. En efectivo, una comisión pendiente aparece en la liquidación semanal sólo cuando tu modalidad es por comisión." : "Cada cobro queda relacionado con el viaje y su recibo."}</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></section></div>${driver ? driverSettlementsMarkup() : ""}`,
     driver ? "Tus ingresos, siempre claros." : "Tu cartera Yavoi!",
-    "Consulta los importes registrados en tus viajes.",
+    "Consulta importes, porcentajes aplicados y liquidaciones.",
   );
   if (!driver && S.cardEnabled) {
     const cardRow = $(".row.muted");
@@ -1175,15 +1209,27 @@ function wallet() {
     const note = cardRow?.nextElementSibling;
     if (note) note.textContent = "Tarjeta protegida por Mercado Pago, disponible al solicitar el viaje y para propinas posteriores.";
   }
+  $$("[data-settlement-form]").forEach((form, index) => {
+    form.id = `settlement-proof-${index}`;
+    bindForm("#" + form.id, async (_values, currentForm) => {
+      const path = await upload(currentForm.elements.proof.files[0], "yavoi-payment-proofs");
+      await rpc("submit_driver_settlement", { settlement_id: form.dataset.settlementForm, proof_path: path });
+      await refreshPage();
+      notify("Transferencia enviada a revisión de Operaciones.");
+    });
+  });
 }
 function weeklyProfileMarkup() {
-  const fees = S.data.weekly_fees || [];
+  if (S.driver?.billing_mode === "commission")
+    return `<details class="profile-section weekly-profile"><summary><span>${I("circle-dollar-sign")}<strong>Modalidad de ingresos</strong></span><span class="badge neutral">Comisión por viaje</span></summary><div class="profile-section-body"><p>No tienes aportación semanal. Las comisiones de efectivo se concentran por semana en <a class="link" href="#wallet">Mis ingresos</a>; las electrónicas se descuentan al conciliar cada pago.</p></div></details>`;
+  const fees = (S.data.weekly_fees || []).filter((fee) => fee.status !== "waived");
   const current = fees[0];
   const statusName = { pending: "Pendiente", submitted: "En revisión", paid: "Pagada", overdue: "Vencida", waived: "Condonada" };
-  return `<details class="profile-section weekly-profile" open><summary><span>${I("calendar-check")}<strong>Cuota semanal</strong></span><span class="badge ${current && ["pending", "submitted", "overdue"].includes(current.status) ? "pending" : ""}">${current ? e(statusName[current.status]) : "Sin cuota activa"}</span></summary><div class="weekly-summary"><div><small>CUOTA SEMANAL DE USO</small><strong>${money(current?.amount_cents || 50000)}</strong><p>${current ? `Semana del ${new Date(current.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "long" })} · vence ${date(current.due_at)}` : "La cuota aparecerá al aprobarse tu expediente."}</p></div></div><div class="grid2 weekly-grid"><section><h3>Semana actual</h3>${current && !["paid", "waived"].includes(current.status) ? `<form id="weekly-proof"><p>Sube el comprobante de pago de $500. Operaciones verificará el depósito y habilitará la cuenta.</p><label>Comprobante · PDF, JPG o PNG hasta 5 MB<input name="proof" type="file" accept="application/pdf,image/jpeg,image/png" required></label><button class="btn wide" type="submit">Enviar comprobante ${I("upload")}</button></form>` : `<p>${current ? "Tu cuota de esta semana está cubierta." : "Aún no existe una cuota activa."}</p>`}</section><section><h3>Calendario de cuotas</h3>${fees.length ? fees.map((fee) => `<div class="fee-row"><div><strong>${new Date(fee.week_start + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</strong><small>Vence ${date(fee.due_at)}</small></div><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><strong>${money(fee.amount_cents)}</strong></div>`).join("") : '<p class="muted">Sin cuotas registradas.</p>'}</section></div></details>`;
+  return `<details class="profile-section weekly-profile" open><summary><span>${I("calendar-check")}<strong>Cuota semanal</strong></span><span class="badge ${current && ["pending", "submitted", "overdue"].includes(current.status) ? "pending" : ""}">${current ? e(statusName[current.status]) : "Sin cuota activa"}</span></summary><div class="weekly-summary"><div><small>CUOTA SEMANAL DE USO</small><strong>${money(current?.amount_cents || S.driver?.weekly_fee_cents || 50000)}</strong><p>${current ? `Semana del ${new Date(current.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "long" })} · vence ${date(current.due_at)}` : "La cuota aparecerá al aprobarse tu expediente."}</p></div></div><div class="grid2 weekly-grid"><section><h3>Semana actual</h3>${current && !["paid", "waived"].includes(current.status) ? `<form id="weekly-proof"><p>Sube el comprobante de ${money(current.amount_cents)}. Operaciones verificará el depósito y habilitará la cuenta.</p><label>Comprobante · PDF, JPG o PNG hasta 5 MB<input name="proof" type="file" accept="application/pdf,image/jpeg,image/png" required></label><button class="btn wide" type="submit">Enviar comprobante ${I("upload")}</button></form>` : `<p>${current ? "Tu cuota de esta semana está cubierta." : "Aún no existe una cuota activa."}</p>`}</section><section><h3>Calendario de cuotas</h3>${fees.length ? fees.map((fee) => `<div class="fee-row"><div><strong>${new Date(fee.week_start + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</strong><small>Vence ${date(fee.due_at)}</small></div><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><strong>${money(fee.amount_cents)}</strong></div>`).join("") : '<p class="muted">Sin cuotas registradas.</p>'}</section></div></details>`;
 }
 function bindWeeklyProof() {
-  const current = (S.data.weekly_fees || [])[0];
+  const current = (S.data.weekly_fees || []).find((fee) => fee.status !== "waived");
+  if (!current || !$("#weekly-proof")) return;
   bindForm("#weekly-proof", async (_v, form) => {
     const path = await upload(form.elements.proof.files[0], "yavoi-payment-proofs");
     await rpc("submit_weekly_fee", { fee_id: current.id, proof_path: path });
@@ -1194,10 +1240,13 @@ function bindWeeklyProof() {
 function paymentsView() {
   const payments = S.data.payments || [];
   const fees = S.data.weekly_fees || [];
+  const settlements = S.data.commission_settlements || [];
   const approved = payments.filter((payment) => payment.status === "approved").reduce((sum, payment) => sum + payment.amount_cents, 0);
   const statusName = { created: "Creado", pending: "Pendiente", in_process: "Procesando", approved: "Aprobado", rejected: "Rechazado", cancelled: "Cancelado", refund_pending: "Reembolso pendiente", refunded: "Reembolsado", submitted: "En revisión", paid: "Pagada", overdue: "Vencida", waived: "Condonada" };
+  const feeCards = fees.filter((fee) => fee.note !== "Modalidad por comisión").map((fee) => `<article class="fee-card"><div><strong>${e(fee.driver_name)}</strong><small>Semana ${e(fee.week_start)} · vence ${date(fee.due_at)}</small></div><strong>${money(fee.amount_cents)}</strong><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><div class="row wrap">${fee.proof_path ? `<button class="btn secondary" data-fee-proof="${e(fee.proof_path)}">Ver comprobante</button>` : ""}${fee.status === "submitted" ? `<button class="btn" data-fee-review="${e(fee.id)}">Revisar pago</button>` : ""}<button class="btn ${fee.account_active ? "danger" : "secondary"}" data-driver-access="${e(fee.driver_id)}" data-active="${fee.account_active ? "false" : "true"}">${fee.account_active ? "Desactivar cuenta" : "Activar cuenta"}</button></div></article>`).join("");
+  const settlementCards = settlements.map((item) => `<article class="fee-card"><div><strong>${e(item.driver_name)}</strong><small>Semana ${e(item.week_start)} · efectivo ${money(item.gross_cash_cents)}</small></div><strong>${money(item.commission_due_cents)}</strong><span class="badge ${["pending", "submitted", "overdue"].includes(item.status) ? "pending" : ""}">${e(statusName[item.status] || item.status)}</span><div class="row wrap">${item.proof_path ? `<button class="btn secondary" data-settlement-proof="${e(item.proof_path)}">Ver transferencia</button>` : ""}${item.status === "submitted" ? `<button class="btn" data-settlement-review="${e(item.id)}">Revisar liquidación</button>` : ""}</div></article>`).join("");
   shell(
-    `<div class="grid4 stats"><div class="stat"><small>Pagos registrados</small><strong>${payments.length}</strong><p>Efectivo, tarjeta y cuotas</p></div><div class="stat"><small>Importe aprobado</small><strong>${money(approved)}</strong><p>Conciliación del sistema</p></div><div class="stat"><small>Cuotas por revisar</small><strong>${fees.filter((fee) => fee.status === "submitted").length}</strong><p>Comprobantes recibidos</p></div><div class="stat"><small>Reembolsos pendientes</small><strong>${payments.filter((payment) => payment.status === "refund_pending").length}</strong><p>Requieren seguimiento</p></div></div><section class="panel section-gap"><h2>Registro de pagos</h2><div class="table-wrap"><table><thead><tr><th>Fecha / referencia</th><th>Concepto</th><th>Viaje y personas</th><th>Método</th><th>Estado</th><th>Importe</th><th></th></tr></thead><tbody>${payments.map((payment) => `<tr><td>${date(payment.created_at)}<small>${e(payment.provider_payment_id || payment.id.slice(0, 8))}</small></td><td>${e({ ride: "Viaje", tip: "Propina", weekly_fee: "Cuota semanal" }[payment.kind])}</td><td>${e(payment.origin || "Sin viaje")}<small>${e(payment.payer_name || "")} ${payment.driver_name ? `· ${e(payment.driver_name)}` : ""}</small></td><td>${e({ cash: "Efectivo", mercado_pago: "Mercado Pago", manual: "Comprobante" }[payment.provider])}</td><td><span class="badge ${["created", "pending", "in_process", "refund_pending"].includes(payment.status) ? "pending" : payment.status === "rejected" ? "cancelled" : ""}">${e(statusName[payment.status] || payment.status)}</span></td><td><strong>${money(payment.amount_cents)}</strong></td><td>${payment.status === "refund_pending" ? `<button class="link" data-refund="${e(payment.id)}">Procesar reembolso</button>` : ""}</td></tr>`).join("")}</tbody></table></div></section><section class="panel section-gap"><h2>Cuotas semanales de conductores</h2>${fees.length ? fees.map((fee) => `<article class="fee-card"><div><strong>${e(fee.driver_name)}</strong><small>Semana ${e(fee.week_start)} · vence ${date(fee.due_at)}</small></div><strong>${money(fee.amount_cents)}</strong><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><div class="row wrap">${fee.proof_path ? `<button class="btn secondary" data-fee-proof="${e(fee.proof_path)}">Ver comprobante</button>` : ""}${fee.status === "submitted" ? `<button class="btn" data-fee-review="${e(fee.id)}">Revisar pago</button>` : ""}<button class="btn ${fee.account_active ? "danger" : "secondary"}" data-driver-access="${e(fee.driver_id)}" data-active="${fee.account_active ? "false" : "true"}">${fee.account_active ? "Desactivar cuenta" : "Activar cuenta"}</button></div></article>`).join("") : '<div class="empty"><p>No hay cuotas registradas.</p></div>'}</section>`,
+    `<div class="grid4 stats"><div class="stat"><small>Pagos registrados</small><strong>${payments.length}</strong><p>Efectivo, tarjeta y aportaciones</p></div><div class="stat"><small>Importe aprobado</small><strong>${money(approved)}</strong><p>Conciliación del sistema</p></div><div class="stat"><small>Comprobantes por revisar</small><strong>${fees.filter((fee) => fee.status === "submitted").length + settlements.filter((item) => item.status === "submitted").length}</strong><p>Aportaciones y comisiones</p></div><div class="stat"><small>Reembolsos pendientes</small><strong>${payments.filter((payment) => payment.status === "refund_pending").length}</strong><p>Requieren seguimiento</p></div></div><section class="panel section-gap"><h2>Registro de pagos</h2><div class="table-wrap"><table><thead><tr><th>Fecha / referencia</th><th>Concepto</th><th>Viaje y personas</th><th>Método</th><th>Estado</th><th>Importe</th><th></th></tr></thead><tbody>${payments.map((payment) => `<tr><td>${date(payment.created_at)}<small>${e(payment.provider_payment_id || payment.id.slice(0, 8))}</small></td><td>${e({ ride: "Viaje", tip: "Propina", weekly_fee: "Aportación semanal" }[payment.kind])}</td><td>${e(payment.origin || "Sin viaje")}<small>${e(payment.payer_name || "")} ${payment.driver_name ? `· ${e(payment.driver_name)}` : ""}</small></td><td>${e({ cash: "Efectivo", mercado_pago: "Mercado Pago", manual: "Comprobante" }[payment.provider])}</td><td><span class="badge ${["created", "pending", "in_process", "refund_pending"].includes(payment.status) ? "pending" : payment.status === "rejected" ? "cancelled" : ""}">${e(statusName[payment.status] || payment.status)}</span></td><td><strong>${money(payment.amount_cents)}</strong></td><td>${payment.status === "refund_pending" ? `<button class="link" data-refund="${e(payment.id)}">Procesar reembolso</button>` : ""}</td></tr>`).join("")}</tbody></table></div></section><section class="panel section-gap"><h2>Aportaciones semanales</h2><p>Conductores configurados con cuota fija; conservan el 100% del efectivo y el porcentaje configurado de pagos electrónicos.</p>${feeCards || '<div class="empty"><p>No hay aportaciones activas.</p></div>'}</section><section class="panel section-gap"><h2>Liquidaciones de comisión en efectivo</h2><p>Conductores sin cuota semanal que transfieren la comisión acumulada de sus viajes en efectivo.</p>${settlementCards || '<div class="empty"><p>No hay liquidaciones registradas.</p></div>'}</section>`,
     "Pagos y cuotas",
     "Conciliación por viaje, conductor, pasajero y semana.",
   );
@@ -1210,6 +1259,19 @@ function paymentsView() {
     openModal("Revisar cuota semanal", `<form id="fee-review"><label>Resultado<select name="approved"><option value="true">Pago comprobado</option><option value="false">Rechazar comprobante</option></select></label><label>Nota de revisión<textarea name="note" minlength="5" maxlength="1000" required></textarea></label><button class="btn wide" type="submit">Guardar revisión</button></form>`);
     bindForm("#fee-review", async (values) => {
       await rpc("review_weekly_fee", { fee_id: item.dataset.feeReview, approved: values.approved === "true", note: values.note });
+      closeModal();
+      await refreshPage();
+    });
+  });
+  $$('[data-settlement-proof]').forEach((item) => item.onclick = () => run(async () => {
+    const { data, error } = await db.storage.from("yavoi-payment-proofs").createSignedUrl(item.dataset.settlementProof, 60);
+    if (error) throw error;
+    openModal("Transferencia privada", `<p>El enlace vence en un minuto.</p><a class="btn wide" href="${e(data.signedUrl)}" target="_blank" rel="noopener noreferrer">Abrir comprobante ${I("external-link")}</a>`);
+  }));
+  $$('[data-settlement-review]').forEach((item) => item.onclick = () => {
+    openModal("Revisar liquidación de comisión", `<form id="settlement-review"><label>Resultado<select name="approved"><option value="true">Transferencia comprobada</option><option value="false">Rechazar comprobante</option></select></label><label>Nota de revisión<textarea name="note" minlength="5" maxlength="1000" required></textarea></label><button class="btn wide" type="submit">Guardar revisión</button></form>`);
+    bindForm("#settlement-review", async (values) => {
+      await rpc("review_driver_settlement", { settlement_id: item.dataset.settlementReview, approved: values.approved === "true", note: values.note });
       closeModal();
       await refreshPage();
     });
@@ -1499,19 +1561,19 @@ function operationsUnitStatus(unit) {
   if (unit.trip_id) return [statuses[unit.trip_status] || unit.trip_status, ""];
   return ["Disponible", ""];
 }
-function startOperationsMap() {
-  const element = $("#operations-map");
-  if (!element) return;
+function operationsCards(units = []) {
+  return units.length
+    ? units.map((unit) => {
+      const [status, kind] = operationsUnitStatus(unit);
+      return `<article class="fleet-unit">${avatar(unit.full_name, unit.avatar_path)}<div><div class="row wrap"><strong>${e(unit.full_name)}</strong><span class="badge ${kind}">${e(status)}</span></div><p>${e([unit.vehicle_color, unit.vehicle_make, unit.vehicle_model, unit.vehicle_year].filter(Boolean).join(" ") || unit.vehicle || "Unidad por completar")} · ${e(unit.plate || "Sin placas")}</p><small>${unit.heartbeat_at ? `Última señal ${date(unit.heartbeat_at)}` : "Sin señal GPS registrada"}</small>${unit.trip_id ? `<a class="link" href="#trip/${e(unit.trip_id)}">${e(unit.passenger_name || "Pasajero")} · ${e(unit.origin)} → ${e(unit.destination)} · ${money(unit.total_cents || unit.fare_cents)}</a>` : ""}</div></article>`;
+    }).join("")
+    : '<div class="empty"><p>Aún no hay unidades registradas.</p></div>';
+}
+function updateOperationsMapLayers({ fit = false } = {}) {
+  if (!S.map) return;
   const units = S.data.operations_units || [];
-  S.map = L.map("operations-map", { zoomControl: true, scrollWheelZoom: true }).setView(
-    [28.19065, -105.47045],
-    13,
-  );
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(S.map);
-  S.map.zoomControl.setPosition("bottomright");
+  if (!S.mapLiveLayer) S.mapLiveLayer = L.layerGroup().addTo(S.map);
+  S.mapLiveLayer.clearLayers();
   const bounds = [];
   units.forEach((unit) => {
     if (!Number.isFinite(Number(unit.lat)) || !Number.isFinite(Number(unit.lng))) return;
@@ -1521,12 +1583,10 @@ function startOperationsMap() {
     const marker = L.marker(point, {
       icon: vehicleIcon(unit.heading, !!unit.trip_id),
       opacity: unit.presence_fresh ? 1 : 0.55,
-    })
-      .addTo(S.map)
-      .bindTooltip(
-        `<strong>${e(unit.full_name)}</strong><br>${e(status)} · ${e(unit.plate || "Sin placas")}<br>${unit.trip_id ? `${e(unit.passenger_name || "Pasajero")} · ${money(unit.total_cents || unit.fare_cents)}` : e(unit.vehicle || "Unidad registrada")}`,
-        { direction: "top", offset: [0, -18] },
-      );
+    }).addTo(S.mapLiveLayer).bindTooltip(
+      `<strong>${e(unit.full_name)}</strong><br>${e(status)} · ${e(unit.plate || "Sin placas")}<br>${unit.trip_id ? `${e(unit.passenger_name || "Pasajero")} · ${money(unit.total_cents || unit.fare_cents)}` : e(unit.vehicle || "Unidad registrada")}`,
+      { direction: "top", offset: [0, -18] },
+    );
     if (unit.trip_id)
       marker.bindPopup(
         `<strong>${e(unit.full_name)}</strong><p>${e(unit.origin)} → ${e(unit.destination)}</p><a href="#trip/${e(unit.trip_id)}">Abrir viaje y conciliación</a>`,
@@ -1535,11 +1595,46 @@ function startOperationsMap() {
     if (history.length > 1) {
       const route = history.map((item) => [Number(item.lat), Number(item.lng)]);
       route.forEach((routePoint) => bounds.push(routePoint));
-      L.polyline(route, { color: "#ff6a0a", weight: 5, opacity: 0.78 }).addTo(S.map);
+      L.polyline(route, { color: "#ff6a0a", weight: 5, opacity: 0.78 }).addTo(S.mapLiveLayer);
     }
   });
-  if (bounds.length) S.map.fitBounds(bounds, { padding: [55, 55], maxZoom: 15 });
+  if (fit && bounds.length) S.map.fitBounds(bounds, { padding: [55, 55], maxZoom: 15 });
+}
+function startOperationsMap() {
+  if (!$("#operations-map")) return;
+  S.map = L.map("operations-map", { zoomControl: true, scrollWheelZoom: true }).setView(
+    [28.19065, -105.47045],
+    13,
+  );
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(S.map);
+  S.map.zoomControl.setPosition("bottomright");
+  updateOperationsMapLayers({ fit: true });
   setTimeout(() => S.map?.invalidateSize(), 80);
+}
+async function refreshOperationsMap() {
+  S.data = await rpc("dashboard");
+  const units = S.data.operations_units || [];
+  await Promise.all(units.map((unit) => loadAvatar(unit.avatar_path)));
+  if (S.view !== "opsmap" || !S.map) return;
+  const live = units.filter((unit) => unit.online && unit.presence_fresh);
+  const traveling = live.filter((unit) => unit.trip_id);
+  const values = {
+    "#ops-registered": units.length,
+    "#ops-live": live.length,
+    "#ops-available": live.length - traveling.length,
+    "#ops-traveling": traveling.length,
+  };
+  Object.entries(values).forEach(([selector, value]) => {
+    const element = $(selector);
+    if (element) element.textContent = value;
+  });
+  const list = $("#operations-unit-list");
+  if (list) list.innerHTML = operationsCards(units);
+  updateOperationsMapLayers({ fit: false });
+  iconsNow();
 }
 async function operationsMapView() {
   const units = S.data.operations_units || [];
@@ -1547,16 +1642,8 @@ async function operationsMapView() {
   const live = units.filter((unit) => unit.online && unit.presence_fresh);
   const traveling = live.filter((unit) => unit.trip_id);
   const available = live.filter((unit) => !unit.trip_id);
-  const cards = units.length
-    ? units
-        .map((unit) => {
-          const [status, kind] = operationsUnitStatus(unit);
-          return `<article class="fleet-unit">${avatar(unit.full_name, unit.avatar_path)}<div><div class="row wrap"><strong>${e(unit.full_name)}</strong><span class="badge ${kind}">${e(status)}</span></div><p>${e([unit.vehicle_color, unit.vehicle_make, unit.vehicle_model, unit.vehicle_year].filter(Boolean).join(" ") || unit.vehicle || "Unidad por completar")} · ${e(unit.plate || "Sin placas")}</p><small>${unit.heartbeat_at ? `Última señal ${date(unit.heartbeat_at)}` : "Sin señal GPS registrada"}</small>${unit.trip_id ? `<a class="link" href="#trip/${e(unit.trip_id)}">${e(unit.passenger_name || "Pasajero")} · ${e(unit.origin)} → ${e(unit.destination)} · ${money(unit.total_cents || unit.fare_cents)}</a>` : ""}</div></article>`;
-        })
-        .join("")
-    : '<div class="empty"><p>Aún no hay unidades registradas.</p></div>';
   shell(
-    `<div class="grid4 stats"><div class="stat"><small>Unidades registradas</small><strong>${units.length}</strong><p>Flotilla total</p></div><div class="stat"><small>Con señal activa</small><strong>${live.length}</strong><p>Actualización menor a 90 segundos</p></div><div class="stat"><small>Disponibles</small><strong>${available.length}</strong><p>Listas para asignación</p></div><div class="stat"><small>En servicio</small><strong>${traveling.length}</strong><p>Recorridos visibles en el mapa</p></div></div><div class="operations-map-layout section-gap">${mapFrame("operations-map", "Ubicación y recorrido enviados por el GPS de cada conductor. Una señal mayor a 90 segundos se marca como vencida.")}<section class="panel fleet-list"><div class="row between"><h2>Estado de la flotilla</h2>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${cards}</section></div>`,
+    `<div class="grid4 stats"><div class="stat"><small>Unidades registradas</small><strong id="ops-registered">${units.length}</strong><p>Flotilla total</p></div><div class="stat"><small>Con señal activa</small><strong id="ops-live">${live.length}</strong><p>Actualización menor a 90 segundos</p></div><div class="stat"><small>Disponibles</small><strong id="ops-available">${available.length}</strong><p>Listas para asignación</p></div><div class="stat"><small>En servicio</small><strong id="ops-traveling">${traveling.length}</strong><p>Recorridos visibles en el mapa</p></div></div><div class="operations-map-layout section-gap">${mapFrame("operations-map", "La señal GPS actualiza autos y recorridos sin mover el mapa. Tu zoom y posición se conservan.")}<section class="panel fleet-list"><div class="row between"><h2>Estado de la flotilla</h2>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div><div id="operations-unit-list">${operationsCards(units)}</div></section></div>`,
     "Mapa de operación en vivo",
     "Disponibilidad, ubicación, viaje activo y recorrido GPS de toda la flotilla.",
   );
@@ -1577,8 +1664,9 @@ function fleet() {
   const cards = S.data.drivers.map((d) => {
     const progress = driverDossierStatus(d, d);
     const reward = driverRewards.get(d.id) || {};
+    const weeklyBilling = d.billing_mode !== "commission";
     const doc = (path, label) => path ? `<button class="btn secondary" data-document="${e(path)}">${I("file-check")} ${label}</button>` : "";
-    return `<article class="offer dossier-card"><div class="row between"><div><h3>${e(d.full_name)}</h3><p>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</p></div><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span></div><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} requisitos${progress.missing.length ? ` · Faltan: ${e(progress.missing.slice(0, 3).join(", "))}${progress.missing.length > 3 ? "…" : ""}` : " · Expediente completo"}</small></div><div class="driver-reward-summary"><span><small>NIVEL RATING</small><strong>${e(reward.level || "Activo")}</strong></span><span><small>PUNTOS</small><strong>${Number(reward.available_points || 0)}</strong></span><span><small>VIAJES</small><strong>${Number(reward.trip_count || 0)}</strong></span><span><small>CALIFICACIÓN</small><strong>${reward.rating ? `${decimal(reward.rating)}/5` : "—"}</strong></span><span><small>INGRESOS</small><strong>${money(reward.income_cents || 0)}</strong></span><span><small>INCIDENTES 90 DÍAS</small><strong>${Number(reward.recent_incidents || 0)}</strong></span></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.license_path, "Licencia")}${doc(d.insurance_path, "Seguro")}${doc(d.criminal_record_path, "No antecedentes")}${doc(d.policy_commitment_path, "Políticas Yavoi!")}${doc(d.traffic_law_commitment_path, "Obligaciones viales")}<button class="btn" data-review="${e(d.id)}">Revisar autorización ${I("arrow-right")}</button></div>${d.advertising_interest ? "<small>Interesado en convenios de publicidad</small>" : ""}</article>`;
+    return `<article class="offer dossier-card"><div class="row between"><div><h3>${e(d.full_name)}</h3><p>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</p></div><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span></div><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} requisitos${progress.missing.length ? ` · Faltan: ${e(progress.missing.slice(0, 3).join(", "))}${progress.missing.length > 3 ? "…" : ""}` : " · Expediente completo"}</small></div><div class="driver-reward-summary"><span><small>NIVEL RATING</small><strong>${e(reward.level || "Activo")}</strong></span><span><small>PUNTOS</small><strong>${Number(reward.available_points || 0)}</strong></span><span><small>VIAJES</small><strong>${Number(reward.trip_count || 0)}</strong></span><span><small>CALIFICACIÓN</small><strong>${reward.rating ? `${decimal(reward.rating)}/5` : "—"}</strong></span><span><small>INGRESOS</small><strong>${money(reward.income_cents || 0)}</strong></span><span><small>INCIDENTES 90 DÍAS</small><strong>${Number(reward.recent_incidents || 0)}</strong></span></div><div class="driver-billing-row"><div>${I(weeklyBilling ? "calendar-check" : "percent")}<span><small>MODALIDAD COMERCIAL</small><strong>${weeklyBilling ? `Aportación de ${money(d.weekly_fee_cents || 50000)}` : "Comisión por viaje"}</strong><p>Efectivo: ${Number(d.cash_commission_bps || 0) / 100}% · Electrónico: ${Number(d.card_commission_bps || 0) / 100}% para Yavoi!</p></span></div><button class="btn secondary" data-billing="${e(d.id)}">Configurar cobro ${I("settings-2")}</button></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.license_path, "Licencia")}${doc(d.insurance_path, "Seguro")}${doc(d.criminal_record_path, "No antecedentes")}${doc(d.policy_commitment_path, "Políticas Yavoi!")}${doc(d.traffic_law_commitment_path, "Obligaciones viales")}<button class="btn" data-review="${e(d.id)}">Revisar autorización ${I("arrow-right")}</button></div>${d.advertising_interest ? "<small>Interesado en convenios de publicidad</small>" : ""}</article>`;
   }).join("");
   const managedProfiles = (S.data.managed_profiles || []).map((managed) => {
     const editState = profileEditState(managed);
@@ -1647,6 +1735,49 @@ function fleet() {
         });
       }),
   );
+  $$("[data-billing]").forEach((item) => {
+    item.onclick = () => {
+      const d = S.data.drivers.find((driver) => driver.id === item.dataset.billing);
+      const weekly = d.billing_mode !== "commission";
+      openModal(
+        "Modalidad de cobro de " + d.full_name,
+        `<form id="driver-billing"><label>Esquema<select name="billing_mode"><option value="weekly_fee" ${weekly ? "selected" : ""}>Aportación semanal</option><option value="commission" ${weekly ? "" : "selected"}>Comisión por viaje</option></select></label><label>Aportación semanal (MXN)<input name="weekly_fee" type="number" min="0" max="1000" step="0.01" value="${Number(d.weekly_fee_cents || 50000) / 100}"></label><div class="grid2"><label>Comisión en efectivo (%)<input name="cash_commission" type="number" min="0" max="50" step="0.01" value="${Number(d.cash_commission_bps || 0) / 100}"></label><label>Comisión electrónica (%)<input name="card_commission" type="number" min="0" max="50" step="0.01" value="${Number(d.card_commission_bps || 1000) / 100}"></label></div><label>Motivo del cambio<textarea name="note" required minlength="5" maxlength="500" placeholder="Acuerdo comercial autorizado para este conductor."></textarea></label><div class="hint" id="billing-explanation"></div><button class="btn wide" type="submit">Guardar modalidad ${I("shield-check")}</button></form>`,
+      );
+      const form = $("#driver-billing");
+      const explain = (changed = false) => {
+        const commission = form.elements.billing_mode.value === "commission";
+        if (!commission) {
+          form.elements.cash_commission.value = "0";
+          form.elements.cash_commission.disabled = true;
+          form.elements.weekly_fee.disabled = false;
+          if (changed || !form.elements.card_commission.value) form.elements.card_commission.value = "10";
+          $("#billing-explanation").textContent = "El conductor conserva todo el efectivo. En pagos electrónicos recibe el porcentaje restante después de la comisión configurada.";
+        } else {
+          form.elements.cash_commission.disabled = false;
+          form.elements.weekly_fee.disabled = true;
+          if (changed || Number(form.elements.cash_commission.value) === 0) form.elements.cash_commission.value = "20";
+          if (changed || Number(form.elements.card_commission.value) === 10) form.elements.card_commission.value = "20";
+          $("#billing-explanation").textContent = "No se genera aportación semanal. La comisión electrónica se retiene al cobrar; la de efectivo se acumula para transferencia semanal.";
+        }
+      };
+      form.elements.billing_mode.onchange = () => explain(true);
+      explain();
+      bindForm("#driver-billing", async (values) => {
+        const mode = values.billing_mode;
+        await rpc("set_driver_billing", {
+          driver_id: d.id,
+          billing_mode: mode,
+          weekly_fee_cents: mode === "weekly_fee" ? cents(values.weekly_fee) : Number(d.weekly_fee_cents || 50000),
+          cash_commission_bps: mode === "weekly_fee" ? 0 : cents(values.cash_commission),
+          card_commission_bps: cents(values.card_commission),
+          note: values.note,
+        });
+        closeModal();
+        await refreshPage();
+        notify("Modalidad comercial actualizada para nuevos viajes.");
+      });
+    };
+  });
   $$("[data-profile-edit]").forEach((item) => {
     item.onclick = () => {
       const allowed = item.dataset.allowed === "true";
@@ -1918,7 +2049,12 @@ async function updateDriverPresence(showConfirmation = true) {
 }
 async function handleAction(action, b) {
   if (action === "logout") return signOut();
-  if (action === "refresh") return run(refreshPage);
+  if (action === "refresh") return run(S.view === "opsmap" ? refreshOperationsMap : refreshPage);
+  if (action === "open-chat") {
+    $("#trip-chat")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => $("#chat-form input")?.focus(), 450);
+    return;
+  }
   if (action === "map-fullscreen") {
     const panel = b.closest(".map-panel");
     panel?.classList.toggle("fullscreen");
@@ -2219,9 +2355,14 @@ function startUpdates() {
     )
     .on("postgres_changes", { event: "*", schema: "public", table: "payments" }, () => safeRefresh())
     .on("postgres_changes", { event: "*", schema: "public", table: "weekly_fees" }, () => safeRefresh())
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, () =>
-      safeRefresh(),
-    )
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
+      if (
+        payload.new?.sender_id !== S.user.id &&
+        payload.new?.trip_id === S.trip?.trip?.id &&
+        document.hidden
+      ) serviceNotification("Nuevo mensaje del viaje", "Abre Yavoi! para leer y responder la indicación.");
+      safeRefresh();
+    })
     .subscribe();
   pollTimer = setInterval(safeRefresh, 15000);
 }
@@ -2231,9 +2372,10 @@ async function safeRefresh() {
   try {
     if (S.view === "trip") await refreshTrip();
     else if (S.view === "home" && S.profile.role === "passenger") await refreshAvailableUnits();
+    else if (S.view === "opsmap" && S.profile.role === "admin") await refreshOperationsMap();
     else if (
       (S.view === "home" && S.profile.role === "driver") ||
-      (S.profile.role === "admin" && ["home", "opsmap", "trips", "payments"].includes(S.view))
+      (S.profile.role === "admin" && ["home", "trips", "payments"].includes(S.view))
     ) {
       const focused = document.activeElement;
       if (!["INPUT", "TEXTAREA", "SELECT"].includes(focused?.tagName)) await refreshPage();

@@ -337,9 +337,15 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(firstOffer.service_notes, "Requiero espacio para dos maletas.");
   assert.equal(firstOffer.passenger_name, "Pasajero Actualizado");
   assert.ok(firstOffer.offer_id);
+  assert.equal(firstOffer.billing_mode, "weekly_fee");
+  assert.equal(firstOffer.commission_bps, 0);
+  assert.equal(firstOffer.commission_cents, 0);
+  assert.equal(firstOffer.net_cents, firstOffer.fare_cents);
   const acceptedTrip = await rpc("accept", { offer_id: firstOffer.offer_id });
   assert.equal(acceptedTrip.status, "accepted");
   assert.equal(acceptedTrip.driver_id, ids.driver);
+  assert.equal(acceptedTrip.billing_mode, "weekly_fee");
+  assert.equal(acceptedTrip.commission_bps_applied, 0);
   await as(ids.rider);
   const detail = await rpc("trip", { trip_id: t.id });
   assert.match(detail.pin, /^\d{4}$/);
@@ -411,7 +417,11 @@ test("Postgres security and complete ride lifecycle", async () => {
   await expectError(() => rpc("rating", { trip_id: t.id, stars: 6 }), /check constraint/);
   await rpc("rating", { trip_id: t.id, stars: 5, comfort: 4, safety: 5, comment: "Buen servicio" });
   await rpc("rating", { trip_id: t.id, stars: 1 });
-  assert.equal((await rpc("trip", { trip_id: t.id })).my_rating.stars, 5);
+  const ratedTrip = await rpc("trip", { trip_id: t.id });
+  assert.equal(ratedTrip.my_rating.stars, 5);
+  assert.equal(ratedTrip.ratings.length, 2);
+  assert.ok(ratedTrip.ratings.some((rating) => rating.comment === "Buen pasajero"));
+  assert.ok(ratedTrip.ratings.some((rating) => rating.comment === "Buen servicio"));
   await db.exec("reset role");
   await db.query("update public.reward_catalog set min_trips=1 where id='passenger_discount_20'");
   await db.query(
@@ -486,7 +496,12 @@ test("Postgres security and complete ride lifecycle", async () => {
   await as(ids.driver2);
   const secondOffer = (await rpc("offers"))[0];
   assert.equal(secondOffer.id, cardTrip.id);
-  await rpc("accept", { offer_id: secondOffer.offer_id });
+  assert.equal(secondOffer.billing_mode, "weekly_fee");
+  assert.equal(secondOffer.commission_bps, 1000);
+  assert.equal(secondOffer.commission_cents, Math.round(secondOffer.fare_cents * 0.1));
+  const acceptedCardTrip = await rpc("accept", { offer_id: secondOffer.offer_id });
+  assert.equal(acceptedCardTrip.billing_mode, "weekly_fee");
+  assert.equal(acceptedCardTrip.commission_bps_applied, 1000);
   await as(ids.rider);
   const paidCardTrip = await rpc("trip", { trip_id: cardTrip.id });
   assert.equal(paidCardTrip.trip.status, "accepted");
@@ -561,6 +576,81 @@ test("Postgres security and complete ride lifecycle", async () => {
   await expectError(() => rpc("availability", { online: true }), /acceso semanal/);
   await as(ids.admin, "aal2");
   await rpc("set_driver_access", { driver_id: ids.driver2, active: true, note: "Prueba finalizada" });
+  await rpc("set_driver_billing", {
+    driver_id: ids.driver2,
+    billing_mode: "commission",
+    weekly_fee_cents: 50000,
+    cash_commission_bps: 2000,
+    card_commission_bps: 2000,
+    note: "Cambio autorizado a comisión por viaje.",
+  });
+  const configuredDriver = (await db.query(
+    "select billing_mode,weekly_fee_cents,cash_commission_bps,card_commission_bps from public.drivers where id=$1",
+    [ids.driver2],
+  )).rows[0];
+  assert.deepEqual(configuredDriver, {
+    billing_mode: "commission",
+    weekly_fee_cents: 50000,
+    cash_commission_bps: 2000,
+    card_commission_bps: 2000,
+  });
+  assert.equal(
+    (await db.query("select count(*)::int as count from public.weekly_fees where driver_id=$1 and status in ('pending','submitted','overdue')", [ids.driver2])).rows[0].count,
+    0,
+  );
+  await as(ids.driver2);
+  await rpc("availability", { online: true });
+  await rpc("presence", { lat: 28.198, lng: -105.478, accuracy: 8, session_id: crypto.randomUUID() });
+  await as(ids.rider);
+
+  const commissionQuote = await rpc("quote", {
+    origin: "Centro",
+    destination: "Colonia Linda Vista",
+    origin_lat: 28.19065,
+    origin_lng: -105.47045,
+    dest_lat: 28.205,
+    dest_lng: -105.465,
+    category: "basic",
+    preferred_driver_id: ids.driver2,
+  });
+  const commissionTrip = await rpc("request_trip", {
+    quote_id: commissionQuote.id,
+    request_key: crypto.randomUUID(),
+    payment_method: "cash",
+    cash_tender_cents: 10000,
+    preferred_driver_id: ids.driver2,
+  });
+  await as(ids.driver2);
+  const commissionOffer = (await rpc("offers")).find((offer) => offer.id === commissionTrip.id);
+  assert.equal(commissionOffer.billing_mode, "commission");
+  assert.equal(commissionOffer.commission_bps, 2000);
+  assert.equal(commissionOffer.commission_cents, Math.round(commissionOffer.fare_cents * 0.2));
+  const acceptedCommissionTrip = await rpc("accept", { offer_id: commissionOffer.offer_id });
+  assert.equal(acceptedCommissionTrip.billing_mode, "commission");
+  assert.equal(acceptedCommissionTrip.commission_bps_applied, 2000);
+  await as(ids.rider);
+  const commissionPin = (await rpc("trip", { trip_id: commissionTrip.id })).pin;
+  await as(ids.driver2);
+  await rpc("transition", { trip_id: commissionTrip.id, status: "arrived" });
+  await rpc("transition", { trip_id: commissionTrip.id, status: "in_progress", pin: commissionPin });
+  await rpc("transition", { trip_id: commissionTrip.id, status: "completed", cash_received: true });
+  const commissionDashboard = await rpc("dashboard");
+  const settlement = commissionDashboard.commission_settlements[0];
+  assert.equal(settlement.gross_cash_cents, commissionTrip.fare_cents);
+  assert.equal(settlement.commission_due_cents, Math.round(commissionTrip.fare_cents * 0.2));
+  assert.equal(settlement.status, "pending");
+  const settlementProof = ids.driver2 + "/commission-proof.pdf";
+  await db.query("insert into storage.objects(bucket_id,name) values('yavoi-payment-proofs',$1)", [settlementProof]);
+  await rpc("submit_driver_settlement", { settlement_id: settlement.id, proof_path: settlementProof });
+  await as(ids.admin, "aal2");
+  await rpc("review_driver_settlement", {
+    settlement_id: settlement.id,
+    approved: true,
+    note: "Transferencia semanal comprobada.",
+  });
+  const reconciled = (await rpc("dashboard")).commission_settlements.find((item) => item.id === settlement.id);
+  assert.equal(reconciled.status, "paid");
+  assert.ok((await rpc("dashboard")).audit.some((item) => item.action === "driver_billing_changed"));
   await as(ids.rider);
 
   const regional = await rpc("quote", {

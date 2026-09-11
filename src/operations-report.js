@@ -25,6 +25,8 @@ const auditActions = Object.freeze({
   category_pricing: ["Tarifa de servicio modificada", "Tarifas"],
   category: ["Categoría de servicio modificada", "Tarifas"],
   review_weekly_fee: ["Cuota semanal revisada", "Pagos"],
+  driver_billing_changed: ["Modalidad de cobro del conductor modificada", "Pagos"],
+  review_driver_settlement: ["Liquidación de comisión en efectivo revisada", "Pagos"],
   set_driver_access: ["Acceso de conductor modificado", "Accesos"],
   resolve_complaint: ["Reporte atendido", "Incidentes"],
   cancel_trip: ["Viaje cancelado por Operaciones", "Viajes"],
@@ -37,6 +39,11 @@ const detailLabels = Object.freeze({
   approved: "Autorizado",
   allowed_until: "Edición permitida hasta",
   category: "Categoría",
+  billing_mode: "Modalidad de cobro",
+  weekly_fee_cents: "Aportación semanal",
+  cash_commission_bps: "Comisión en efectivo",
+  card_commission_bps: "Comisión electrónica",
+  commission_due_cents: "Comisión liquidada",
   complete: "Expediente completo",
   driver_id: "Conductor",
   female_verified: "Conductora verificada",
@@ -66,7 +73,13 @@ export const readableAuditValue = (value) => {
 export const auditDetailItems = (detail = {}) =>
   Object.entries(detail || {}).map(([key, value]) => ({
     label: detailLabels[key] || key.replaceAll("_", " "),
-    value: readableAuditValue(value),
+    value: key.endsWith("_cents") && Number.isFinite(Number(value))
+      ? money(Number(value))
+      : key.endsWith("_bps") && Number.isFinite(Number(value))
+        ? `${Number(value) / 100}%`
+        : key === "billing_mode"
+          ? ({ weekly_fee: "Aportación semanal", commission: "Comisión por viaje" }[value] || readableAuditValue(value))
+          : readableAuditValue(value),
   }));
 export const insuranceStatus = (status) => ({
   expired: ["Vencida o faltante", "cancelled"],
