@@ -33,17 +33,23 @@ export const navs = {
     ["payments", "credit-card", "Pagos y cuotas"],
     ["help", "headset", "Reportes"],
     ["rates", "sliders-horizontal", "Tarifas"],
+    ["marketing", "megaphone", "Recompensas y publicidad"],
     ["audit", "scroll-text", "Auditoría"],
     ["profile", "user-round", "Mi perfil"],
   ],
 };
+export const DEFAULT_ORIGIN = { name: "Centro de Delicias", lat: 28.19065, lng: -105.47045 };
 export const places = [
-  { name: "Plaza de la República", lat: 28.19065, lng: -105.47045 },
-  { name: "Tecnológico de Delicias", lat: 28.18415, lng: -105.4593 },
-  { name: "Terminal de Autobuses", lat: 28.19265, lng: -105.4671 },
-  { name: "Hospital Regional", lat: 28.18145, lng: -105.475 },
-  { name: "Parque Fundadores", lat: 28.19175, lng: -105.4812 },
-  { name: "Centro de Meoqui", lat: 28.27215, lng: -105.48075 },
+  { name: "Omnibus Delicias", lat: 28.196877124464113, lng: -105.46705280588705 },
+  { name: "Rápidos Delicias", lat: 28.197719970347674, lng: -105.46801468291481 },
+  { name: "Autobuses Chihuahuenses", lat: 28.199181012388152, lng: -105.46962876145041 },
+  { name: "Hotel Baeza", lat: 28.196559401371477, lng: -105.470620961273 },
+  { name: "Hotel Oasis Suite", lat: 28.196397470547517, lng: -105.47075683778465 },
+  { name: "Hotel El Dorado Inn", lat: 28.197964529832333, lng: -105.46845486147728 },
+  { name: "Hotel Casa Grande", lat: 28.192822971686198, lng: -105.46264658388489 },
+  { name: "Hotel Los Cedros Inn", lat: 28.199502716407586, lng: -105.45266051756059 },
+  { name: "American Inn Hotel y Suites", lat: 28.190635058197287, lng: -105.45602231310774 },
+  { name: "Hotel Comfort Inn", lat: 28.193012729037207, lng: -105.45681979310845 },
 ];
 export const active = (t) => !["completed", "cancelled"].includes(t.status);
 export const cents = (value) => {
@@ -80,6 +86,8 @@ export const rewardDiscountCents = (reward = {}, quote = {}) => {
   return 0;
 };
 export const PASSENGER_POLICY_VERSION = "2026-09-10";
+export const PRIVACY_POLICY_VERSION = "2026-09-11";
+export const TERMS_VERSION = "2026-09-11";
 export const profileEditState = (profile = {}, now = Date.now()) => {
   const locked = Boolean(profile.profile_locked_at);
   const authorizedUntil = Date.parse(profile.profile_edit_allowed_until || "");
@@ -103,6 +111,15 @@ export const passengerProfileStatus = (profile = {}) => {
       "Políticas de seguridad aceptadas",
       profile.passenger_policy_accepted_at &&
         profile.passenger_policy_version === PASSENGER_POLICY_VERSION,
+    ],
+    [
+      "Política de privacidad aceptada",
+      profile.privacy_policy_accepted_at &&
+        profile.privacy_policy_version === PRIVACY_POLICY_VERSION,
+    ],
+    [
+      "Términos de servicio aceptados",
+      profile.terms_accepted_at && profile.terms_version === TERMS_VERSION,
     ],
   ];
   const completed = requirements.filter(([, value]) => isComplete(value)).length;

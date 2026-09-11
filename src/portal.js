@@ -19,6 +19,7 @@ import {
   statuses,
   navs,
   places,
+  DEFAULT_ORIGIN,
   active,
   cents,
   changeDue,
@@ -26,6 +27,8 @@ import {
   passengerProfileStatus,
   profileEditState,
   PASSENGER_POLICY_VERSION,
+  PRIVACY_POLICY_VERSION,
+  TERMS_VERSION,
   allowedView,
   mfaQrSource,
   serviceAsset,
@@ -57,7 +60,7 @@ const S = {
   map: null,
   markers: [],
   mapLiveLayer: null,
-  origin: places[0],
+  origin: DEFAULT_ORIGIN,
   destination: null,
   pick: "destination",
   channel: null,
@@ -453,7 +456,7 @@ async function loadSession() {
   startUpdates();
   if (S.profile.role === "driver" && S.driver?.online) startDriverTracking();
   else stopDriverTracking();
-  setTimeout(maybeShowRewardPromo, 450);
+  setTimeout(maybeShowEngagementPromo, 450);
 }
 async function signOut() {
   await run(async () => {
@@ -696,7 +699,7 @@ function riderHome() {
   const passengerProgress = passengerProfileStatus(S.profile);
   if (passengerProgress.percent < 100) {
     shell(
-      `<section class="panel profile-required"><div class="profile-head"><div class="profile-lock">${I("shield-check")}</div><div><div class="eyebrow">SEGURIDAD ANTES DEL PRIMER VIAJE</div><h2>Completa tu perfil de pasajero</h2><p>Necesitamos tus datos de contacto, fotografía, contacto de emergencia y aceptación de las reglas de seguridad.</p></div></div><div class="dossier-progress"><div class="row between"><strong>${passengerProgress.percent}% completo</strong><b>${passengerProgress.completed} de ${passengerProgress.total}</b></div><progress max="100" value="${passengerProgress.percent}">${passengerProgress.percent}%</progress><p>Falta: ${e(passengerProgress.missing.join(", "))}.</p></div><a class="btn" href="#profile">Completar mi perfil ${I("arrow-right")}</a></section>`,
+      `<section class="panel profile-required"><div class="profile-head"><div class="profile-lock">${I("shield-check")}</div><div><div class="eyebrow">SEGURIDAD ANTES DEL PRIMER VIAJE</div><h2>Completa tu perfil de pasajero</h2><p>Necesitamos tus datos de contacto, fotografía, contacto de emergencia y aceptación de seguridad, privacidad y términos de servicio.</p></div></div><div class="dossier-progress"><div class="row between"><strong>${passengerProgress.percent}% completo</strong><b>${passengerProgress.completed} de ${passengerProgress.total}</b></div><progress max="100" value="${passengerProgress.percent}">${passengerProgress.percent}%</progress><p>Falta: ${e(passengerProgress.missing.join(", "))}.</p></div><a class="btn" href="#profile">Completar mi perfil ${I("arrow-right")}</a></section>`,
       "Prepara tu cuenta",
       "Completa estos datos una sola vez para solicitar viajes con mayor seguridad.",
     );
@@ -710,7 +713,7 @@ function riderHome() {
   const cats = S.categories.filter((category) => category.active);
   const selectedCategory = draft?.category || cats[0]?.id;
   shell(
-    `<div class="booking"><section class="panel"><div class="row between"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" list="places" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}</button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="places" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Calle, número o lugar" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}</button></div><datalist id="places">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Marcar origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Marcar destino</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt=""></div><div><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div><div class="grid2 service-request"><label>Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label><label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label></div><label class="check women">${I("shield-check")} Prefiero una conductora<input name="women_only" type="checkbox" ${draft?.women_only ? "checked" : ""}></label><label class="check accessible-service">${I("accessibility")}<span>Servicio para personas con alguna discapacidad</span><input name="accessible" type="checkbox" ${draft?.accessible ? "checked" : ""}></label><div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""> <div><strong id="unit-selection">Asignación automática a la unidad más cercana</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local" value="${e(draft?.scheduled_at || "")}"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">Guardamos este plan en tu cuenta. Si recargas o cierras por accidente, podrás continuar. Yavoi! recomienda la unidad compatible más cercana, pero puedes elegir cualquier unidad visible; el conductor conserva la decisión de aceptar.</p></form></section>${mapFrame()}</div>`,
+    `<div class="booking"><section class="panel"><div class="row between"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}</button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="destinations" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Calle, número o lugar" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}</button></div><datalist id="destinations">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Marcar origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Marcar destino</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt=""></div><div><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div><div class="grid2 service-request"><label>Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label><label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label></div><label class="check women">${I("shield-check")}<span>Prefiero una conductora<small>Sujeto a disponibilidad de conductoras conectadas.</small></span><input name="women_only" type="checkbox" ${draft?.women_only ? "checked" : ""}></label><label class="check accessible-service">${I("accessibility")}<span>Servicio para personas con alguna discapacidad</span><input name="accessible" type="checkbox" ${draft?.accessible ? "checked" : ""}></label><div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""> <div><strong id="unit-selection">Asignación automática a la unidad más cercana</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local" value="${e(draft?.scheduled_at || "")}"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">Guardamos este plan en tu cuenta. Si recargas o cierras por accidente, podrás continuar. Yavoi! recomienda la unidad compatible más cercana, pero puedes elegir cualquier unidad visible; el conductor conserva la decisión de aceptar.</p></form></section>${mapFrame()}</div>`,
     `¿A dónde vamos, ${e(S.profile.full_name.split(" ")[0])}?`,
     "Elige tu destino, necesidades y revisa el precio antes de confirmar.",
   );
@@ -787,7 +790,7 @@ function riderHome() {
 function paymentModal() {
   const q = S.quote;
   const category = S.categories.find((c) => c.id === q.category);
-  const tripRewards = (S.data.reward_wallet?.redemptions || []).filter(
+  const tripRewards = (S.data.marketing?.rewards_enabled === false ? [] : S.data.reward_wallet?.redemptions || []).filter(
     (reward) => reward.status === "available" && rewardEligibleForTrip(reward, q),
   );
   const pickupBasis =
@@ -1295,7 +1298,8 @@ const rewardStatusName = {
   cancelled: "Cancelada",
   expired: "Vencida",
 };
-function rewardEligibility(reward, metrics) {
+function rewardEligibility(reward, metrics, systemEnabled = true) {
+  if (!systemEnabled) return [false, "Sistema temporalmente pausado por Operaciones"];
   if (!reward.active) return [false, reward.partner_name === "Proveedor por definir" ? "Convenio por confirmar" : "Temporalmente no disponible"];
   if (reward.automatic) return [false, `Se genera cada ${reward.milestone_every} viajes`];
   if (metrics.available_points < reward.points_cost) return [false, `Te faltan ${reward.points_cost - metrics.available_points} puntos`];
@@ -1305,13 +1309,14 @@ function rewardEligibility(reward, metrics) {
   if (reward.max_recent_incidents != null && metrics.recent_incidents > reward.max_recent_incidents) return [false, "Requiere historial reciente sin incidentes"];
   return [true, "Disponible para canjear"];
 }
-function rewardCard(reward, metrics) {
-  const [eligible, reason] = rewardEligibility(reward, metrics);
+function rewardCard(reward, metrics, systemEnabled = true) {
+  const [eligible, reason] = rewardEligibility(reward, metrics, systemEnabled);
   return `<article class="reward-card ${eligible ? "eligible" : ""}"><div class="reward-icon">${I(reward.icon || "gift")}</div><div class="reward-card-copy"><div class="row between wrap"><h3>${e(reward.name)}</h3><strong>${reward.automatic ? "Meta automática" : `${reward.points_cost} pts`}</strong></div><p>${e(reward.description)}</p><small>${e(reason)}${reward.partner_name ? ` · ${e(reward.partner_name)}` : ""}</small></div>${!reward.automatic ? `<button class="btn ${eligible ? "" : "secondary"}" data-redeem="${e(reward.id)}" ${eligible ? "" : "disabled"}>${eligible ? "Canjear" : "Aún no disponible"}</button>` : ""}</article>`;
 }
 function rewards() {
   const wallet = S.data.reward_wallet || {};
   const driver = S.profile.role === "driver";
+  const systemEnabled = S.data.marketing?.rewards_enabled !== false;
   const available = Number(wallet.available_points || 0);
   const lifetime = Number(wallet.lifetime_points || 0);
   const next = wallet.next_level_points ? Math.max(0, Number(wallet.next_level_points) - lifetime) : 0;
@@ -1324,7 +1329,7 @@ function rewards() {
   const entries = wallet.entries || [];
   const freeRides = redemptions.filter((item) => item.kind === "free_local_trip" && item.status === "available");
   shell(
-    `<div class="rewards reward-hero">${I(driver ? "star" : "gift")}<div><div class="eyebrow">${driver ? "RATING YAVOI!" : "PUNTOS VIAJEROS"}</div><h2>${driver ? `${e(wallet.level || "Activo")} · ${wallet.rating ? `${decimal(wallet.rating)}/5` : "sin rating aún"}` : `${e(wallet.level || "Explorador")} · cada viaje te acerca`}</h2><p>${driver ? "Suma por viajes, ingresos y calificaciones. Un historial limpio habilita mejores beneficios." : "Acumula puntos, canjea amenidades y descuentos, y recibe un viaje local Básico gratis cada 15 viajes."}</p></div><div class="points">${available}<small>PUNTOS DISPONIBLES</small></div></div><section class="panel reward-progress"><div class="row between wrap"><div><small>NIVEL ACTUAL</small><h2>${e(wallet.level || (driver ? "Activo" : "Explorador"))}</h2></div><div class="reward-metrics"><span><strong>${wallet.trip_count || 0}</strong> viajes</span>${driver ? `<span><strong>${wallet.rating ? decimal(wallet.rating) : "—"}</strong> rating</span><span><strong>${money(wallet.income_cents || 0)}</strong> generados</span><span><strong>${wallet.recent_incidents || 0}</strong> incidentes recientes</span>` : `<span><strong>${freeRides.length}</strong> viajes gratis guardados</span><span><strong>${wallet.trips_to_free_ride || 15}</strong> para el siguiente gratis</span>`}</div></div><progress max="100" value="${levelProgress}">${levelProgress}%</progress><p>${wallet.next_level ? `Faltan ${next} puntos para llegar a ${e(wallet.next_level)}.` : "Alcanzaste el nivel más alto del programa actual."}</p></section>${activeBenefits.length ? `<section class="panel section-gap"><h2>Tus recompensas activas</h2><div class="reward-redemptions">${activeBenefits.map((item) => `<article><div><strong>${e(item.name)}</strong><small>${e(item.code)} · ${e(rewardStatusName[item.status] || item.status)}${item.expires_at ? ` · vence ${date(item.expires_at)}` : ""}</small></div><span class="badge ${item.status === "requested" ? "pending" : ""}">${e(rewardStatusName[item.status] || item.status)}</span></article>`).join("")}</div></section>` : ""}<section class="section-gap"><div class="row between wrap reward-heading"><div><h2>${driver ? "Beneficios para tu unidad y tu trabajo" : "Elige tu próxima recompensa"}</h2><p>${driver ? "Los requisitos se revisan al canjear: actividad, ingresos, rating e incidentes recientes." : "Tus puntos no vencen. Los cupones de viaje quedan guardados hasta que decidas usarlos."}</p></div><span class="badge neutral">${catalog.filter((reward) => reward.active).length} beneficios activos</span></div><div class="reward-catalog">${catalog.map((reward) => rewardCard(reward, wallet)).join("")}</div></section><section class="panel section-gap"><h2>Cómo sumas</h2><div class="grid3 reward-rules">${driver ? `<div>${I("route")}<strong>12 puntos base</strong><p>Por cada viaje completado, más un bono gradual según el ingreso del servicio.</p></div><div>${I("star")}<strong>Hasta 8 puntos extra</strong><p>Las calificaciones de cuatro y cinco estrellas reconocen la calidad del servicio.</p></div><div>${I("shield-check")}<strong>Historial confiable</strong><p>Los mejores beneficios requieren rating alto y no presentar incidentes recientes.</p></div>` : `<div>${I("route")}<strong>10 puntos</strong><p>Por cada viaje completado.</p></div><div>${I("star")}<strong>2 puntos</strong><p>Al evaluar el viaje y ayudar a cuidar la comunidad.</p></div><div>${I("car-front")}<strong>Viaje gratis</strong><p>Cada 15 viajes se agrega automáticamente un viaje local Básico que puedes acumular.</p></div>`}</div></section><details class="panel section-gap reward-history"><summary>Ver movimientos de puntos</summary>${entries.length ? entries.map((entry) => `<div class="receipt-row"><div><strong>${e(entry.description || entry.entry_type)}</strong><small>${date(entry.created_at)}</small></div><strong class="${entry.points < 0 ? "negative-points" : "positive-points"}">${entry.points > 0 ? "+" : ""}${entry.points}</strong></div>`).join("") : '<p class="muted">Tus movimientos aparecerán después del primer viaje o canje.</p>'}</details>`,
+    `<div class="rewards reward-hero">${I(driver ? "star" : "gift")}<div><div class="eyebrow">${driver ? "RATING YAVOI!" : "PUNTOS VIAJEROS"}</div><h2>${driver ? `${e(wallet.level || "Activo")} · ${wallet.rating ? `${decimal(wallet.rating)}/5` : "sin rating aún"}` : `${e(wallet.level || "Explorador")} · cada viaje te acerca`}</h2><p>${driver ? "Suma por viajes, ingresos y calificaciones. Un historial limpio habilita mejores beneficios." : "Acumula puntos, canjea amenidades y descuentos, y recibe un viaje local Básico gratis cada 15 viajes."}</p></div><div class="points">${available}<small>PUNTOS DISPONIBLES</small></div></div>${systemEnabled ? "" : `<div class="notice-strip">${I("pause-circle")} Operaciones pausó temporalmente la acumulación y el canje. Tus puntos y recompensas guardadas se conservan.</div>`}<section class="panel reward-progress"><div class="row between wrap"><div><small>NIVEL ACTUAL</small><h2>${e(wallet.level || (driver ? "Activo" : "Explorador"))}</h2></div><div class="reward-metrics"><span><strong>${wallet.trip_count || 0}</strong> viajes</span>${driver ? `<span><strong>${wallet.rating ? decimal(wallet.rating) : "—"}</strong> rating</span><span><strong>${money(wallet.income_cents || 0)}</strong> generados</span><span><strong>${wallet.recent_incidents || 0}</strong> incidentes recientes</span>` : `<span><strong>${freeRides.length}</strong> viajes gratis guardados</span><span><strong>${wallet.trips_to_free_ride || 15}</strong> para el siguiente gratis</span>`}</div></div><progress max="100" value="${levelProgress}">${levelProgress}%</progress><p>${wallet.next_level ? `Faltan ${next} puntos para llegar a ${e(wallet.next_level)}.` : "Alcanzaste el nivel más alto del programa actual."}</p></section>${activeBenefits.length ? `<section class="panel section-gap"><h2>Tus recompensas activas</h2><div class="reward-redemptions">${activeBenefits.map((item) => `<article><div><strong>${e(item.name)}</strong><small>${e(item.code)} · ${e(rewardStatusName[item.status] || item.status)}${item.expires_at ? ` · vence ${date(item.expires_at)}` : ""}</small></div><span class="badge ${item.status === "requested" ? "pending" : ""}">${e(rewardStatusName[item.status] || item.status)}</span></article>`).join("")}</div></section>` : ""}<section class="section-gap"><div class="row between wrap reward-heading"><div><h2>${driver ? "Beneficios para tu unidad y tu trabajo" : "Elige tu próxima recompensa"}</h2><p>${driver ? "Los requisitos se revisan al canjear: actividad, ingresos, rating e incidentes recientes." : "Tus puntos no vencen. Los cupones de viaje quedan guardados hasta que decidas usarlos."}</p></div><span class="badge neutral">${catalog.filter((reward) => reward.active).length} beneficios activos</span></div><div class="reward-catalog">${catalog.map((reward) => rewardCard(reward, wallet, systemEnabled)).join("") || '<div class="empty"><p>El catálogo está temporalmente pausado.</p></div>'}</div></section><section class="panel section-gap"><h2>Cómo sumas</h2><div class="grid3 reward-rules">${driver ? `<div>${I("route")}<strong>12 puntos base</strong><p>Por cada viaje completado, más un bono gradual según el ingreso del servicio.</p></div><div>${I("star")}<strong>Hasta 8 puntos extra</strong><p>Las calificaciones de cuatro y cinco estrellas reconocen la calidad del servicio.</p></div><div>${I("shield-check")}<strong>Historial confiable</strong><p>Los mejores beneficios requieren rating alto y no presentar incidentes recientes.</p></div>` : `<div>${I("route")}<strong>10 puntos</strong><p>Por cada viaje completado.</p></div><div>${I("star")}<strong>2 puntos</strong><p>Al evaluar el viaje y ayudar a cuidar la comunidad.</p></div><div>${I("car-front")}<strong>Viaje gratis</strong><p>Cada 15 viajes se agrega automáticamente un viaje local Básico que puedes acumular.</p></div>`}</div></section><details class="panel section-gap reward-history"><summary>Ver movimientos de puntos</summary>${entries.length ? entries.map((entry) => `<div class="receipt-row"><div><strong>${e(entry.description || entry.entry_type)}</strong><small>${date(entry.created_at)}</small></div><strong class="${entry.points < 0 ? "negative-points" : "positive-points"}">${entry.points > 0 ? "+" : ""}${entry.points}</strong></div>`).join("") : '<p class="muted">Tus movimientos aparecerán después del primer viaje o canje.</p>'}</details>`,
     driver ? "Tu buen servicio se recompensa." : "Viaja, suma y disfruta.",
     driver ? "Beneficios graduales para cuidar tu unidad y reconocer tu desempeño." : "Puntos Viajeros y recompensas que puedes guardar para cuando las necesites.",
   );
@@ -1344,7 +1349,7 @@ function rewards() {
   });
 }
 function maybeShowRewardPromo() {
-  if (!S.profile || S.profile.role === "admin" || modal.open || !S.data.reward_wallet) return;
+  if (!S.profile || S.profile.role === "admin" || modal.open || !S.data.reward_wallet || S.data.marketing?.rewards_enabled === false) return;
   const wallet = S.data.reward_wallet;
   const today = new Date().toISOString().slice(0, 10);
   const key = `yavoi-reward-promo:${S.user.id}:${today}`;
@@ -1369,6 +1374,30 @@ function maybeShowRewardPromo() {
     location.hash = "rewards";
   };
 }
+function campaignImageUrl(path) {
+  if (!path) return "";
+  return db.storage.from("yavoi-marketing").getPublicUrl(path).data.publicUrl || "";
+}
+function maybeShowCampaignPromo() {
+  if (!S.profile || S.profile.role === "admin" || modal.open || S.data.marketing?.advertising_enabled === false) return false;
+  const campaigns = S.data.marketing?.campaigns || [];
+  const campaign = campaigns.find((item) => {
+    try { return !sessionStorage.getItem(`yavoi-campaign:${S.user.id}:${item.id}`); }
+    catch { return true; }
+  });
+  if (!campaign) return false;
+  try { sessionStorage.setItem(`yavoi-campaign:${S.user.id}:${campaign.id}`, "shown"); } catch {}
+  const image = campaignImageUrl(campaign.image_path);
+  openModal(
+    campaign.discount_label || "Beneficio Yavoi!",
+    `<article class="campaign-modal">${image ? `<img src="${e(image)}" alt="Promoción de ${e(campaign.advertiser_name)}">` : `<div class="campaign-placeholder">${I("store")}</div>`}<div class="campaign-modal-copy"><span class="badge">${e(campaign.advertiser_name)}</span><h3>${e(campaign.title)}</h3><p>${e(campaign.description)}</p><small>Promoción vigente hasta ${date(campaign.ends_at)}. Consulta condiciones con el negocio participante.</small></div><div class="campaign-actions">${campaign.cta_url && campaign.cta_label ? `<a class="btn wide" href="${e(campaign.cta_url)}" target="_blank" rel="noopener noreferrer">${e(campaign.cta_label)} ${I("external-link")}</a>` : ""}<button class="btn secondary wide" id="campaign-rewards">Ver mis recompensas ${I("gift")}</button></div></article>`,
+  );
+  $("#campaign-rewards").onclick = () => { closeModal(); location.hash = "rewards"; };
+  return true;
+}
+function maybeShowEngagementPromo() {
+  if (!maybeShowCampaignPromo()) maybeShowRewardPromo();
+}
 async function upload(file, bucket) {
   if (!file || !file.size) return null;
   const types =
@@ -1376,7 +1405,8 @@ async function upload(file, bucket) {
       ? ["application/pdf", "image/jpeg", "image/png"]
       : ["image/jpeg", "image/png", "image/webp"];
   if (!types.includes(file.type)) throw Error("Elige un archivo del formato permitido.");
-  if (file.size > (bucket === "yavoi-documents" || bucket === "yavoi-payment-proofs" ? 5 : 2) * 1024 * 1024)
+  const maxMb = bucket === "yavoi-documents" || bucket === "yavoi-payment-proofs" ? 5 : bucket === "yavoi-marketing" ? 4 : 2;
+  if (file.size > maxMb * 1024 * 1024)
     throw Error("El archivo excede el tamaño permitido.");
   const ext = {
     "application/pdf": "pdf",
@@ -1406,10 +1436,16 @@ function passengerProgressMarkup(profile) {
   return `<section class="dossier-progress passenger-progress" aria-labelledby="passenger-progress-title"><div class="row between"><div><small id="passenger-progress-title">AVANCE DEL PERFIL</small><strong id="passenger-progress-label">${status.percent}% completo</strong></div><b id="passenger-progress-count">${status.completed} de ${status.total}</b></div><progress id="passenger-progress" max="100" value="${status.percent}">${status.percent}%</progress><p id="passenger-progress-missing">${e(missing)}</p></section>`;
 }
 function passengerPolicyMarkup(profile) {
-  const accepted =
+  const safetyAccepted =
     profile.passenger_policy_accepted_at &&
     profile.passenger_policy_version === PASSENGER_POLICY_VERSION;
-  return `<section class="passenger-policy"><div class="row between"><div><div class="eyebrow">POLÍTICAS DE SEGURIDAD</div><h3>Reglas para viajar en Yavoi!</h3></div><span class="badge ${accepted ? "" : "pending"}">${accepted ? "Aceptadas" : "Pendientes"}</span></div><details ${accepted ? "" : "open"}><summary>Leer políticas obligatorias</summary><div class="policy-copy"><p>Al viajar, cada pasajero debe:</p><ul><li>Usar cinturón de seguridad durante todo el trayecto y asegurar correctamente a menores de edad.</li><li>Mantener limpia la unidad y responder por daños causados de forma intencional o negligente.</li><li>No fumar ni vapear, y no consumir alcohol, drogas, estupefacientes u otras sustancias dentro del vehículo.</li><li>No portar armas, materiales peligrosos ni objetos que pongan en riesgo a otras personas.</li><li>Tratar con respeto al conductor y a los acompañantes; no se permite acoso, discriminación, amenazas ni violencia.</li><li>Respetar la capacidad de la categoría, informar equipaje o carga especial y seguir las indicaciones de seguridad.</li><li>No distraer al conductor, interferir con la conducción ni pedir maniobras contrarias a la ley.</li><li>Estar listo en el punto acordado y verificar la placa, unidad y conductor antes de abordar.</li></ul><p>El conductor puede reportar incumplimientos. Ante una conducta grave o un riesgo inmediato, puede detenerse en un lugar seguro, cancelar el servicio y solicitar el descenso. Yavoi! puede revisar el caso, restringir la cuenta y compartir información con autoridades cuando exista obligación legal. En una emergencia llama al 911.</p></div></details><label class="check policy-accept"><input name="accept_passenger_policy" type="checkbox" ${accepted ? "checked" : ""} required>He leído y acepto estas políticas de seguridad, versión ${PASSENGER_POLICY_VERSION}.</label></section>`;
+  const privacyAccepted =
+    profile.privacy_policy_accepted_at &&
+    profile.privacy_policy_version === PRIVACY_POLICY_VERSION;
+  const termsAccepted =
+    profile.terms_accepted_at && profile.terms_version === TERMS_VERSION;
+  const complete = safetyAccepted && privacyAccepted && termsAccepted;
+  return `<section class="passenger-policy"><div class="row between"><div><div class="eyebrow">ACUERDOS DE LA CUENTA</div><h3>Seguridad, privacidad y términos</h3></div><span class="badge ${complete ? "" : "pending"}">${complete ? "Aceptados" : "Pendientes"}</span></div><details ${safetyAccepted ? "" : "open"}><summary>Políticas de seguridad para viajar</summary><div class="policy-copy"><p>Al viajar, cada pasajero debe:</p><ul><li>Usar cinturón de seguridad durante todo el trayecto y asegurar correctamente a menores de edad.</li><li>Mantener limpia la unidad y responder por daños causados de forma intencional o negligente.</li><li>No fumar ni vapear, y no consumir alcohol, drogas, estupefacientes u otras sustancias dentro del vehículo.</li><li>No portar armas, materiales peligrosos ni objetos que pongan en riesgo a otras personas.</li><li>Tratar con respeto al conductor y a los acompañantes; no se permite acoso, discriminación, amenazas ni violencia.</li><li>Respetar la capacidad de la categoría, informar equipaje o carga especial y seguir las indicaciones de seguridad.</li><li>No distraer al conductor, interferir con la conducción ni pedir maniobras contrarias a la ley.</li><li>Estar listo en el punto acordado y verificar la placa, unidad y conductor antes de abordar.</li></ul><p>El conductor puede reportar incumplimientos. Ante una conducta grave o un riesgo inmediato, puede detenerse en un lugar seguro, cancelar el servicio y solicitar el descenso. Yavoi! puede revisar el caso, restringir la cuenta y compartir información con autoridades cuando exista obligación legal. En una emergencia llama al 911.</p></div></details><label class="check policy-accept"><input name="accept_passenger_policy" type="checkbox" ${safetyAccepted ? "checked" : ""} required>He leído y acepto las Políticas de Seguridad, versión ${PASSENGER_POLICY_VERSION}.</label><details ${privacyAccepted ? "" : "open"}><summary>Política de Privacidad y tratamiento de datos</summary><div class="policy-copy"><p>Yavoi! trata los datos necesarios para crear y proteger tu cuenta, cotizar y prestar viajes, procesar pagos, brindar soporte, prevenir fraude y cumplir obligaciones legales.</p><ul><li>Podemos tratar nombre, teléfono, correo, fotografía, contacto de emergencia, ubicaciones, rutas, mensajes del viaje, pagos tokenizados, valoraciones, reportes y datos técnicos de seguridad.</li><li>Durante un servicio compartimos con el conductor sólo la información necesaria para identificarte, recogerte, atender tus indicaciones y completar el viaje.</li><li>La ubicación se utiliza para cotización, asignación, seguimiento y seguridad. Los datos de tarjeta son procesados por el proveedor de pagos; Yavoi! no almacena número completo ni CVV.</li><li>Conservamos registros durante el tiempo necesario para operación, aclaraciones, seguridad y obligaciones aplicables. Aplicamos controles de acceso y trazabilidad.</li><li>Puedes solicitar acceso, rectificación, cancelación u oposición y consultar cambios a este aviso mediante admin.yavoi@gmail.com mientras se habilita el canal oficial.</li></ul><p>No vendemos tus datos personales. Una solicitud legal válida, emergencia o investigación de seguridad puede requerir conservar o compartir información con autoridades competentes.</p></div></details><label class="check policy-accept"><input name="accept_privacy_policy" type="checkbox" ${privacyAccepted ? "checked" : ""} required>He leído y acepto la Política de Privacidad, versión ${PRIVACY_POLICY_VERSION}.</label><details ${termsAccepted ? "" : "open"}><summary>Términos de Servicio</summary><div class="policy-copy"><p>Al utilizar Yavoi! confirmas que proporcionarás información verdadera, protegerás tu acceso y usarás la plataforma únicamente para solicitar y recibir servicios permitidos.</p><ul><li>Las tarifas, categoría, forma de pago, propina y condiciones se muestran antes de confirmar. Los estimados pueden actualizarse si cambia la ruta o disponibilidad antes de solicitar.</li><li>Debes verificar conductor, fotografía, vehículo y placas antes de abordar, comunicar necesidades especiales y respetar las reglas de seguridad.</li><li>Los viajes, cancelaciones, mensajes, pagos, valoraciones y reportes quedan ligados a la cuenta para atención y trazabilidad.</li><li>Yavoi! puede limitar temporalmente una cuenta por datos falsos, fraude, riesgo, incumplimientos reiterados o investigación de incidentes.</li><li>Las promociones y recompensas tienen vigencia, disponibilidad y condiciones propias visibles en la aplicación.</li></ul><p>El uso continuado requiere aceptar la versión vigente. Puedes dejar de utilizar el servicio y solicitar atención sobre tu cuenta mediante admin.yavoi@gmail.com.</p></div></details><label class="check policy-accept"><input name="accept_terms" type="checkbox" ${termsAccepted ? "checked" : ""} required>He leído y acepto los Términos de Servicio, versión ${TERMS_VERSION}.</label></section>`;
 }
 function documentField(name, title, path, note = "") {
   return `<label class="document-upload"><span>${e(title)}</span><input name="${name}" type="file" accept="application/pdf,image/jpeg,image/png"><small>${path ? "Documento recibido. Puedes reemplazarlo." : "Pendiente de cargar"}${note ? ` · ${e(note)}` : ""}</small></label>`;
@@ -1449,6 +1485,10 @@ function profile() {
         ...(path ? { avatar_path: path } : {}),
         accept_passenger_policy: v.accept_passenger_policy === "on",
         passenger_policy_version: PASSENGER_POLICY_VERSION,
+        accept_privacy_policy: v.accept_privacy_policy === "on",
+        privacy_policy_version: PRIVACY_POLICY_VERSION,
+        accept_terms: v.accept_terms === "on",
+        terms_version: TERMS_VERSION,
       });
       await loadSession();
       notify("Perfil actualizado.");
@@ -1492,6 +1532,10 @@ function profile() {
         avatar_path: form.elements.avatar.files?.[0] ? "selected" : p.avatar_path,
         passenger_policy_accepted_at: values.accept_passenger_policy === "on" ? new Date().toISOString() : null,
         passenger_policy_version: values.accept_passenger_policy === "on" ? PASSENGER_POLICY_VERSION : null,
+        privacy_policy_accepted_at: values.accept_privacy_policy === "on" ? new Date().toISOString() : null,
+        privacy_policy_version: values.accept_privacy_policy === "on" ? PRIVACY_POLICY_VERSION : null,
+        terms_accepted_at: values.accept_terms === "on" ? new Date().toISOString() : null,
+        terms_version: values.accept_terms === "on" ? TERMS_VERSION : null,
       };
       const status = passengerProfileStatus(snapshot);
       $("#passenger-progress").value = status.percent;
@@ -1531,6 +1575,78 @@ function profile() {
     form.addEventListener("change", updateProgress);
   }
   if (driver) bindWeeklyProof();
+}
+function localDateTime(value) {
+  const dateValue = value ? new Date(value) : new Date();
+  return new Date(dateValue.getTime() - dateValue.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+function campaignStatus(campaign) {
+  const now = Date.now();
+  if (!campaign.active) return ["Desactivada", "neutral"];
+  if (Date.parse(campaign.ends_at) <= now) return ["Finalizada", "cancelled"];
+  if (Date.parse(campaign.starts_at) > now) return ["Programada", "pending"];
+  return ["Vigente", ""];
+}
+function openCampaignEditor(campaign = null) {
+  const starts = campaign?.starts_at || new Date().toISOString();
+  const ends = campaign?.ends_at || new Date(Date.now() + 30 * 86400000).toISOString();
+  openModal(
+    campaign ? "Editar promoción" : "Nueva promoción",
+    `<form id="campaign-form"><label>Negocio o anunciante<input name="advertiser_name" required minlength="2" maxlength="100" value="${e(campaign?.advertiser_name || "")}" placeholder="Nombre del comercio"></label><label>Título de la promoción<input name="title" required minlength="3" maxlength="100" value="${e(campaign?.title || "")}" placeholder="Beneficio para la comunidad Yavoi!"></label><label>Descuento o beneficio destacado<input name="discount_label" maxlength="100" value="${e(campaign?.discount_label || "")}" placeholder="Ejemplo: 15% de descuento"></label><label>Descripción y condiciones<textarea name="description" required minlength="5" maxlength="700">${e(campaign?.description || "")}</textarea></label><div class="grid2"><label>Audiencia<select name="audience"><option value="all" ${campaign?.audience === "all" || !campaign ? "selected" : ""}>Todos</option><option value="passenger" ${campaign?.audience === "passenger" ? "selected" : ""}>Pasajeros</option><option value="driver" ${campaign?.audience === "driver" ? "selected" : ""}>Conductores</option></select></label><label>Prioridad<input name="priority" type="number" min="0" max="1000" value="${e(campaign?.priority ?? 100)}"></label><label>Inicio<input name="starts_at" type="datetime-local" required value="${localDateTime(starts)}"></label><label>Fin<input name="ends_at" type="datetime-local" required value="${localDateTime(ends)}"></label></div><label>Fotografía · JPG, PNG o WebP, hasta 4 MB<input name="image" type="file" accept="image/jpeg,image/png,image/webp"></label>${campaign?.image_path ? '<p class="hint">La fotografía actual se conserva si no eliges una nueva.</p>' : ""}<div class="grid2"><label>Texto del botón<input name="cta_label" maxlength="50" value="${e(campaign?.cta_label || "")}" placeholder="Conocer promoción"></label><label>Enlace seguro del negocio<input name="cta_url" type="url" maxlength="500" value="${e(campaign?.cta_url || "")}" placeholder="https://..."></label></div><label class="check"><input name="active" type="checkbox" ${campaign?.active === false ? "" : "checked"}>Publicar cuando se encuentre dentro de su vigencia</label><button class="btn wide" type="submit">Guardar promoción ${I("check")}</button></form>`,
+  );
+  bindForm("#campaign-form", async (values, form) => {
+    const imagePath = await upload(form.elements.image.files[0], "yavoi-marketing");
+    await rpc("upsert_campaign", {
+      id: campaign?.id || null,
+      advertiser_name: values.advertiser_name,
+      title: values.title,
+      discount_label: values.discount_label,
+      description: values.description,
+      audience: values.audience,
+      priority: Number(values.priority),
+      starts_at: new Date(values.starts_at).toISOString(),
+      ends_at: new Date(values.ends_at).toISOString(),
+      image_path: imagePath || campaign?.image_path || null,
+      cta_label: values.cta_label,
+      cta_url: values.cta_url,
+      active: values.active === "on",
+    });
+    closeModal();
+    await refreshPage();
+    notify("Promoción guardada y registrada en Auditoría.");
+  });
+}
+function marketingView() {
+  const marketing = S.data.marketing || { rewards_enabled: true, advertising_enabled: true, campaigns: [], reward_catalog: [] };
+  const campaigns = marketing.campaigns || [];
+  const rewardsCatalog = marketing.reward_catalog || [];
+  const audienceLabel = { all: "Todos", passenger: "Pasajeros", driver: "Conductores" };
+  const campaignCards = campaigns.map((campaign) => {
+    const [status, kind] = campaignStatus(campaign);
+    const image = campaignImageUrl(campaign.image_path);
+    return `<article class="campaign-card">${image ? `<img src="${e(image)}" alt="${e(campaign.title)}">` : `<div class="campaign-card-placeholder">${I("image")}</div>`}<div class="campaign-card-copy"><div class="row between wrap"><span class="badge ${kind}">${e(status)}</span><small>${e(audienceLabel[campaign.audience] || campaign.audience)}</small></div><h3>${e(campaign.title)}</h3><strong>${e(campaign.advertiser_name)}</strong><p>${e(campaign.description)}</p><small>${date(campaign.starts_at)} → ${date(campaign.ends_at)}</small></div><div class="campaign-card-actions"><button class="btn secondary" data-edit-campaign="${e(campaign.id)}">Editar ${I("pencil")}</button><button class="btn ${campaign.active ? "danger" : "secondary"}" data-toggle-campaign="${e(campaign.id)}" data-active="${campaign.active ? "false" : "true"}">${campaign.active ? "Desactivar" : "Activar"}</button></div></article>`;
+  }).join("");
+  const rewardCards = rewardsCatalog.map((reward) => `<article class="marketing-reward"><div class="reward-icon">${I(reward.icon || "gift")}</div><div><div class="row wrap"><strong>${e(reward.name)}</strong><span class="badge neutral">${reward.audience === "driver" ? "Conductores" : "Pasajeros"}</span></div><p>${e(reward.description)}</p><small>${reward.points_cost} puntos · ${e(reward.partner_name || "Yavoi!")}</small></div><button class="btn ${reward.active ? "danger" : "secondary"}" data-toggle-reward="${e(reward.id)}" data-active="${reward.active ? "false" : "true"}">${reward.active ? "Desactivar" : "Activar"}</button></article>`).join("");
+  shell(
+    `<section class="panel marketing-controls"><div class="row between wrap"><div><h2>Controles generales</h2><p>Pausa o reactiva cada sistema para todos los perfiles. Los puntos y registros existentes siempre se conservan.</p></div><span class="badge neutral">Cambios protegidos con verificación en dos pasos</span></div><form id="marketing-settings" class="marketing-switches"><label class="marketing-switch"><input name="rewards_enabled" type="checkbox" ${marketing.rewards_enabled ? "checked" : ""}><span>${I("gift")}<strong>Sistema de Recompensas</strong><small>Acumulación, metas y canjes.</small></span></label><label class="marketing-switch"><input name="advertising_enabled" type="checkbox" ${marketing.advertising_enabled ? "checked" : ""}><span>${I("megaphone")}<strong>Publicidad y promociones</strong><small>Ventanas vigentes para usuarios y conductores.</small></span></label><button class="btn" type="submit">Guardar controles ${I("shield-check")}</button></form></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Publicidad y descuentos</h2><p>Programa fotografías, vigencia, audiencia y enlace de cada negocio.</p></div><button class="btn" id="new-campaign">Nueva promoción ${I("plus")}</button></div><div class="campaign-grid">${campaignCards || '<div class="empty"><p>No hay promociones creadas. Agrega la primera cuando tengas un convenio vigente.</p></div>'}</div></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Catálogo de recompensas</h2><p>Activa sólo los beneficios que tengan inventario o proveedor disponible.</p></div><span class="badge ${marketing.rewards_enabled ? "" : "pending"}">${marketing.rewards_enabled ? "Sistema activo" : "Sistema pausado"}</span></div><div class="marketing-reward-list">${rewardCards}</div></section>`,
+    "Recompensas y publicidad",
+    "Controla beneficios, campañas y promociones desde un solo módulo.",
+  );
+  bindForm("#marketing-settings", async (values) => {
+    await rpc("set_marketing_settings", { rewards_enabled: values.rewards_enabled === "on", advertising_enabled: values.advertising_enabled === "on" });
+    await refreshPage();
+    notify("Controles generales actualizados.");
+  });
+  $("#new-campaign").onclick = () => openCampaignEditor();
+  $$('[data-edit-campaign]').forEach((item) => item.onclick = () => openCampaignEditor(campaigns.find((campaign) => campaign.id === item.dataset.editCampaign)));
+  $$('[data-toggle-campaign]').forEach((item) => item.onclick = () => run(async () => {
+    await rpc("set_campaign_active", { campaign_id: item.dataset.toggleCampaign, active: item.dataset.active === "true" });
+    await refreshPage();
+  }));
+  $$('[data-toggle-reward]').forEach((item) => item.onclick = () => run(async () => {
+    await rpc("set_reward_active", { reward_id: item.dataset.toggleReward, active: item.dataset.active === "true" });
+    await refreshPage();
+  }));
 }
 function help() {
   const admin = S.profile.role === "admin";
@@ -2309,7 +2425,7 @@ async function renderRoute() {
     else if (S.profile.role === "driver") await driverHome();
     else adminHome();
   } else if (S.view === "opsmap") await operationsMapView();
-  else ({ trips: tripsView, profile, wallet, payments: paymentsView, rewards, help, fleet, rates, audit })[S.view]?.();
+  else ({ trips: tripsView, profile, wallet, payments: paymentsView, rewards, help, fleet, rates, marketing: marketingView, audit })[S.view]?.();
 }
 async function refreshPage() {
   const b = await rpc("bootstrap");

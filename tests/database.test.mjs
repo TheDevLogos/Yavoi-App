@@ -78,6 +78,10 @@ test("Postgres security and complete ride lifecycle", async () => {
     avatar_path: riderAvatar,
     accept_passenger_policy: true,
     passenger_policy_version: "2026-09-10",
+    accept_privacy_policy: true,
+    privacy_policy_version: "2026-09-11",
+    accept_terms: true,
+    terms_version: "2026-09-11",
   };
   await rpc("profile", riderProfile);
   assert.ok(
@@ -127,12 +131,45 @@ test("Postgres security and complete ride lifecycle", async () => {
   await as(ids.admin, "aal2");
   const adminDashboard = await rpc("dashboard");
   assert.ok(adminDashboard.managed_profiles.some((profile) => profile.id === ids.rider));
+  assert.equal(adminDashboard.marketing.rewards_enabled, true);
+  assert.equal(adminDashboard.marketing.advertising_enabled, true);
+  assert.ok(adminDashboard.marketing.reward_catalog.some((reward) => reward.id === "passenger_snack"));
+  const campaignImage = `${ids.admin}/hotel-baeza.webp`;
+  await db.exec("reset role");
+  await db.query("insert into storage.objects(bucket_id,name) values('yavoi-marketing',$1)", [
+    campaignImage,
+  ]);
+  await as(ids.admin, "aal2");
+  const campaign = await rpc("upsert_campaign", {
+    title: "Descuento en restaurante",
+    advertiser_name: "Negocio de prueba",
+    description: "Beneficio vigente para la comunidad Yavoi!.",
+    discount_label: "10% de descuento",
+    audience: "passenger",
+    image_path: campaignImage,
+    cta_label: "Ver promoción",
+    cta_url: "https://example.test/promocion",
+    starts_at: "2026-01-01T00:00:00Z",
+    ends_at: "2099-12-31T23:59:59Z",
+    active: true,
+    priority: 10,
+  });
+  assert.equal(campaign.image_path, campaignImage);
+  await rpc("set_reward_active", { reward_id: "passenger_snack", active: false });
+  assert.equal(
+    (await rpc("dashboard")).marketing.reward_catalog.find((reward) => reward.id === "passenger_snack")
+      .active,
+    false,
+  );
   await rpc("authorize_profile_edit", {
     profile_id: ids.rider,
     allowed: true,
     note: "Identidad del pasajero verificada por Operaciones.",
   });
   await as(ids.rider);
+  const riderMarketing = (await rpc("dashboard")).marketing;
+  assert.ok(riderMarketing.campaigns.some((item) => item.id === campaign.id));
+  assert.equal(riderMarketing.campaigns[0].image_path, campaignImage);
   await rpc("profile", { ...riderProfile, name: "Pasajero Actualizado" });
   assert.equal(
     (await db.query("select full_name from public.profiles where id=$1", [ids.rider])).rows[0].full_name,
@@ -651,6 +688,20 @@ test("Postgres security and complete ride lifecycle", async () => {
   const reconciled = (await rpc("dashboard")).commission_settlements.find((item) => item.id === settlement.id);
   assert.equal(reconciled.status, "paid");
   assert.ok((await rpc("dashboard")).audit.some((item) => item.action === "driver_billing_changed"));
+  await rpc("set_marketing_settings", { rewards_enabled: false, advertising_enabled: false });
+  await as(ids.rider);
+  const pausedMarketing = (await rpc("dashboard")).marketing;
+  assert.equal(pausedMarketing.rewards_enabled, false);
+  assert.equal(pausedMarketing.advertising_enabled, false);
+  assert.deepEqual(pausedMarketing.campaigns, []);
+  await expectError(() => rpc("redeem_reward", { reward_id: "passenger_snack" }), /pausado/);
+  await as(ids.admin, "aal2");
+  await rpc("set_marketing_settings", { rewards_enabled: true, advertising_enabled: true });
+  await rpc("set_campaign_active", { campaign_id: campaign.id, active: false });
+  assert.equal(
+    (await rpc("dashboard")).marketing.campaigns.find((item) => item.id === campaign.id).active,
+    false,
+  );
   await as(ids.rider);
 
   const regional = await rpc("quote", {

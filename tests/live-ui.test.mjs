@@ -28,3 +28,24 @@ test("Operations exposes both per-driver commercial modes", () => {
   assert.match(portal, /submit_driver_settlement/);
   assert.match(portal, /review_driver_settlement/);
 });
+
+test("approved destinations, legal consents and women-driver availability are explicit", () => {
+  assert.match(portal, /id="destinations"/);
+  assert.match(portal, /Sujeto a disponibilidad de conductoras conectadas/);
+  assert.match(portal, /Política de Privacidad/);
+  assert.match(portal, /Términos de Servicio/);
+  assert.match(portal, /accept_privacy_policy/);
+  assert.match(portal, /accept_terms/);
+});
+
+test("Operations can manage reward availability and photo advertising campaigns", () => {
+  assert.match(portal, /Recompensas y publicidad/);
+  assert.match(portal, /set_marketing_settings/);
+  assert.match(portal, /set_reward_active/);
+  assert.match(portal, /upsert_campaign/);
+  assert.match(portal, /set_campaign_active/);
+  assert.match(portal, /yavoi-marketing/);
+  assert.match(portal, /maybeShowCampaignPromo/);
+  assert.match(css, /\.campaign-grid/);
+  assert.match(css, /\.campaign-modal/);
+});

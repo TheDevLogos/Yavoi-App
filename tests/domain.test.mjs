@@ -14,6 +14,7 @@ import {
   rewardEligibleForTrip,
   rewardDiscountCents,
   navs,
+  places,
 } from "../src/domain.js";
 test("cash amounts round to cents and invalid amounts are rejected", () => {
   assert.equal(cents("100.25"), 10025);
@@ -24,8 +25,10 @@ test("cash amounts round to cents and invalid amounts are rejected", () => {
 });
 test("role navigation never grants passenger or driver admin views", () => {
   for (const role of ["passenger", "driver"])
-    for (const view of ["fleet", "audit", "rates"]) assert.equal(allowedView(role, view), false);
+    for (const view of ["fleet", "audit", "rates", "marketing"])
+      assert.equal(allowedView(role, view), false);
   assert.equal(allowedView("admin", "fleet"), true);
+  assert.equal(allowedView("admin", "marketing"), true);
   assert.equal(allowedView("passenger", "profile"), true);
   assert.deepEqual(
     navs.driver.map(([view]) => view),
@@ -127,7 +130,7 @@ test("driver dossier progress requires every current document and expiration", (
 test("passenger profile progress requires safety policy and emergency data", () => {
   const partial = passengerProfileStatus({ full_name: "Ana Pérez", phone: "6391234567" });
   assert.equal(partial.completed, 2);
-  assert.equal(partial.percent, 33);
+  assert.equal(partial.percent, 25);
   const complete = passengerProfileStatus({
     full_name: "Ana Pérez",
     phone: "6391234567",
@@ -136,9 +139,30 @@ test("passenger profile progress requires safety policy and emergency data", () 
     emergency_phone: "6397654321",
     passenger_policy_accepted_at: "2026-09-10T12:00:00Z",
     passenger_policy_version: "2026-09-10",
+    privacy_policy_accepted_at: "2026-09-11T12:00:00Z",
+    privacy_policy_version: "2026-09-11",
+    terms_accepted_at: "2026-09-11T12:00:00Z",
+    terms_version: "2026-09-11",
   });
   assert.equal(complete.percent, 100);
   assert.deepEqual(complete.missing, []);
+});
+test("passenger destination suggestions contain only the approved names", () => {
+  assert.deepEqual(
+    places.map(({ name }) => name),
+    [
+      "Omnibus Delicias",
+      "Rápidos Delicias",
+      "Autobuses Chihuahuenses",
+      "Hotel Baeza",
+      "Hotel Oasis Suite",
+      "Hotel El Dorado Inn",
+      "Hotel Casa Grande",
+      "Hotel Los Cedros Inn",
+      "American Inn Hotel y Suites",
+      "Hotel Comfort Inn",
+    ],
+  );
 });
 test("travel rewards are eligible and calculated transparently", () => {
   const quote = { category: "basic", service_zone: "local", fare_cents: 6500 };
