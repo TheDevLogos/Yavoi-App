@@ -38,6 +38,8 @@ const auditActions = Object.freeze({
   advertising_campaign_status_changed: ["Estado de promoción modificado", "Promociones"],
   privacy_policy_accepted: ["Política de Privacidad aceptada", "Accesos"],
   terms_accepted: ["Términos de Servicio aceptados", "Accesos"],
+  trip_cancelled: ["Viaje cancelado", "Viajes"],
+  cancellation_fee_settled: ["Cuota de cancelación conciliada", "Pagos"],
   operations_report_exported: ["Informe generado", "Informes"],
 });
 const detailLabels = Object.freeze({
@@ -67,7 +69,10 @@ const detailLabels = Object.freeze({
   ends_at: "Fin de vigencia",
   title: "Promoción",
   reward_id: "Recompensa",
-  reward_id: "Recompensa",
+  cancellation_fee_cents: "Cuota de cancelación",
+  cancellation_refund_cents: "Reembolso",
+  cancelled_by_role: "Cancelado por",
+  policy_version: "Versión de política",
   status: "Estado",
   traffic_law_version: "Versión de obligaciones viales",
   policy_version: "Versión de políticas",

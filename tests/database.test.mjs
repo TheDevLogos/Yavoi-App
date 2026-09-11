@@ -77,7 +77,7 @@ test("Postgres security and complete ride lifecycle", async () => {
     emergency_phone: "6397654321",
     avatar_path: riderAvatar,
     accept_passenger_policy: true,
-    passenger_policy_version: "2026-09-10",
+    passenger_policy_version: "2026-09-11-cancelaciones",
     accept_privacy_policy: true,
     privacy_policy_version: "2026-09-11",
     accept_terms: true,
@@ -384,8 +384,16 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(acceptedTrip.billing_mode, "weekly_fee");
   assert.equal(acceptedTrip.commission_bps_applied, 0);
   await as(ids.rider);
+  await rpc("message", { trip_id: t.id, body: "Estoy en la entrada principal." });
+  await as(ids.driver);
+  await rpc("message", { trip_id: t.id, body: "Voy en camino; llego en unos minutos." });
+  await as(ids.rider);
   const detail = await rpc("trip", { trip_id: t.id });
   assert.match(detail.pin, /^\d{4}$/);
+  assert.deepEqual(detail.messages.map((message) => message.body), [
+    "Estoy en la entrada principal.",
+    "Voy en camino; llego en unos minutos.",
+  ]);
   const pin = detail.pin;
   await as(ids.other);
   assert.equal((await db.query("select * from public.trips")).rows.length, 0);
@@ -452,13 +460,25 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.ok(driverData.reward_wallet.catalog.some((reward) => reward.id === "driver_wash_free"));
   await as(ids.rider);
   await expectError(() => rpc("rating", { trip_id: t.id, stars: 6 }), /check constraint/);
-  await rpc("rating", { trip_id: t.id, stars: 5, comfort: 4, safety: 5, comment: "Buen servicio" });
+  const passengerRating = await rpc("rating_and_report", {
+    trip_id: t.id,
+    stars: 5,
+    comfort: 4,
+    safety: 5,
+    comment: "Buen servicio",
+    report_issue: true,
+    report_subject: "Objeto olvidado",
+    report_body: "Olvidé una mochila pequeña en el asiento trasero.",
+  });
+  assert.match(passengerRating.report.id, /^[0-9a-f-]{36}$/);
   await rpc("rating", { trip_id: t.id, stars: 1 });
   const ratedTrip = await rpc("trip", { trip_id: t.id });
   assert.equal(ratedTrip.my_rating.stars, 5);
   assert.equal(ratedTrip.ratings.length, 2);
   assert.ok(ratedTrip.ratings.some((rating) => rating.comment === "Buen pasajero"));
   assert.ok(ratedTrip.ratings.some((rating) => rating.comment === "Buen servicio"));
+  assert.equal(ratedTrip.reports.length, 1);
+  assert.equal(ratedTrip.reports[0].subject, "Objeto olvidado");
   await db.exec("reset role");
   await db.query("update public.reward_catalog set min_trips=1 where id='passenger_discount_20'");
   await db.query(
@@ -573,6 +593,153 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(cardDriverData.ledger.filter((l) => l.kind === "card_tip").length, 1);
   assert.ok(cardDriverData.reward_wallet.available_points >= 12);
   assert.equal((await rpc("trip", { trip_id: cardTrip.id })).route_history.length, 1);
+
+  // Cancellation protection is calculated with server time, keeps both parties
+  // informed and reconciles cash or card without trusting client totals.
+  await as(ids.rider);
+  const freeCancelQuote = await rpc("quote", {
+    origin: "Centro",
+    destination: "Hotel Baeza",
+    origin_lat: 28.19065,
+    origin_lng: -105.47045,
+    dest_lat: 28.19656,
+    dest_lng: -105.47062,
+    category: "basic",
+  });
+  const freeCancelTrip = await rpc("request_trip", {
+    quote_id: freeCancelQuote.id,
+    request_key: crypto.randomUUID(),
+    payment_method: "cash",
+    cash_tender_cents: 10000,
+  });
+  const freeTerms = await rpc("cancellation_quote", { trip_id: freeCancelTrip.id });
+  assert.equal(freeTerms.fee_cents, 0);
+  const freeCancelled = await rpc("transition", {
+    trip_id: freeCancelTrip.id,
+    status: "cancelled",
+    reason_code: "changed_plans",
+    reason: "Ya no necesito realizar este traslado.",
+  });
+  assert.equal(freeCancelled.payment_status, "cancelled");
+  assert.equal(freeCancelled.cancelled_by_role, "passenger");
+
+  const cashCancelQuote = await rpc("quote", {
+    origin: "Centro",
+    destination: "Hotel Casa Grande",
+    origin_lat: 28.19065,
+    origin_lng: -105.47045,
+    dest_lat: 28.19282,
+    dest_lng: -105.46265,
+    category: "basic",
+    preferred_driver_id: ids.driver,
+  });
+  const cashCancelTrip = await rpc("request_trip", {
+    quote_id: cashCancelQuote.id,
+    request_key: crypto.randomUUID(),
+    payment_method: "cash",
+    cash_tender_cents: 10000,
+    preferred_driver_id: ids.driver,
+  });
+  await as(ids.driver);
+  const cashCancelOffer = (await rpc("offers")).find((offer) => offer.id === cashCancelTrip.id);
+  await rpc("accept", { offer_id: cashCancelOffer.offer_id });
+  await db.exec("reset role");
+  await db.query(
+    "update public.trip_events set created_at=now()-interval '3 minutes' where trip_id=$1 and event='accepted'",
+    [cashCancelTrip.id],
+  );
+  await as(ids.rider);
+  const cashTerms = await rpc("cancellation_quote", { trip_id: cashCancelTrip.id });
+  assert.equal(cashTerms.fee_cents, 2500);
+  assert.equal(cashTerms.refund_cents, 0);
+  await rpc("transition", {
+    trip_id: cashCancelTrip.id,
+    status: "cancelled",
+    reason_code: "wrong_location",
+    reason: "La dirección de origen fue ingresada incorrectamente.",
+  });
+  await as(ids.driver);
+  const cashCancelDetail = await rpc("trip", { trip_id: cashCancelTrip.id });
+  assert.equal(cashCancelDetail.trip.cancellation_fee_cents, 2500);
+  assert.equal(cashCancelDetail.trip.payment_status, "pending");
+  assert.ok(cashCancelDetail.payments.some((payment) => payment.kind === "cancellation_fee" && payment.status === "pending"));
+  await rpc("settle_cancellation_fee", {
+    trip_id: cashCancelTrip.id,
+    status: "paid",
+    note: "Cuota recibida en efectivo y confirmada.",
+  });
+  assert.ok((await rpc("dashboard")).ledger.some((entry) => entry.trip_id === cashCancelTrip.id && entry.kind === "cancellation_fee" && entry.amount_cents === 2500));
+
+  await as(ids.rider);
+  const cardCancelQuote = await rpc("quote", {
+    origin: "Centro",
+    destination: "Hotel Comfort Inn",
+    origin_lat: 28.19065,
+    origin_lng: -105.47045,
+    dest_lat: 28.19301,
+    dest_lng: -105.45682,
+    category: "basic",
+    preferred_driver_id: ids.driver2,
+  });
+  const cardCancelTrip = await rpc("request_trip", {
+    quote_id: cardCancelQuote.id,
+    request_key: crypto.randomUUID(),
+    payment_method: "card",
+    preferred_driver_id: ids.driver2,
+  });
+  await db.exec("reset role");
+  await db.query("select public.yavoi_payment_event($1::jsonb)", [JSON.stringify({
+    external_reference: cardCancelTrip.payment_id,
+    provider_payment_id: "mp-test-cancel-1002",
+    amount_cents: cardCancelTrip.total_cents,
+    status: "approved",
+    status_detail: "accredited",
+    payment_method_type: "credit_card",
+    payment_method_id: "visa",
+    installments: "1",
+    live_mode: "false",
+    event_key: "mp-test-cancel-1002:approved:1",
+  })]);
+  await as(ids.driver2);
+  const cardCancelOffer = (await rpc("offers")).find((offer) => offer.id === cardCancelTrip.id);
+  await rpc("accept", { offer_id: cardCancelOffer.offer_id });
+  await db.exec("reset role");
+  await db.query(
+    "update public.trip_events set created_at=now()-interval '3 minutes' where trip_id=$1 and event='accepted'",
+    [cardCancelTrip.id],
+  );
+  await as(ids.rider);
+  const cardTerms = await rpc("cancellation_quote", { trip_id: cardCancelTrip.id });
+  assert.equal(cardTerms.fee_cents, 2500);
+  assert.equal(cardTerms.refund_cents, cardCancelTrip.total_cents - 2500);
+  const cardCancelled = await rpc("transition", {
+    trip_id: cardCancelTrip.id,
+    status: "cancelled",
+    reason_code: "changed_plans",
+    reason: "Cambió mi itinerario después de la asignación.",
+  });
+  assert.equal(cardCancelled.payment_status, "refund_pending");
+  const refundCheckout = await rpc("refund_checkout", { payment_id: cardCancelled.refund_payment_id });
+  assert.equal(refundCheckout.amount_cents, cardCancelTrip.total_cents - 2500);
+  assert.equal(refundCheckout.original_amount_cents, cardCancelTrip.total_cents);
+  await db.exec("reset role");
+  await db.query("select public.yavoi_payment_event($1::jsonb)", [JSON.stringify({
+    external_reference: cardCancelTrip.payment_id,
+    provider_payment_id: "mp-test-cancel-1002",
+    amount_cents: cardCancelTrip.total_cents,
+    status: "refunded",
+    status_detail: "refunded",
+    payment_method_type: "credit_card",
+    payment_method_id: "visa",
+    installments: "1",
+    live_mode: "false",
+    event_key: "mp-test-cancel-1002:refunded:2",
+  })]);
+  await as(ids.rider);
+  const refundedTrip = await rpc("trip", { trip_id: cardCancelTrip.id });
+  assert.equal(refundedTrip.trip.payment_status, "refunded");
+  assert.equal(refundedTrip.trip.cancellation_refund_cents, cardCancelTrip.total_cents - 2500);
+  assert.equal(refundedTrip.payments.find((payment) => payment.kind === "ride").retained_amount_cents, 2500);
 
   // A physical driver benefit requires Operations fulfillment and refunds its
   // points if Operations cancels it.

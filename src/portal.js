@@ -173,7 +173,7 @@ function notify(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove("show"), 6500);
 }
-function serviceNotification(title, body) {
+function serviceNotification(title, body, { tag = "yavoi-update", target = "home" } = {}) {
   notify(`${title}. ${body}`);
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   try {
@@ -181,12 +181,12 @@ function serviceNotification(title, body) {
       body,
       icon: "/icons/yavoi-192.png",
       badge: "/icons/yavoi-maskable-512.png",
-      tag: "yavoi-driver-offer",
+      tag,
       renotify: true,
     });
     item.onclick = () => {
       window.focus();
-      location.hash = "home";
+      location.hash = target;
     };
   } catch {}
 }
@@ -472,7 +472,7 @@ function shell(content, title, subtitle = "") {
   teardownMap();
   const p = S.profile;
   $("#app").innerHTML =
-    `<div class="app-shell"><aside class="sidebar"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><div class="city">${I("map-pin")} Delicias, Chihuahua</div><div class="nav-label">${e(roles[p.role]).toUpperCase()}</div><nav>${navs[p.role].map(([id, icon, label]) => `<a href="#${id}" class="${S.view === id ? "active" : ""}">${I(icon)}<span>${label}</span></a>`).join("")}</nav><div class="sidebar-bottom"><a class="sidebar-user" href="#profile">${avatar(p.full_name, p.avatar_path)}<div><strong>${e(p.full_name)}</strong><small>${e(roles[p.role])}</small></div></a><button class="logout" data-action="logout">${I("log-out")}<span>Cerrar sesión</span></button></div></aside><div class="workspace"><header class="topbar"><div class="topbar-brand"><img class="mobile-brand" src="/assets/yavoi-logo.png" alt="Yavoi!"><strong>Mi Yavoi! <span class="muted">/ ${e(roles[p.role])}</span></strong></div><div class="right"><span class="connection ${S.connected ? "" : "offline"}"><i></i>${S.connected ? "Conectado" : "Sin conexión"}</span><a class="landing-link link" href="/">Ir a la landing</a><a class="icon-btn" href="${p.role === "driver" ? "#home" : "#help"}" aria-label="${p.role === "driver" ? "Ayuda y seguridad en Conducir" : "Ayuda"}">${I("headset")}</a><a class="icon-btn" href="#profile" aria-label="Mi perfil">${I("user-round")}</a></div></header><main><div class="page-title"><div><div class="eyebrow">${p.role === "admin" ? "CENTRO DE OPERACIÓN" : "TU CIUDAD. A TU RITMO."}</div><h1>${title}</h1><p>${subtitle}</p></div><span class="badge neutral">${I("shield-check")} Acceso personal</span></div><div id="page-content">${content}</div></main><div class="footer-note">Yavoi! · Tu raite, al instante · Delicias, Chihuahua</div></div></div>`;
+    `<div class="app-shell"><aside class="sidebar"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><div class="city">${I("map-pin")} Delicias, Chihuahua</div><div class="nav-label">${e(roles[p.role]).toUpperCase()}</div><nav>${navs[p.role].map(([id, icon, label]) => `<a href="#${id}" class="${S.view === id ? "active" : ""}">${I(icon)}<span>${label}</span></a>`).join("")}</nav><div class="sidebar-bottom"><a class="sidebar-user" href="#profile">${avatar(p.full_name, p.avatar_path)}<div><strong>${e(p.full_name)}</strong><small>${e(roles[p.role])}</small></div></a><button class="logout" data-action="logout">${I("log-out")}<span>Cerrar sesión</span></button></div></aside><div class="workspace"><header class="topbar"><div class="topbar-brand"><img class="mobile-brand" src="/assets/yavoi-logo.png" alt="Yavoi!"><strong>Mi Yavoi! <span class="muted">/ ${e(roles[p.role])}</span></strong></div><div class="right"><span class="connection ${S.connected ? "" : "offline"}"><i></i>${S.connected ? "Conectado" : "Sin conexión"}</span><a class="landing-link link" href="/">Ir a la landing</a>${p.role === "admin" ? `<a class="icon-btn" href="#help" aria-label="Reportes y atención">${I("headset")}</a>` : ""}<a class="icon-btn" href="#profile" aria-label="Mi perfil">${I("user-round")}</a></div></header><main><div class="page-title"><div><div class="eyebrow">${p.role === "admin" ? "CENTRO DE OPERACIÓN" : "TU CIUDAD. A TU RITMO."}</div><h1>${title}</h1><p>${subtitle}</p></div><span class="badge neutral">${I("shield-check")} Acceso personal</span></div><div id="page-content">${content}</div></main><div class="footer-note">Yavoi! · Tu raite, al instante · Delicias, Chihuahua</div></div></div>`;
   iconsNow();
   $$("[data-action]").forEach((b) => (b.onclick = () => handleAction(b.dataset.action, b)));
 }
@@ -1021,7 +1021,7 @@ function tripRows(ts) {
   return ts
     .map(
       (t) =>
-        `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e({ paid: "Confirmado", pending: "Pendiente", failed: "No aprobado", refund_pending: "Reembolso pendiente", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</small></td><td>${money(t.total_cents ?? t.fare_cents)}</td><td>${t.rating_given ? `<span class="trip-rating-inline">${I("star")} ${t.rating_given}/5</span><small>Tu valoración</small>` : t.rating_received ? `<span class="trip-rating-inline">${I("star")} ${t.rating_received}/5</span><small>Valoración recibida</small>` : '<small>Sin valorar</small>'}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
+        `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e({ paid: "Confirmado", pending: "Pendiente", failed: "No aprobado", cancelled: "Cancelado sin cobro", refund_pending: "Reembolso pendiente", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</small></td><td>${money(t.total_cents ?? t.fare_cents)}</td><td>${t.rating_given ? `<span class="trip-rating-inline">${I("star")} ${t.rating_given}/5</span><small>Tu valoración</small>` : t.rating_received ? `<span class="trip-rating-inline">${I("star")} ${t.rating_received}/5</span><small>Valoración recibida</small>` : '<small>Sin valorar</small>'}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
     )
     .join("");
 }
@@ -1072,6 +1072,7 @@ async function tripView(id) {
     t.status,
   );
   const ridePayment = S.trip.payments?.find((payment) => payment.kind === "ride");
+  const cancellationPayment = S.trip.payments?.find((payment) => payment.kind === "cancellation_fee");
   const action =
     t.status === "payment_pending" && rider && ridePayment
       ? `${button("Continuar pago seguro", "retry-card", "wide", "credit-card")}${button("Cancelar solicitud", "cancel", "danger wide section-gap", "x")}`
@@ -1090,7 +1091,7 @@ async function tripView(id) {
             : t.status === "arrived" ? "Comparte el PIN sólo cuando estés frente al conductor correcto."
               : t.status === "in_progress" ? "Sigue el recorrido en el mapa y comunícate con tu conductor."
                 : t.status === "completed" ? "Gracias por viajar con Yavoi! Tu opinión nos ayuda a mejorar."
-                  : "La solicitud fue cancelada.";
+                  : `La solicitud fue cancelada${t.cancelled_by_role ? ` por ${t.cancelled_by_role === "passenger" ? "el pasajero" : t.cancelled_by_role === "driver" ? "el conductor" : "Operaciones"}` : ""}.`;
   const serviceDetails = `<div class="service-summary"><div>${I("users-round")}<span><small>Personas</small><strong>${t.party_size || 1}</strong></span></div><div>${I(t.accessible ? "accessibility" : "car-front")}<span><small>Servicio</small><strong>Yavoi! ${e(S.categories.find((category) => category.id === t.category)?.name || t.category)}</strong></span></div>${t.service_notes ? `<div class="wide-detail">${I("message-square-text")}<span><small>Petición del pasajero</small><strong>${e(t.service_notes)}</strong></span></div>` : ""}</div>`;
   const rewardPaymentRow = t.reward_discount_cents
     ? `<div class="receipt-row positive-points"><span>Recompensa Puntos Viajeros</span><strong>-${money(t.reward_discount_cents)}</strong></div>`
@@ -1098,6 +1099,14 @@ async function tripView(id) {
   let paymentRows = serviceDetails + (t.payment_method === "card"
     ? `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · tarjeta</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div><p class="hint">Estado del pago: ${e({ paid: "Confirmado", pending: "En proceso", failed: "No aprobado", refund_pending: "Reembolso en proceso", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</p>`
     : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div>${Number(t.total_cents || 0) > 0 ? `<div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(t.total_cents ?? t.fare_cents, t.cash_tender_cents))}</strong></div>` : '<p class="hint">Viaje cubierto por tu recompensa. No entregues efectivo por la tarifa.</p>'}`);
+  if (t.status === "cancelled") {
+    const feeStatus = cancellationPayment
+      ? ({ pending: "Pendiente de confirmar", approved: "Confirmada", cancelled: "Condonada" }[cancellationPayment.status] || cancellationPayment.status)
+      : Number(t.cancellation_fee_cents || 0) > 0 && t.payment_method === "card"
+        ? "Retenida del pago electrónico"
+        : "Sin cargo";
+    paymentRows = `${serviceDetails}<section class="cancellation-summary"><h3>Detalle de cancelación</h3><div class="receipt-row"><span>Importe original</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div><div class="receipt-row"><span>Cuota de cancelación</span><strong>${money(t.cancellation_fee_cents || 0)}</strong></div>${t.payment_method === "card" ? `<div class="receipt-row"><span>Reembolso</span><strong>${money(t.cancellation_refund_cents || 0)}</strong></div>` : ""}<div class="receipt-row"><span>Estado</span><strong>${e(feeStatus)}</strong></div><p class="hint">${e(t.cancel_reason || "Sin motivo registrado.")} · Política ${e(t.cancellation_policy_version || "vigente al cancelar")}.</p></section>`;
+  }
   if (S.profile.role === "admin" && S.trip.operations) {
     const operations = S.trip.operations;
     const expected = Number(t.total_cents ?? t.fare_cents ?? 0);
@@ -1117,15 +1126,24 @@ async function tripView(id) {
           Math.round(loc.accuracy) +
           " m.";
   const tripSafetyControls =
-    conductor && active(t)
-      ? `<section class="ride-safety-actions" aria-label="Ayuda y seguridad durante el viaje"><button class="btn secondary" data-action="trip-report">${I("message-square-warning")} Reportar viaje</button><a class="btn danger" href="tel:911">${I("phone-call")} Emergencias 911</a></section>`
+    (rider || conductor) && t.driver_id && ["accepted", "arrived", "in_progress"].includes(t.status)
+      ? `<section class="ride-safety-actions" aria-label="Ayuda y seguridad durante el viaje"><button class="btn secondary" data-action="trip-report">${I("message-square-warning")} Reportar este viaje</button><a class="btn danger" href="tel:911">${I("phone-call")} Emergencias 911</a></section>`
       : "";
   const chatAction = t.driver_id && active(t) && (rider || conductor)
     ? button(rider ? "Mensajear con mi conductor" : "Mensajear con mi pasajero", "open-chat", "secondary wide section-gap", "message-circle")
     : "";
-  const tripFooter = `<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}${conductor ? "" : `<a href="#help" class="btn secondary">${I("headset")} Ayuda</a>`}</div>`;
+  const terminalReport = (rider || conductor) && ["completed", "cancelled"].includes(t.status)
+    ? button("Reportar este servicio", "trip-report", "secondary", "message-square-warning")
+    : "";
+  const reportHistory = (S.trip.reports || []).length
+    ? `<section class="trip-reports"><h3>Seguimiento de reportes</h3>${S.trip.reports.map((report) => `<article><div class="row between wrap"><strong>${e(report.subject)}</strong><span class="badge ${report.status === "resolved" ? "" : "pending"}">${e({ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[report.status] || report.status)}</span></div><p>${e(report.body)}</p>${report.response ? `<p class="hint">Respuesta de Operaciones: ${e(report.response)}</p>` : ""}<small>${date(report.created_at)}</small></article>`).join("")}</section>`
+    : "";
+  const cancellationFeeActions = t.status === "cancelled" && cancellationPayment?.status === "pending" && (conductor || S.profile.role === "admin")
+    ? `<div class="row wrap section-gap">${button("Confirmar cuota recibida", "settle-cancel-fee", "secondary", "circle-dollar-sign")}${S.profile.role === "admin" ? button("Condonar cuota", "waive-cancel-fee", "secondary", "badge-x") : ""}</div>`
+    : "";
+  const tripFooter = `<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}${terminalReport}</div>`;
   shell(
-    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${chatAction}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${tripSafetyControls}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" ? tripRatingsMarkup(S.trip.ratings || []) : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}${tripFooter}</section><div class="stack">${mapFrame("ride-map", e(geo))}<section class="panel trip-chat-panel" id="trip-chat"><div class="row between wrap"><div><h2>Mensajes del viaje</h2><p>Disponible desde que el conductor acepta y mientras el viaje está activo.</p></div>${I("message-circle")}</div><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Confirma una entrada, referencia o indicación…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
+    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${chatAction}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${tripSafetyControls}${cancellationFeeActions}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" ? tripRatingsMarkup(S.trip.ratings || []) : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}${reportHistory}${tripFooter}</section><div class="stack">${mapFrame("ride-map", e(geo))}<section class="panel trip-chat-panel" id="trip-chat"><div class="row between wrap"><div><h2>Mensajes del viaje</h2><p>Disponible desde que el conductor acepta y mientras el viaje está activo.</p></div>${I("message-circle")}</div><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Confirma una entrada, referencia o indicación…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
     "Tu viaje Yavoi!",
     "Folio " + e(t.id.slice(0, 8).toUpperCase()) + " · " + date(t.created_at),
   );
@@ -1249,7 +1267,7 @@ function paymentsView() {
   const feeCards = fees.filter((fee) => fee.note !== "Modalidad por comisión").map((fee) => `<article class="fee-card"><div><strong>${e(fee.driver_name)}</strong><small>Semana ${e(fee.week_start)} · vence ${date(fee.due_at)}</small></div><strong>${money(fee.amount_cents)}</strong><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><div class="row wrap">${fee.proof_path ? `<button class="btn secondary" data-fee-proof="${e(fee.proof_path)}">Ver comprobante</button>` : ""}${fee.status === "submitted" ? `<button class="btn" data-fee-review="${e(fee.id)}">Revisar pago</button>` : ""}<button class="btn ${fee.account_active ? "danger" : "secondary"}" data-driver-access="${e(fee.driver_id)}" data-active="${fee.account_active ? "false" : "true"}">${fee.account_active ? "Desactivar cuenta" : "Activar cuenta"}</button></div></article>`).join("");
   const settlementCards = settlements.map((item) => `<article class="fee-card"><div><strong>${e(item.driver_name)}</strong><small>Semana ${e(item.week_start)} · efectivo ${money(item.gross_cash_cents)}</small></div><strong>${money(item.commission_due_cents)}</strong><span class="badge ${["pending", "submitted", "overdue"].includes(item.status) ? "pending" : ""}">${e(statusName[item.status] || item.status)}</span><div class="row wrap">${item.proof_path ? `<button class="btn secondary" data-settlement-proof="${e(item.proof_path)}">Ver transferencia</button>` : ""}${item.status === "submitted" ? `<button class="btn" data-settlement-review="${e(item.id)}">Revisar liquidación</button>` : ""}</div></article>`).join("");
   shell(
-    `<div class="grid4 stats"><div class="stat"><small>Pagos registrados</small><strong>${payments.length}</strong><p>Efectivo, tarjeta y aportaciones</p></div><div class="stat"><small>Importe aprobado</small><strong>${money(approved)}</strong><p>Conciliación del sistema</p></div><div class="stat"><small>Comprobantes por revisar</small><strong>${fees.filter((fee) => fee.status === "submitted").length + settlements.filter((item) => item.status === "submitted").length}</strong><p>Aportaciones y comisiones</p></div><div class="stat"><small>Reembolsos pendientes</small><strong>${payments.filter((payment) => payment.status === "refund_pending").length}</strong><p>Requieren seguimiento</p></div></div><section class="panel section-gap"><h2>Registro de pagos</h2><div class="table-wrap"><table><thead><tr><th>Fecha / referencia</th><th>Concepto</th><th>Viaje y personas</th><th>Método</th><th>Estado</th><th>Importe</th><th></th></tr></thead><tbody>${payments.map((payment) => `<tr><td>${date(payment.created_at)}<small>${e(payment.provider_payment_id || payment.id.slice(0, 8))}</small></td><td>${e({ ride: "Viaje", tip: "Propina", weekly_fee: "Aportación semanal" }[payment.kind])}</td><td>${e(payment.origin || "Sin viaje")}<small>${e(payment.payer_name || "")} ${payment.driver_name ? `· ${e(payment.driver_name)}` : ""}</small></td><td>${e({ cash: "Efectivo", mercado_pago: "Mercado Pago", manual: "Comprobante" }[payment.provider])}</td><td><span class="badge ${["created", "pending", "in_process", "refund_pending"].includes(payment.status) ? "pending" : payment.status === "rejected" ? "cancelled" : ""}">${e(statusName[payment.status] || payment.status)}</span></td><td><strong>${money(payment.amount_cents)}</strong></td><td>${payment.status === "refund_pending" ? `<button class="link" data-refund="${e(payment.id)}">Procesar reembolso</button>` : ""}</td></tr>`).join("")}</tbody></table></div></section><section class="panel section-gap"><h2>Aportaciones semanales</h2><p>Conductores configurados con cuota fija; conservan el 100% del efectivo y el porcentaje configurado de pagos electrónicos.</p>${feeCards || '<div class="empty"><p>No hay aportaciones activas.</p></div>'}</section><section class="panel section-gap"><h2>Liquidaciones de comisión en efectivo</h2><p>Conductores sin cuota semanal que transfieren la comisión acumulada de sus viajes en efectivo.</p>${settlementCards || '<div class="empty"><p>No hay liquidaciones registradas.</p></div>'}</section>`,
+    `<div class="grid4 stats"><div class="stat"><small>Pagos registrados</small><strong>${payments.length}</strong><p>Efectivo, tarjeta, cancelaciones y aportaciones</p></div><div class="stat"><small>Importe aprobado</small><strong>${money(approved)}</strong><p>Conciliación del sistema</p></div><div class="stat"><small>Comprobantes por revisar</small><strong>${fees.filter((fee) => fee.status === "submitted").length + settlements.filter((item) => item.status === "submitted").length}</strong><p>Aportaciones y comisiones</p></div><div class="stat"><small>Reembolsos pendientes</small><strong>${payments.filter((payment) => payment.status === "refund_pending").length}</strong><p>Requieren seguimiento</p></div></div><section class="panel section-gap"><h2>Registro de pagos</h2><div class="table-wrap"><table><thead><tr><th>Fecha / referencia</th><th>Concepto</th><th>Viaje y personas</th><th>Método</th><th>Estado</th><th>Importe</th><th></th></tr></thead><tbody>${payments.map((payment) => `<tr><td>${date(payment.created_at)}<small>${e(payment.provider_payment_id || payment.id.slice(0, 8))}</small></td><td>${e({ ride: "Viaje", tip: "Propina", weekly_fee: "Aportación semanal", cancellation_fee: "Cuota de cancelación" }[payment.kind] || payment.kind)}</td><td>${e(payment.origin || "Sin viaje")}<small>${e(payment.payer_name || "")} ${payment.driver_name ? `· ${e(payment.driver_name)}` : ""}</small></td><td>${e({ cash: "Efectivo", mercado_pago: "Mercado Pago", manual: "Comprobante" }[payment.provider])}</td><td><span class="badge ${["created", "pending", "in_process", "refund_pending"].includes(payment.status) ? "pending" : payment.status === "rejected" ? "cancelled" : ""}">${e(statusName[payment.status] || payment.status)}</span></td><td><strong>${money(payment.amount_cents)}</strong>${payment.refund_amount_cents ? `<small>Reembolso ${money(payment.refund_amount_cents)}</small>` : ""}${payment.retained_amount_cents ? `<small>Retenido ${money(payment.retained_amount_cents)}</small>` : ""}</td><td>${payment.status === "refund_pending" ? `<button class="link" data-refund="${e(payment.id)}">Procesar reembolso</button>` : ""}</td></tr>`).join("")}</tbody></table></div></section><section class="panel section-gap"><h2>Aportaciones semanales</h2><p>Conductores configurados con cuota fija; conservan el 100% del efectivo y el porcentaje configurado de pagos electrónicos.</p>${feeCards || '<div class="empty"><p>No hay aportaciones activas.</p></div>'}</section><section class="panel section-gap"><h2>Liquidaciones de comisión en efectivo</h2><p>Conductores sin cuota semanal que transfieren la comisión acumulada de sus viajes en efectivo.</p>${settlementCards || '<div class="empty"><p>No hay liquidaciones registradas.</p></div>'}</section>`,
     "Pagos y cuotas",
     "Conciliación por viaje, conductor, pasajero y semana.",
   );
@@ -1445,7 +1463,7 @@ function passengerPolicyMarkup(profile) {
   const termsAccepted =
     profile.terms_accepted_at && profile.terms_version === TERMS_VERSION;
   const complete = safetyAccepted && privacyAccepted && termsAccepted;
-  return `<section class="passenger-policy"><div class="row between"><div><div class="eyebrow">ACUERDOS DE LA CUENTA</div><h3>Seguridad, privacidad y términos</h3></div><span class="badge ${complete ? "" : "pending"}">${complete ? "Aceptados" : "Pendientes"}</span></div><details ${safetyAccepted ? "" : "open"}><summary>Políticas de seguridad para viajar</summary><div class="policy-copy"><p>Al viajar, cada pasajero debe:</p><ul><li>Usar cinturón de seguridad durante todo el trayecto y asegurar correctamente a menores de edad.</li><li>Mantener limpia la unidad y responder por daños causados de forma intencional o negligente.</li><li>No fumar ni vapear, y no consumir alcohol, drogas, estupefacientes u otras sustancias dentro del vehículo.</li><li>No portar armas, materiales peligrosos ni objetos que pongan en riesgo a otras personas.</li><li>Tratar con respeto al conductor y a los acompañantes; no se permite acoso, discriminación, amenazas ni violencia.</li><li>Respetar la capacidad de la categoría, informar equipaje o carga especial y seguir las indicaciones de seguridad.</li><li>No distraer al conductor, interferir con la conducción ni pedir maniobras contrarias a la ley.</li><li>Estar listo en el punto acordado y verificar la placa, unidad y conductor antes de abordar.</li></ul><p>El conductor puede reportar incumplimientos. Ante una conducta grave o un riesgo inmediato, puede detenerse en un lugar seguro, cancelar el servicio y solicitar el descenso. Yavoi! puede revisar el caso, restringir la cuenta y compartir información con autoridades cuando exista obligación legal. En una emergencia llama al 911.</p></div></details><label class="check policy-accept"><input name="accept_passenger_policy" type="checkbox" ${safetyAccepted ? "checked" : ""} required>He leído y acepto las Políticas de Seguridad, versión ${PASSENGER_POLICY_VERSION}.</label><details ${privacyAccepted ? "" : "open"}><summary>Política de Privacidad y tratamiento de datos</summary><div class="policy-copy"><p>Yavoi! trata los datos necesarios para crear y proteger tu cuenta, cotizar y prestar viajes, procesar pagos, brindar soporte, prevenir fraude y cumplir obligaciones legales.</p><ul><li>Podemos tratar nombre, teléfono, correo, fotografía, contacto de emergencia, ubicaciones, rutas, mensajes del viaje, pagos tokenizados, valoraciones, reportes y datos técnicos de seguridad.</li><li>Durante un servicio compartimos con el conductor sólo la información necesaria para identificarte, recogerte, atender tus indicaciones y completar el viaje.</li><li>La ubicación se utiliza para cotización, asignación, seguimiento y seguridad. Los datos de tarjeta son procesados por el proveedor de pagos; Yavoi! no almacena número completo ni CVV.</li><li>Conservamos registros durante el tiempo necesario para operación, aclaraciones, seguridad y obligaciones aplicables. Aplicamos controles de acceso y trazabilidad.</li><li>Puedes solicitar acceso, rectificación, cancelación u oposición y consultar cambios a este aviso mediante admin.yavoi@gmail.com mientras se habilita el canal oficial.</li></ul><p>No vendemos tus datos personales. Una solicitud legal válida, emergencia o investigación de seguridad puede requerir conservar o compartir información con autoridades competentes.</p></div></details><label class="check policy-accept"><input name="accept_privacy_policy" type="checkbox" ${privacyAccepted ? "checked" : ""} required>He leído y acepto la Política de Privacidad, versión ${PRIVACY_POLICY_VERSION}.</label><details ${termsAccepted ? "" : "open"}><summary>Términos de Servicio</summary><div class="policy-copy"><p>Al utilizar Yavoi! confirmas que proporcionarás información verdadera, protegerás tu acceso y usarás la plataforma únicamente para solicitar y recibir servicios permitidos.</p><ul><li>Las tarifas, categoría, forma de pago, propina y condiciones se muestran antes de confirmar. Los estimados pueden actualizarse si cambia la ruta o disponibilidad antes de solicitar.</li><li>Debes verificar conductor, fotografía, vehículo y placas antes de abordar, comunicar necesidades especiales y respetar las reglas de seguridad.</li><li>Los viajes, cancelaciones, mensajes, pagos, valoraciones y reportes quedan ligados a la cuenta para atención y trazabilidad.</li><li>Yavoi! puede limitar temporalmente una cuenta por datos falsos, fraude, riesgo, incumplimientos reiterados o investigación de incidentes.</li><li>Las promociones y recompensas tienen vigencia, disponibilidad y condiciones propias visibles en la aplicación.</li></ul><p>El uso continuado requiere aceptar la versión vigente. Puedes dejar de utilizar el servicio y solicitar atención sobre tu cuenta mediante admin.yavoi@gmail.com.</p></div></details><label class="check policy-accept"><input name="accept_terms" type="checkbox" ${termsAccepted ? "checked" : ""} required>He leído y acepto los Términos de Servicio, versión ${TERMS_VERSION}.</label></section>`;
+  return `<section class="passenger-policy"><div class="row between"><div><div class="eyebrow">ACUERDOS DE LA CUENTA</div><h3>Seguridad, privacidad y términos</h3></div><span class="badge ${complete ? "" : "pending"}">${complete ? "Aceptados" : "Pendientes"}</span></div><details ${safetyAccepted ? "" : "open"}><summary>Políticas de seguridad para viajar</summary><div class="policy-copy"><p>Al viajar, cada pasajero debe:</p><ul><li>Usar cinturón de seguridad durante todo el trayecto y asegurar correctamente a menores de edad.</li><li>Mantener limpia la unidad y responder por daños causados de forma intencional o negligente.</li><li>No fumar ni vapear, y no consumir alcohol, drogas, estupefacientes u otras sustancias dentro del vehículo.</li><li>No portar armas, materiales peligrosos ni objetos que pongan en riesgo a otras personas.</li><li>Tratar con respeto al conductor y a los acompañantes; no se permite acoso, discriminación, amenazas ni violencia.</li><li>Respetar la capacidad de la categoría, informar equipaje o carga especial y seguir las indicaciones de seguridad.</li><li>No distraer al conductor, interferir con la conducción ni pedir maniobras contrarias a la ley.</li><li>Estar listo en el punto acordado y verificar la placa, unidad y conductor antes de abordar.</li><li>Cancelar tan pronto como sea posible. No hay cargo antes de una asignación ni durante los primeros 2 minutos después de que un conductor acepta. Después se aplica una cuota de $25; si la unidad ya llegó, la cuota es de $35. El importe siempre se muestra antes de confirmar.</li><li>Una cancelación del conductor u Operaciones no genera cuota al pasajero. En pagos electrónicos se devuelve el saldo después de descontar la cuota aplicable; en efectivo la cuota queda registrada hasta su conciliación.</li></ul><p>El conductor puede reportar incumplimientos. Ante una conducta grave o un riesgo inmediato, puede detenerse en un lugar seguro, cancelar el servicio y solicitar el descenso. Yavoi! puede revisar cancelaciones reiteradas, investigar el caso, restringir la cuenta y compartir información con autoridades cuando exista obligación legal. En una emergencia llama al 911.</p></div></details><label class="check policy-accept"><input name="accept_passenger_policy" type="checkbox" ${safetyAccepted ? "checked" : ""} required>He leído y acepto las Políticas de Seguridad y Cancelación, versión ${PASSENGER_POLICY_VERSION}.</label><details ${privacyAccepted ? "" : "open"}><summary>Política de Privacidad y tratamiento de datos</summary><div class="policy-copy"><p>Yavoi! trata los datos necesarios para crear y proteger tu cuenta, cotizar y prestar viajes, procesar pagos, brindar soporte, prevenir fraude y cumplir obligaciones legales.</p><ul><li>Podemos tratar nombre, teléfono, correo, fotografía, contacto de emergencia, ubicaciones, rutas, mensajes del viaje, pagos tokenizados, valoraciones, reportes y datos técnicos de seguridad.</li><li>Durante un servicio compartimos con el conductor sólo la información necesaria para identificarte, recogerte, atender tus indicaciones y completar el viaje.</li><li>La ubicación se utiliza para cotización, asignación, seguimiento y seguridad. Los datos de tarjeta son procesados por el proveedor de pagos; Yavoi! no almacena número completo ni CVV.</li><li>Conservamos registros durante el tiempo necesario para operación, aclaraciones, seguridad y obligaciones aplicables. Aplicamos controles de acceso y trazabilidad.</li><li>Puedes solicitar acceso, rectificación, cancelación u oposición y consultar cambios a este aviso mediante admin.yavoi@gmail.com mientras se habilita el canal oficial.</li></ul><p>No vendemos tus datos personales. Una solicitud legal válida, emergencia o investigación de seguridad puede requerir conservar o compartir información con autoridades competentes.</p></div></details><label class="check policy-accept"><input name="accept_privacy_policy" type="checkbox" ${privacyAccepted ? "checked" : ""} required>He leído y acepto la Política de Privacidad, versión ${PRIVACY_POLICY_VERSION}.</label><details ${termsAccepted ? "" : "open"}><summary>Términos de Servicio</summary><div class="policy-copy"><p>Al utilizar Yavoi! confirmas que proporcionarás información verdadera, protegerás tu acceso y usarás la plataforma únicamente para solicitar y recibir servicios permitidos.</p><ul><li>Las tarifas, categoría, forma de pago, propina y condiciones se muestran antes de confirmar. Los estimados pueden actualizarse si cambia la ruta o disponibilidad antes de solicitar.</li><li>Debes verificar conductor, fotografía, vehículo y placas antes de abordar, comunicar necesidades especiales y respetar las reglas de seguridad.</li><li>Antes de cancelar se presenta la cuota y el reembolso calculados por el servidor. Las cancelaciones previas a la asignación y las realizadas dentro de la gracia de 2 minutos son gratuitas; después cuestan $25 y, cuando la unidad ya llegó, $35.</li><li>Los viajes, cancelaciones, responsables, motivos, mensajes, pagos, valoraciones y reportes quedan ligados a la cuenta para atención y trazabilidad.</li><li>Yavoi! puede limitar temporalmente una cuenta por datos falsos, fraude, riesgo, cancelaciones abusivas, incumplimientos reiterados o investigación de incidentes.</li><li>Las promociones y recompensas tienen vigencia, disponibilidad y condiciones propias visibles en la aplicación.</li></ul><p>El uso continuado requiere aceptar la versión vigente. Puedes dejar de utilizar el servicio y solicitar atención sobre tu cuenta mediante admin.yavoi@gmail.com.</p></div></details><label class="check policy-accept"><input name="accept_terms" type="checkbox" ${termsAccepted ? "checked" : ""} required>He leído y acepto los Términos de Servicio, versión ${TERMS_VERSION}.</label></section>`;
 }
 function documentField(name, title, path, note = "") {
   return `<label class="document-upload"><span>${e(title)}</span><input name="${name}" type="file" accept="application/pdf,image/jpeg,image/png"><small>${path ? "Documento recibido. Puedes reemplazarlo." : "Pendiente de cargar"}${note ? ` · ${e(note)}` : ""}</small></label>`;
@@ -2288,6 +2306,24 @@ async function handleAction(action, b) {
   }
   const t = S.trip?.trip;
   if (!t) return;
+  if (action === "settle-cancel-fee" || action === "waive-cancel-fee") {
+    const waived = action === "waive-cancel-fee";
+    openModal(
+      waived ? "Condonar cuota de cancelación" : "Confirmar cuota recibida",
+      `<form id="settle-cancellation"><p>${waived ? "La cuota dejará de estar pendiente y la decisión quedará registrada para seguimiento." : "Confirma únicamente cuando el importe haya sido recibido. Esta acción actualizará los ingresos y la conciliación."}</p><label>Nota de seguimiento<textarea name="note" required minlength="5" maxlength="500" placeholder="Forma de pago o motivo de la decisión"></textarea></label><button class="btn ${waived ? "secondary" : ""} wide" type="submit">${waived ? "Confirmar condonación" : "Registrar pago"}</button></form>`,
+    );
+    bindForm("#settle-cancellation", async (values) => {
+      await rpc("settle_cancellation_fee", {
+        trip_id: t.id,
+        status: waived ? "waived" : "paid",
+        note: values.note,
+      });
+      closeModal();
+      await tripView(t.id);
+      notify(waived ? "Cuota condonada y registrada." : "Cuota conciliada correctamente.");
+    });
+    return;
+  }
   if (action === "retry-card") {
     const payment = S.trip.payments?.find((item) => item.kind === "ride");
     if (payment) return cardCheckout(payment.id, t.id, payment.amount_cents);
@@ -2314,32 +2350,64 @@ async function handleAction(action, b) {
     return;
   }
   if (action === "cancel") {
-    openModal(
-      "Cancelar viaje",
-      `<form id="cancel"><p class="hint">Esta acción cierra la solicitud. No se registra un cargo automático.</p><label>Motivo<textarea name="reason" required minlength="5" maxlength="500"></textarea></label><button class="btn danger wide" type="submit">Confirmar cancelación</button></form>`,
-    );
-    bindForm("#cancel", async (v) => {
-      const cancelled = await rpc("transition", { trip_id: t.id, status: "cancelled", reason: v.reason });
-      if (cancelled.refund_payment_id) {
-        const { data, error } = await db.functions.invoke("mercado-pago-payment", { body: { action: "refund", payment_id: cancelled.refund_payment_id } });
-        if (error || data?.error) notify("El viaje se canceló y el reembolso quedó pendiente para Operaciones.");
-      }
-      closeModal();
-      await tripView(t.id);
+    return run(async () => {
+      const terms = await rpc("cancellation_quote", { trip_id: t.id });
+      const cancellationReasons = S.profile.role === "driver"
+        ? [["vehicle_issue", "Falla o imprevisto con mi unidad"], ["passenger_absent", "No localizo al pasajero"], ["safety", "Situación de seguridad"], ["other", "Otro motivo"]]
+        : S.profile.role === "admin"
+          ? [["operations", "Decisión de Operaciones"], ["safety", "Situación de seguridad"], ["vehicle_issue", "Unidad fuera de servicio"], ["other", "Otro motivo"]]
+          : [["changed_plans", "Cambió mi plan"], ["wrong_location", "Ingresé una ubicación incorrecta"], ["driver_delay", "Demora de la unidad"], ["safety", "Seguridad o identidad no coincide"], ["other", "Otro motivo"]];
+      const reasonOptions = cancellationReasons.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+      const feeNotice = Number(terms.fee_cents || 0) > 0
+        ? `<div class="cancellation-charge">${I("circle-dollar-sign")}<div><small>CUOTA APLICABLE</small><strong>${money(terms.fee_cents)}</strong><p>${e(terms.explanation)}</p></div></div>`
+        : `<div class="hint">${I("shield-check")} ${e(terms.explanation)}</div>`;
+      openModal(
+        "Revisa antes de cancelar",
+        `<form id="cancel">${feeNotice}${terms.payment_method === "card" && Number(terms.refund_cents || 0) > 0 ? `<div class="receipt-row"><span>Reembolso estimado a tu tarjeta</span><strong>${money(terms.refund_cents)}</strong></div>` : ""}<label>Motivo de cancelación<select name="reason_code" required><option value="">Selecciona un motivo</option>${reasonOptions}</select></label><label>Describe el motivo<textarea name="reason" required minlength="5" maxlength="500"></textarea></label><label class="check"><input type="checkbox" required>Entiendo el importe, el reembolso y que ambas partes recibirán el aviso.</label><button class="btn danger wide" type="submit">Confirmar cancelación</button></form>`,
+      );
+      bindForm("#cancel", async (v) => {
+        const cancelled = await rpc("transition", { trip_id: t.id, status: "cancelled", reason_code: v.reason_code, reason: v.reason });
+        let refundPending = false;
+        if (cancelled.refund_payment_id) {
+          const { data, error } = await db.functions.invoke("mercado-pago-payment", { body: { action: "refund", payment_id: cancelled.refund_payment_id } });
+          refundPending = !!(error || data?.error);
+        }
+        closeModal();
+        await tripView(t.id);
+        if (refundPending) notify("El viaje se canceló. Operaciones dará seguimiento al reembolso pendiente.");
+        else if (cancelled.cancellation_refund_cents) notify(`Cancelación confirmada. Reembolso: ${money(cancelled.cancellation_refund_cents)}.`);
+        else if (cancelled.cancellation_fee_cents) notify(`Cancelación confirmada. Cuota registrada: ${money(cancelled.cancellation_fee_cents)}.`);
+        else notify("Cancelación confirmada sin cargo.");
+      });
     });
-    return;
   }
   if (action === "rate") {
     const rider = S.profile.role === "passenger";
     openModal(
       rider ? "¿Cómo estuvo tu viaje?" : "¿Cómo fue viajar con tu pasajero?",
-      `<form id="rating"><p>Tu evaluación se guarda una sola vez por viaje.</p><div class="stars">${[1, 2, 3, 4, 5].map((n) => `<label><input name="stars" type="radio" value="${n}" ${n === 5 ? "checked" : ""} required>${n}${I("star")}</label>`).join("")}</div>${rider ? `<div class="modal-grid"><label>Comodidad<select name="comfort">${[5, 4, 3, 2, 1].map((n) => `<option>${n}</option>`).join("")}</select></label><label>Percepción de seguridad<select name="safety">${[5, 4, 3, 2, 1].map((n) => `<option>${n}</option>`).join("")}</select></label></div>` : ""}<label class="section-gap">Comentario (opcional)<textarea name="comment" maxlength="1000"></textarea></label><button class="btn wide" type="submit">Enviar evaluación</button></form>`,
+      `<form id="rating"><p>Tu evaluación se guarda una sola vez por viaje.</p><div class="stars">${[1, 2, 3, 4, 5].map((n) => `<label><input name="stars" type="radio" value="${n}" ${n === 5 ? "checked" : ""} required>${n}${I("star")}</label>`).join("")}</div>${rider ? `<div class="modal-grid"><label>Comodidad<select name="comfort">${[5, 4, 3, 2, 1].map((n) => `<option>${n}</option>`).join("")}</select></label><label>Percepción de seguridad<select name="safety">${[5, 4, 3, 2, 1].map((n) => `<option>${n}</option>`).join("")}</select></label></div>` : ""}<label class="section-gap">Comentario (opcional)<textarea name="comment" maxlength="1000"></textarea></label>${rider ? `<section class="rating-report"><label class="check"><input name="report_issue" type="checkbox">También quiero reportar un problema de este servicio</label><div id="rating-report-fields" class="hidden"><label>Motivo del reporte<select name="report_subject"><option>Seguridad durante el viaje</option><option>Problema con el viaje</option><option>Tarifa o efectivo</option><option>Trato o conducta</option><option>Objeto olvidado</option><option>Otro</option></select></label><label>Descripción para Operaciones<textarea name="report_body" minlength="10" maxlength="2000"></textarea></label></div></section>` : ""}<button class="btn wide" type="submit">Enviar evaluación</button></form>`,
     );
+    const reportToggle = $('[name="report_issue"]');
+    if (reportToggle) reportToggle.onchange = () => {
+      const fields = $("#rating-report-fields");
+      const body = $('[name="report_body"]');
+      fields.classList.toggle("hidden", !reportToggle.checked);
+      body.required = reportToggle.checked;
+    };
     bindForm("#rating", async (v) => {
-      await rpc("rating", { trip_id: t.id, ...v });
+      await rpc("rating_and_report", {
+        trip_id: t.id,
+        stars: Number(v.stars),
+        comfort: v.comfort ? Number(v.comfort) : null,
+        safety: v.safety ? Number(v.safety) : null,
+        comment: v.comment,
+        report_issue: v.report_issue === "on",
+        report_subject: v.report_subject,
+        report_body: v.report_body,
+      });
       closeModal();
       await tripView(t.id);
-      notify("Gracias. Tu evaluación quedó registrada.");
+      notify(v.report_issue === "on" ? "Evaluación y reporte enviados a Operaciones." : "Gracias. Tu evaluación quedó registrada.");
     });
     return;
   }
@@ -2471,12 +2539,31 @@ function startUpdates() {
     )
     .on("postgres_changes", { event: "*", schema: "public", table: "payments" }, () => safeRefresh())
     .on("postgres_changes", { event: "*", schema: "public", table: "weekly_fees" }, () => safeRefresh())
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "trip_events" }, (payload) => {
+      if (payload.new?.actor_id === S.user.id) return safeRefresh();
+      const event = payload.new?.event;
+      if (["cancelled", "cancellation_fee_paid", "cancellation_fee_waived"].includes(event)) {
+        const body = event === "cancelled"
+          ? `La otra parte canceló el servicio. Abre el viaje para revisar motivo, cuota y reembolso.`
+          : event === "cancellation_fee_paid"
+            ? "La cuota de cancelación quedó conciliada."
+            : "Operaciones condonó la cuota de cancelación.";
+        serviceNotification("Actualización de cancelación", body, {
+          tag: `yavoi-cancellation-${payload.new.trip_id}`,
+          target: `trip/${payload.new.trip_id}`,
+        });
+      }
+      safeRefresh();
+    })
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
       if (
         payload.new?.sender_id !== S.user.id &&
         payload.new?.trip_id === S.trip?.trip?.id &&
         document.hidden
-      ) serviceNotification("Nuevo mensaje del viaje", "Abre Yavoi! para leer y responder la indicación.");
+      ) serviceNotification("Nuevo mensaje del viaje", "Abre Yavoi! para leer y responder la indicación.", {
+        tag: `yavoi-message-${payload.new.trip_id}`,
+        target: `trip/${payload.new.trip_id}`,
+      });
       safeRefresh();
     })
     .subscribe();

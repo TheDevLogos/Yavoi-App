@@ -15,7 +15,6 @@ export const navs = {
     ["trips", "route", "Mis viajes"],
     ["wallet", "wallet", "Mi cartera"],
     ["rewards", "gift", "Recompensas"],
-    ["help", "shield-check", "Ayuda y seguridad"],
     ["profile", "user-round", "Mi perfil"],
   ],
   driver: [
@@ -85,7 +84,7 @@ export const rewardDiscountCents = (reward = {}, quote = {}) => {
   if (reward.kind === "free_local_trip") return fare;
   return 0;
 };
-export const PASSENGER_POLICY_VERSION = "2026-09-10";
+export const PASSENGER_POLICY_VERSION = "2026-09-11-cancelaciones";
 export const PRIVACY_POLICY_VERSION = "2026-09-11";
 export const TERMS_VERSION = "2026-09-11";
 export const profileEditState = (profile = {}, now = Date.now()) => {

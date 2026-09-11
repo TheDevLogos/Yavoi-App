@@ -71,6 +71,7 @@ Deno.serve(async (req: Request) => {
         payload: { payment_id: body.payment_id },
       });
       if (refundError) throw refundError;
+      const partialRefund = Number(refundData.amount_cents) < Number(refundData.original_amount_cents || refundData.amount_cents);
       const response = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(refundData.provider_payment_id)}/refunds`, {
         method: "POST",
         headers: {
@@ -78,7 +79,7 @@ Deno.serve(async (req: Request) => {
           "content-type": "application/json",
           "x-idempotency-key": refundData.refund_idempotency_key,
         },
-        body: "{}",
+        body: partialRefund ? JSON.stringify({ amount: Number(refundData.amount_cents) / 100 }) : "{}",
       });
       const result = await response.json();
       if (!response.ok) return json({ error: "Mercado Pago no pudo completar el reembolso.", status: result.status || "error" }, response.status, origin);
@@ -86,7 +87,8 @@ Deno.serve(async (req: Request) => {
         payload: {
           external_reference: refundData.payment_id,
           provider_payment_id: refundData.provider_payment_id,
-          amount_cents: refundData.amount_cents,
+          amount_cents: refundData.original_amount_cents || refundData.amount_cents,
+          refund_amount_cents: refundData.amount_cents,
           status: "refunded",
           status_detail: String(result.status || "approved"),
           event_key: `refund:${result.id || refundData.refund_idempotency_key}`,

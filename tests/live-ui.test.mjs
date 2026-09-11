@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 
 const portal = await readFile(new URL("../src/portal.js", import.meta.url), "utf8");
 const css = await readFile(new URL("../src/portal.css", import.meta.url), "utf8");
+const domain = await readFile(new URL("../src/domain.js", import.meta.url), "utf8");
+const paymentFunction = await readFile(new URL("../supabase/functions/mercado-pago-payment/index.ts", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -19,6 +21,20 @@ test("trip communication, ratings and mobile identity remain visible", () => {
   assert.match(portal, /Valoraciones de este viaje/);
   assert.match(portal, /class="mobile-brand"/);
   assert.match(css, /@media\(max-width:760px\)\{\.mobile-brand\{display:block/);
+});
+
+test("passenger safety is integrated into each trip and cancellation is transparent", () => {
+  assert.doesNotMatch(domain, /passenger:[^\n]+\["help"/);
+  assert.match(portal, /Reportar este viaje/);
+  assert.match(portal, /Reportar este servicio/);
+  assert.match(portal, /Emergencias 911/);
+  assert.match(portal, /rating_and_report/);
+  assert.match(portal, /cancellation_quote/);
+  assert.match(portal, /settle_cancellation_fee/);
+  assert.match(portal, /cancellation_fee_paid/);
+  assert.match(paymentFunction, /original_amount_cents/);
+  assert.match(paymentFunction, /partialRefund = Number\(refundData\.amount_cents\) < Number\(refundData\.original_amount_cents/);
+  assert.match(paymentFunction, /body: partialRefund \? JSON\.stringify/);
 });
 
 test("Operations exposes both per-driver commercial modes", () => {

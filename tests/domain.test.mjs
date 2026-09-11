@@ -138,7 +138,7 @@ test("passenger profile progress requires safety policy and emergency data", () 
     emergency_name: "Contacto Seguro",
     emergency_phone: "6397654321",
     passenger_policy_accepted_at: "2026-09-10T12:00:00Z",
-    passenger_policy_version: "2026-09-10",
+    passenger_policy_version: "2026-09-11-cancelaciones",
     privacy_policy_accepted_at: "2026-09-11T12:00:00Z",
     privacy_policy_version: "2026-09-11",
     terms_accepted_at: "2026-09-11T12:00:00Z",
