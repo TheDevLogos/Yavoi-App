@@ -156,3 +156,17 @@ test("Operations can manage reward availability and photo advertising campaigns"
   assert.match(css, /\.campaign-grid/);
   assert.match(css, /\.campaign-modal/);
 });
+
+test("Operations edits and filters rewards while users receive shareable barcode coupons", () => {
+  assert.match(portal, /id="reward-audience-filter"/);
+  assert.match(portal, /data-reward-audience/);
+  assert.match(portal, /function openRewardEditor/);
+  assert.match(portal, /upsert_reward/);
+  assert.match(portal, /image_path: values\.remove_image/);
+  assert.match(portal, /function rewardBarcode/);
+  assert.match(portal, /data-view-coupon/);
+  assert.match(portal, /navigator\.share/);
+  assert.match(portal, /Código individual e irrepetible/);
+  assert.match(css, /\.reward-coupon/);
+  assert.match(css, /\.coupon-barcode/);
+});

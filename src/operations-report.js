@@ -33,6 +33,8 @@ const auditActions = Object.freeze({
   reward_redemption_fulfilled: ["Recompensa entregada", "Recompensas"],
   reward_redemption_cancelled: ["Canje cancelado y puntos devueltos", "Recompensas"],
   reward_availability_changed: ["Disponibilidad de recompensa modificada", "Recompensas"],
+  reward_catalog_created: ["Recompensa creada", "Recompensas"],
+  reward_catalog_updated: ["Recompensa modificada", "Recompensas"],
   marketing_settings_changed: ["Sistemas de recompensas y publicidad actualizados", "Promociones"],
   advertising_campaign_saved: ["Promoción guardada", "Promociones"],
   advertising_campaign_status_changed: ["Estado de promoción modificado", "Promociones"],

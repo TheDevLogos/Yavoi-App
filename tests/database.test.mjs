@@ -155,6 +155,27 @@ test("Postgres security and complete ride lifecycle", async () => {
     priority: 10,
   });
   assert.equal(campaign.image_path, campaignImage);
+  const editableReward = await rpc("upsert_reward", {
+    audience: "passenger",
+    name: "Cupón digital de prueba",
+    description: "Beneficio individual para validar el catálogo editable.",
+    kind: "partner_coupon",
+    delivery_mode: "digital_coupon",
+    icon: "ticket",
+    points_cost: 0,
+    min_trips: 0,
+    min_income_cents: 0,
+    partner_name: "Negocio de prueba",
+    fulfillment_note: "Presenta el código antes de pagar.",
+    terms: "Válido una vez y sujeto a disponibilidad.",
+    image_path: campaignImage,
+    expires_days: 30,
+    sort_order: 1,
+    automatic: false,
+    active: true,
+  });
+  assert.match(editableReward.id, /^reward_[a-f0-9]{12}$/);
+  assert.equal(editableReward.image_path, campaignImage);
   await rpc("set_reward_active", { reward_id: "passenger_snack", active: false });
   assert.equal(
     (await rpc("dashboard")).marketing.reward_catalog.find((reward) => reward.id === "passenger_snack")
@@ -170,6 +191,12 @@ test("Postgres security and complete ride lifecycle", async () => {
   const riderMarketing = (await rpc("dashboard")).marketing;
   assert.ok(riderMarketing.campaigns.some((item) => item.id === campaign.id));
   assert.equal(riderMarketing.campaigns[0].image_path, campaignImage);
+  const digitalCoupon = await rpc("redeem_reward", { reward_id: editableReward.id });
+  assert.equal(digitalCoupon.status, "available");
+  assert.match(digitalCoupon.code, /^YV-[A-F0-9]{12}$/);
+  const couponWallet = (await rpc("dashboard")).reward_wallet;
+  assert.equal(couponWallet.redemptions.find((item) => item.id === digitalCoupon.id).image_path, campaignImage);
+  assert.equal(couponWallet.redemptions.find((item) => item.id === digitalCoupon.id).terms, "Válido una vez y sujeto a disponibilidad.");
   await rpc("profile", { ...riderProfile, name: "Pasajero Actualizado" });
   assert.equal(
     (await db.query("select full_name from public.profiles where id=$1", [ids.rider])).rows[0].full_name,
@@ -514,7 +541,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   const rideReward = await rpc("redeem_reward", { reward_id: "passenger_discount_20" });
   assert.equal(rideReward.status, "available");
   assert.equal(rideReward.points_spent, 120);
-  assert.match(rideReward.code, /^YV-[A-F0-9]{8}$/);
+  assert.match(rideReward.code, /^YV-[A-F0-9]{12}$/);
   assert.equal((await rpc("dashboard")).reward_wallet.available_points, 12);
 
   // Card payments stay blocked until credentials are enabled, then wait for a
