@@ -70,7 +70,7 @@ const S = {
   opsSearch: {},
   origin: DEFAULT_ORIGIN,
   destination: null,
-  pick: "destination",
+  pick: null,
   channel: null,
   watch: null,
   gpsLast: 0,
@@ -559,15 +559,54 @@ function enhanceOperationsLayout() {
 }
 function mapFrame(
   id = "ride-map",
-  caption = "Busca una dirección o coloca marcadores. Yavoi! trazará la ruta vial disponible.",
+  caption = "Busca una dirección con calle y número, o elige qué marcador colocar en el mapa.",
 ) {
-  return `<section class="map-panel"><div class="map-top">Delicias, Chihuahua</div><button class="map-fullscreen" type="button" data-action="map-fullscreen" aria-label="Ver mapa en pantalla completa">${I("maximize-2")}<span>Ampliar</span></button><div class="map" id="${id}" aria-label="Mapa de Delicias"></div><div class="map-caption">${I("shield-check")}<span>${caption}</span></div></section>`;
+  return `<section class="map-panel"><div class="map-top">Delicias, Chihuahua</div><div class="map-placement hidden" id="${id}-placement">${I("crosshair")}<span></span><button type="button" data-action="cancel-map-placement" aria-label="Cancelar selección">${I("x")}</button></div><button class="map-fullscreen" type="button" data-action="map-fullscreen" aria-label="Ver mapa en pantalla completa">${I("maximize-2")}<span>Ampliar</span></button><div class="map" id="${id}" aria-label="Mapa de Delicias"></div><div class="map-caption">${I("shield-check")}<span>${caption}</span></div></section>`;
 }
 async function mapService(body) {
   const { data, error } = await db.functions.invoke("maps", { body });
   if (error) throw new Error(data?.error || error.message);
   if (data?.error) throw new Error(data.error);
   return data;
+}
+function setMapPicker(kind = null) {
+  S.pick = kind;
+  const map = $("#ride-map");
+  const banner = $("#ride-map-placement");
+  map?.classList.toggle("placing-point", Boolean(kind));
+  banner?.classList.toggle("hidden", !kind);
+  const label = banner?.querySelector("span");
+  if (label) label.textContent = kind === "origin" ? "Toca el mapa para colocar el punto de partida" : "Toca el mapa para colocar el destino";
+  $("#map-origin")?.classList.toggle("active", kind === "origin");
+  $("#map-destination")?.classList.toggle("active", kind === "destination");
+}
+async function placeRidePoint(kind, point, { resolveAddress = false, focus = false } = {}) {
+  if (!kind || !Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return;
+  const chosen = {
+    name: point.name || `Punto en mapa (${Number(point.lat).toFixed(5)}, ${Number(point.lng).toFixed(5)})`,
+    lat: Number(point.lat),
+    lng: Number(point.lng),
+  };
+  S[kind] = chosen;
+  const input = $(`[name=${kind}]`);
+  if (input) input.value = chosen.name;
+  setMapPicker();
+  S.roadRoute = null;
+  drawPoints(null, { fit: false });
+  if (focus) S.map?.setView([chosen.lat, chosen.lng], 17);
+  if (resolveAddress) {
+    try {
+      const resolved = await mapService({ type: "reverse", lat: chosen.lat, lng: chosen.lng });
+      if (S[kind]?.lat === chosen.lat && S[kind]?.lng === chosen.lng && resolved?.name) {
+        S[kind].name = resolved.name;
+        if (input) input.value = resolved.name;
+        drawPoints(null, { fit: false });
+      }
+    } catch {}
+  }
+  await loadRoadRoute();
+  if (kind === "origin") await refreshAvailableUnits();
+  scheduleRideDraft();
 }
 async function searchAddress(kind) {
   const input = $(`[name=${kind}]`);
@@ -578,21 +617,20 @@ async function searchAddress(kind) {
     openModal(
       `Resultados para ${query}`,
       result.results?.length
-        ? `<div class="address-results">${result.results.map((place, index) => `<button type="button" data-place="${index}">${I("map-pin")}<span>${e(place.name)}</span></button>`).join("")}</div>`
-        : '<div class="empty"><p>No encontramos esa dirección dentro de la cobertura de Delicias y Meoqui.</p></div>',
+        ? `<p class="address-search-help">Elige el resultado correcto. “Dirección exacta” indica que el número está registrado en el mapa.</p><div class="address-results">${result.results.map((place, index) => `<button type="button" data-place="${index}">${I("map-pin")}<span><strong>${e(place.name)}</strong><small>${place.precision === "exact" ? "Dirección exacta" : place.precision === "street" ? "Calle localizada; confirma el punto en el mapa" : "Lugar localizado"}${place.details && place.details !== place.name ? ` · ${e(place.details)}` : ""}</small></span></button>`).join("")}</div>`
+        : `<div class="empty">${I("map-pin-off")}<p>No encontramos esa dirección. Revisa calle, número y colonia, o colócala directamente en el mapa.</p><button class="btn" type="button" data-place-on-map="${e(kind)}">Colocar ${kind === "origin" ? "origen" : "destino"} en el mapa ${I("crosshair")}</button></div>`,
     );
     $$('[data-place]', modal).forEach((item) => {
       item.onclick = async () => {
         const place = result.results[Number(item.dataset.place)];
-        S[kind] = place;
-        input.value = place.name;
         closeModal();
-        S.roadRoute = null;
-        drawPoints();
-        await loadRoadRoute();
-        if (kind === "origin") await refreshAvailableUnits();
-        scheduleRideDraft();
+        await placeRidePoint(kind, place, { focus: true });
       };
+    });
+    $('[data-place-on-map]', modal)?.addEventListener("click", () => {
+      closeModal();
+      setMapPicker(kind);
+      notify(`Toca el mapa para colocar ${kind === "origin" ? "el punto de partida" : "el destino"}.`);
     });
   });
 }
@@ -737,20 +775,10 @@ function startMap(trip = null) {
   S.map.zoomControl.setPosition("bottomright");
   bindVehicleScale();
   if (!trip)
-    S.map.on("click", (ev) => {
-      const point = {
-        name: `Punto en mapa (${ev.latlng.lat.toFixed(5)}, ${ev.latlng.lng.toFixed(5)})`,
-        lat: ev.latlng.lat,
-        lng: ev.latlng.lng,
-      };
-      S[S.pick] = point;
-      const input = $(`[name=${S.pick === "origin" ? "origin" : "destination"}]`);
-      if (input) input.value = point.name;
-      S.roadRoute = null;
-      drawPoints();
-      loadRoadRoute();
-      if (S.pick === "origin") refreshAvailableUnits();
-      scheduleRideDraft();
+    S.map.on("click", async (ev) => {
+      if (!S.pick) return;
+      const kind = S.pick;
+      await placeRidePoint(kind, ev.latlng, { resolveAddress: true });
     });
   drawPoints(trip);
   loadRoadRoute(trip);
@@ -769,10 +797,14 @@ function drawPoints(t = null, { fit = true } = {}) {
       ]
     : [S.origin, S.destination];
   points.forEach((p, i) => {
-    if (p)
-      S.markers.push(L.marker([p.lat, p.lng], { icon: pointIcon(i === 1), zIndexOffset: 1200 })
-        .bindTooltip(i ? "Destino" : "Punto de partida", { direction: "top" })
-        .addTo(S.map));
+    if (p) {
+      const kind = i === 1 ? "destination" : "origin";
+      const marker = L.marker([p.lat, p.lng], { icon: pointIcon(i === 1), zIndexOffset: 1200, draggable: !t })
+        .bindTooltip(i ? "Destino · arrastra para ajustar" : "Punto de partida · arrastra para ajustar", { direction: "top" })
+        .addTo(S.map);
+      if (!t) marker.on("dragend", (event) => placeRidePoint(kind, event.target.getLatLng(), { resolveAddress: true }));
+      S.markers.push(marker);
+    }
   });
   if (points.every(Boolean)) {
     S.markers.push(
@@ -914,13 +946,20 @@ function riderHome() {
   const cats = S.categories.filter((category) => category.active);
   const selectedCategory = draft?.category || cats[0]?.id;
   shell(
-    `<div class="booking"><section class="panel"><div class="row between"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}</button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="destinations" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Calle, número o lugar" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}</button></div><datalist id="destinations">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Marcar origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Marcar destino</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt=""></div><div><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div><div class="grid2 service-request"><label>Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label><label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label></div><label class="check women">${I("shield-check")}<span>Prefiero una conductora<small>Sujeto a disponibilidad de conductoras conectadas.</small></span><input name="women_only" type="checkbox" ${draft?.women_only ? "checked" : ""}></label><label class="check accessible-service">${I("accessibility")}<span>Servicio para personas con alguna discapacidad</span><input name="accessible" type="checkbox" ${draft?.accessible ? "checked" : ""}></label><div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""> <div><strong id="unit-selection">Asignación automática a la unidad más cercana</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local" value="${e(draft?.scheduled_at || "")}"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">La búsqueda comienza en 1 km y se amplía de kilómetro en kilómetro hasta encontrar unidades compatibles. Antes de confirmar sólo verás el tipo de servicio y su ubicación aproximada. Cuando un conductor acepte, recibirás su nombre, fotografía, vehículo, color, modelo, placas y calificación.</p></form></section>${mapFrame()}</div>`,
+    `<div class="booking"><section class="panel"><div class="row between"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address" placeholder="Ej. Av. Río Conchos 123"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}<span>Buscar</span></button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="destinations" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Ej. Calle 3a Norte 120, colonia Centro" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}<span>Buscar</span></button></div><datalist id="destinations">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Elegir origen en mapa</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Elegir destino en mapa</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt=""></div><div><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div><div class="grid2 service-request"><label>Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label><label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label></div><label class="check women">${I("shield-check")}<span>Prefiero una conductora<small>Sujeto a disponibilidad de conductoras conectadas.</small></span><input name="women_only" type="checkbox" ${draft?.women_only ? "checked" : ""}></label><label class="check accessible-service">${I("accessibility")}<span>Servicio para personas con alguna discapacidad</span><input name="accessible" type="checkbox" ${draft?.accessible ? "checked" : ""}></label><div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""> <div><strong id="unit-selection">Asignación automática a la unidad más cercana</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local" value="${e(draft?.scheduled_at || "")}"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">La búsqueda comienza en 1 km y se amplía de kilómetro en kilómetro hasta encontrar unidades compatibles. Antes de confirmar sólo verás el tipo de servicio y su ubicación aproximada. Cuando un conductor acepte, recibirás su nombre, fotografía, vehículo, color, modelo, placas y calificación.</p></form></section>${mapFrame()}</div>`,
     `¿A dónde vamos, ${e(S.profile.full_name.split(" ")[0])}?`,
     "Elige tu destino, necesidades y revisa el precio antes de confirmar.",
   );
   startMap();
   refreshAvailableUnits();
   $$('[data-search-address]').forEach((search) => search.onclick = () => searchAddress(search.dataset.searchAddress));
+  ["origin", "destination"].forEach((kind) => {
+    $(`[name=${kind}]`).addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      searchAddress(kind);
+    });
+  });
   $$('[name=category],[name=women_only],[name=accessible]').forEach((control) => control.addEventListener("change", () => {
     refreshAvailableUnits();
     scheduleRideDraft();
@@ -937,31 +976,25 @@ function riderHome() {
         if (kind === "origin") refreshAvailableUnits();
       } else if (S[kind] && event.target.value !== S[kind].name) {
         S[kind] = null;
-        notify("Marca esa dirección en el mapa para ubicarla con precisión.");
+        notify("Pulsa Buscar para localizar la dirección, o elige el marcador en el mapa.");
       }
       scheduleRideDraft();
     }),
   );
   $("#map-origin").onclick = () => {
-    S.pick = "origin";
-    notify("Toca el mapa para marcar el origen.");
+    setMapPicker(S.pick === "origin" ? null : "origin");
   };
   $("#map-destination").onclick = () => {
-    S.pick = "destination";
-    notify("Toca el mapa para marcar el destino.");
+    setMapPicker(S.pick === "destination" ? null : "destination");
   };
   $("#gps-origin").onclick = () => {
     if (!navigator.geolocation) return notify("Tu navegador no permite ubicación. Usa el mapa.");
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        S.origin = { name: "Mi ubicación", lat: position.coords.latitude, lng: position.coords.longitude };
-        $("[name=origin]").value = "Mi ubicación";
-        drawPoints();
-        S.map.setView([S.origin.lat, S.origin.lng], 16);
-        loadRoadRoute();
-        refreshAvailableUnits();
-        scheduleRideDraft();
-      },
+      (position) => placeRidePoint("origin", {
+        name: "Mi ubicación",
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      }, { resolveAddress: true, focus: true }),
       () => notify("No se pudo obtener tu ubicación. Puedes marcarla en el mapa."),
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 15000 },
     );
@@ -2453,6 +2486,10 @@ async function handleAction(action, b) {
     panel?.classList.toggle("fullscreen");
     b.querySelector("span").textContent = panel?.classList.contains("fullscreen") ? "Cerrar" : "Ampliar";
     setTimeout(() => S.map?.invalidateSize(), 80);
+    return;
+  }
+  if (action === "cancel-map-placement") {
+    setMapPicker();
     return;
   }
   if (action === "notifications")

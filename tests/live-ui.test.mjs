@@ -67,6 +67,23 @@ test("street routing provides a visual guide and opens driving navigation", () =
   assert.match(css, /\.route-guide-summary/);
 });
 
+test("passengers can search local exact addresses and place or drag either map point", () => {
+  assert.match(mapsFunction, /\$\{query\}, Delicias, Chihuahua, México/);
+  assert.match(mapsFunction, /precision: address\.house_number \? "exact"/);
+  assert.match(mapsFunction, /type === "reverse"/);
+  assert.match(mapsFunction, /nominatim\.openstreetmap\.org\/reverse/);
+  assert.doesNotMatch(mapsFunction, /admin\.yavoi@gmail\.com/);
+  assert.match(mapsFunction, /Yavoi\/1\.1 \(\+https:\/\/yavoi-app\.vercel\.app\/\)/);
+  assert.match(portal, /if \(!S\.pick\) return/);
+  assert.match(portal, /draggable: !t/);
+  assert.match(portal, /placeRidePoint\(kind, event\.target\.getLatLng\(\), \{ resolveAddress: true \}\)/);
+  assert.match(portal, /event\.key !== "Enter"/);
+  assert.match(portal, /Dirección exacta/);
+  assert.match(portal, /Colocar \$\{kind === "origin" \? "origen" : "destino"\} en el mapa/);
+  assert.match(css, /\.map-placement/);
+  assert.match(css, /\.leaflet-container\.placing-point/);
+});
+
 test("Operations modules share compact searchable and collapsible organization", () => {
   assert.match(portal, /enhanceOperationsLayout\(\)/);
   assert.match(portal, /Filtrar información visible/);

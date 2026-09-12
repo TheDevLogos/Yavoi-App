@@ -21,6 +21,21 @@ function originFor(req: Request) {
 
 const insideCoverage = (lat: number, lng: number) => lat >= 28 && lat <= 28.4 && lng >= -105.7 && lng <= -105.2;
 
+function addressLabel(item: Record<string, unknown>) {
+  const address = item.address && typeof item.address === "object" ? item.address as Record<string, unknown> : {};
+  const street = String(address.road || address.pedestrian || address.residential || address.neighbourhood || "").trim();
+  const number = String(address.house_number || "").trim();
+  const locality = String(address.city || address.town || address.village || address.municipality || "Delicias").trim();
+  const place = String(item.name || address.amenity || address.shop || address.tourism || "").trim();
+  if (street) return [street, number, locality].filter(Boolean).join(" ");
+  if (place) return [place, locality].filter(Boolean).join(", ");
+  return String(item.display_name || "Ubicación seleccionada");
+}
+
+function nominatimHeaders() {
+  return { "user-agent": "Yavoi/1.1 (+https://yavoi-app.vercel.app/)", "accept-language": "es-MX,es;q=0.9" };
+}
+
 Deno.serve(async (req: Request) => {
   const origin = originFor(req);
   if (!origin) return json({ error: "Origen no permitido." }, 403, "null");
@@ -38,22 +53,47 @@ Deno.serve(async (req: Request) => {
     if (type === "search") {
       const query = String(body.query || "").trim().replace(/\s+/g, " ");
       if (query.length < 3 || query.length > 160) return json({ error: "Escribe al menos tres caracteres." }, 400, origin);
-      key = `search:${query.toLocaleLowerCase("es-MX")}`;
+      const localQuery = /\b(delicias|meoqui)\b/i.test(query)
+        ? `${query}, Chihuahua, México`
+        : `${query}, Delicias, Chihuahua, México`;
+      key = `search:v2:${localQuery.toLocaleLowerCase("es-MX")}`;
       const { data: cached } = await serviceClient.rpc("yavoi_map_cache_get", { key_value: key });
       if (cached) return json(cached, 200, origin);
       const { data: permitted } = await serviceClient.rpc("yavoi_map_rate_limit", { target_user: authData.user.id });
       if (!permitted) return json({ error: "Espera un segundo antes de buscar otra dirección." }, 429, origin);
-      const params = new URLSearchParams({ format: "jsonv2", q: `${query}, Chihuahua, México`, countrycodes: "mx", viewbox: "-105.7,28.4,-105.2,28.0", bounded: "1", limit: "6", addressdetails: "1" });
-      const upstream = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { headers: { "user-agent": "Yavoi/1.0 (admin.yavoi@gmail.com)", "accept-language": "es-MX,es;q=0.9" } });
+      const params = new URLSearchParams({ format: "jsonv2", q: localQuery, countrycodes: "mx", viewbox: "-105.7,28.4,-105.2,28.0", bounded: "1", limit: "10", addressdetails: "1", dedupe: "1" });
+      const upstream = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { headers: nominatimHeaders() });
       if (!upstream.ok) throw new Error("El buscador de direcciones no respondió.");
       const raw = await upstream.json();
-      const results = raw.map((item: Record<string, unknown>) => ({
-        name: String(item.display_name || "").slice(0, 240),
-        lat: Number(item.lat),
-        lng: Number(item.lon),
-        type: String(item.type || "place").slice(0, 40),
-      })).filter((item: { lat: number; lng: number }) => insideCoverage(item.lat, item.lng));
+      const results = raw.map((item: Record<string, unknown>) => {
+        const address = item.address && typeof item.address === "object" ? item.address as Record<string, unknown> : {};
+        return {
+          name: addressLabel(item).slice(0, 200),
+          details: String(item.display_name || "").slice(0, 280),
+          lat: Number(item.lat),
+          lng: Number(item.lon),
+          type: String(item.type || "place").slice(0, 40),
+          precision: address.house_number ? "exact" : address.road ? "street" : "place",
+        };
+      }).filter((item: { lat: number; lng: number }) => insideCoverage(item.lat, item.lng));
       const payload = { results };
+      await serviceClient.rpc("yavoi_map_cache_put", { key_value: key, payload_value: payload, ttl_seconds: 604800 });
+      return json(payload, 200, origin);
+    }
+    if (type === "reverse") {
+      const lat = Number(body?.lat);
+      const lng = Number(body?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !insideCoverage(lat, lng)) return json({ error: "Punto fuera de cobertura." }, 400, origin);
+      key = `reverse:v1:${lat.toFixed(5)}:${lng.toFixed(5)}`;
+      const { data: cached } = await serviceClient.rpc("yavoi_map_cache_get", { key_value: key });
+      if (cached) return json(cached, 200, origin);
+      const { data: permitted } = await serviceClient.rpc("yavoi_map_rate_limit", { target_user: authData.user.id });
+      if (!permitted) return json({ error: "Espera un segundo antes de consultar otro punto." }, 429, origin);
+      const params = new URLSearchParams({ format: "jsonv2", lat: String(lat), lon: String(lng), zoom: "18", addressdetails: "1" });
+      const upstream = await fetch(`https://nominatim.openstreetmap.org/reverse?${params}`, { headers: nominatimHeaders() });
+      if (!upstream.ok) throw new Error("El buscador de direcciones no respondió.");
+      const raw = await upstream.json();
+      const payload = { name: addressLabel(raw).slice(0, 200), details: String(raw.display_name || "").slice(0, 280), lat, lng };
       await serviceClient.rpc("yavoi_map_cache_put", { key_value: key, payload_value: payload, ttl_seconds: 604800 });
       return json(payload, 200, origin);
     }
