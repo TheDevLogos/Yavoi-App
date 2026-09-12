@@ -655,7 +655,7 @@ function googleNavigationUrl(trip) {
   const params = new URLSearchParams({ api: "1", destination: `${lat},${lng}`, travelmode: "driving", dir_action: "navigate" });
   return `https://www.google.com/maps/dir/?${params}`;
 }
-async function refreshAvailableUnits() {
+async function refreshAvailableUnits({ fit = true } = {}) {
   if (!S.map || S.profile?.role !== "passenger" || !S.origin) return;
   const category = $('[name=category]:checked')?.value || S.categories.find((c) => c.active)?.id;
   if (!category) return;
@@ -668,9 +668,15 @@ async function refreshAvailableUnits() {
       accessible: !!$('[name=accessible]')?.checked,
     });
     if (S.selectedUnit && !S.units.some((unit) => unit.unit_id === S.selectedUnit)) S.selectedUnit = null;
+    const selectionLabel = $("#unit-selection");
+    if (selectionLabel && !S.selectedUnit) selectionLabel.textContent = "Asignación automática a la unidad más cercana";
     const label = $("#unit-status");
-    if (label) label.textContent = S.units.length ? `${S.units.length} unidad${S.units.length === 1 ? "" : "es"} disponible${S.units.length === 1 ? "" : "s"}. Puedes elegir una o dejar que Yavoi! asigne la más cercana.` : "No hay unidades compatibles visibles en este momento. Puedes cotizar y esperar disponibilidad.";
-    drawPoints();
+    const serviceName = S.categories.find((item) => item.id === category)?.name || category;
+    const radius = Number(S.units[0]?.search_radius_km || 0);
+    if (label) label.textContent = S.units.length
+      ? `${S.units.length} unidad${S.units.length === 1 ? "" : "es"} Yavoi! ${serviceName} dentro de ${radius} km. Sólo mostramos el tipo de servicio antes de confirmar.`
+      : "No hay unidades compatibles conectadas en este momento. Puedes cotizar y esperar disponibilidad.";
+    drawPoints(null, { fit });
   } catch (error) {
     notify(errorMessage(error));
   }
@@ -777,28 +783,25 @@ function drawPoints(t = null, { fit = true } = {}) {
         { color: "#183c54", weight: 5, opacity: 0.72 },
       ).addTo(S.map),
     );
-    if (fit)
-      S.map.fitBounds(
-        points.map((p) => [p.lat, p.lng]),
-        { padding: [55, 55], maxZoom: 15 },
-      );
   }
-  if (!t)
+  if (!t) {
+    const requestedCategory = $('[name=category]:checked')?.value || "basic";
+    const serviceName = S.categories.find((item) => item.id === requestedCategory)?.name || requestedCategory;
     S.units.forEach((unit, index) => {
-      const requestedCategory = $('[name=category]:checked')?.value || "basic";
       const marker = L.marker([unit.lat, unit.lng], { icon: vehicleIcon(0, S.selectedUnit === unit.unit_id, unit.category || requestedCategory) })
-        .bindTooltip(`${index === 0 ? "Recomendada por cercanía" : "Unidad disponible"} · ${decimal(unit.pickup_km)} km · ${unit.pickup_minutes} min`)
+        .bindTooltip(`Yavoi! ${e(serviceName)} · ${index === 0 ? "Unidad más cercana" : "Unidad disponible"}`)
         .on("click", () => {
           S.selectedUnit = S.selectedUnit === unit.unit_id ? null : unit.unit_id;
-          drawPoints();
+          drawPoints(null, { fit: false });
           const label = $("#unit-selection");
           if (label) label.textContent = S.selectedUnit
-            ? `${index === 0 ? "Unidad más cercana elegida" : "Unidad elegida por ti"} · ${decimal(unit.pickup_km)} km · ${unit.pickup_minutes} min`
+            ? `Yavoi! ${serviceName} · ${index === 0 ? "Unidad más cercana seleccionada" : "Unidad seleccionada"}`
             : "Asignación automática a la unidad más cercana";
         })
         .addTo(S.map);
       S.markers.push(marker);
     });
+  }
   if (t && S.trip?.route_history?.length > 1) {
     S.tripHistoryLine = L.polyline(S.trip.route_history.map((point) => [point.lat, point.lng]), { color: "#ff6a0a", weight: 6, opacity: 0.9 }).addTo(S.map);
     S.markers.push(S.tripHistoryLine);
@@ -812,6 +815,11 @@ function drawPoints(t = null, { fit = true } = {}) {
       .addTo(S.map);
     S.tripVehicleMarker._yavoiHeading = heading;
     S.markers.push(S.tripVehicleMarker);
+  }
+  if (fit) {
+    const visiblePoints = points.filter(Boolean).map((point) => [point.lat, point.lng]);
+    if (!t) S.units.forEach((unit) => visiblePoints.push([Number(unit.lat), Number(unit.lng)]));
+    if (visiblePoints.length > 1) S.map.fitBounds(visiblePoints, { padding: [55, 55], maxZoom: 15 });
   }
 }
 function updateTripMap() {
@@ -906,7 +914,7 @@ function riderHome() {
   const cats = S.categories.filter((category) => category.active);
   const selectedCategory = draft?.category || cats[0]?.id;
   shell(
-    `<div class="booking"><section class="panel"><div class="row between"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}</button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="destinations" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Calle, número o lugar" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}</button></div><datalist id="destinations">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Marcar origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Marcar destino</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt=""></div><div><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div><div class="grid2 service-request"><label>Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label><label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label></div><label class="check women">${I("shield-check")}<span>Prefiero una conductora<small>Sujeto a disponibilidad de conductoras conectadas.</small></span><input name="women_only" type="checkbox" ${draft?.women_only ? "checked" : ""}></label><label class="check accessible-service">${I("accessibility")}<span>Servicio para personas con alguna discapacidad</span><input name="accessible" type="checkbox" ${draft?.accessible ? "checked" : ""}></label><div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""> <div><strong id="unit-selection">Asignación automática a la unidad más cercana</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local" value="${e(draft?.scheduled_at || "")}"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">Guardamos este plan en tu cuenta. Si recargas o cierras por accidente, podrás continuar. Yavoi! recomienda la unidad compatible más cercana, pero puedes elegir cualquier unidad visible; el conductor conserva la decisión de aceptar.</p></form></section>${mapFrame()}</div>`,
+    `<div class="booking"><section class="panel"><div class="row between"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}</button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="destinations" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Calle, número o lugar" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}</button></div><datalist id="destinations">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Marcar origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Marcar destino</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt=""></div><div><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div><div class="grid2 service-request"><label>Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label><label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label></div><label class="check women">${I("shield-check")}<span>Prefiero una conductora<small>Sujeto a disponibilidad de conductoras conectadas.</small></span><input name="women_only" type="checkbox" ${draft?.women_only ? "checked" : ""}></label><label class="check accessible-service">${I("accessibility")}<span>Servicio para personas con alguna discapacidad</span><input name="accessible" type="checkbox" ${draft?.accessible ? "checked" : ""}></label><div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""> <div><strong id="unit-selection">Asignación automática a la unidad más cercana</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local" value="${e(draft?.scheduled_at || "")}"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">La búsqueda comienza en 1 km y se amplía de kilómetro en kilómetro hasta encontrar unidades compatibles. Antes de confirmar sólo verás el tipo de servicio y su ubicación aproximada. Cuando un conductor acepte, recibirás su nombre, fotografía, vehículo, color, modelo, placas y calificación.</p></form></section>${mapFrame()}</div>`,
     `¿A dónde vamos, ${e(S.profile.full_name.split(" ")[0])}?`,
     "Elige tu destino, necesidades y revisa el precio antes de confirmar.",
   );
@@ -2825,7 +2833,7 @@ async function safeRefresh() {
   S.refreshing = true;
   try {
     if (S.view === "trip") await refreshTrip();
-    else if (S.view === "home" && S.profile.role === "passenger") await refreshAvailableUnits();
+    else if (S.view === "home" && S.profile.role === "passenger") await refreshAvailableUnits({ fit: false });
     else if (S.view === "opsmap" && S.profile.role === "admin") await refreshOperationsMap();
     else if (
       (S.view === "home" && S.profile.role === "driver") ||

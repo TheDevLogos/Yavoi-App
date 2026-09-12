@@ -47,6 +47,15 @@ test("vehicle markers use service-specific silhouettes and adapt to map zoom", (
   assert.match(css, /\.leaflet-marker-icon\.vehicle-icon-wrap\{transition:none!important/);
 });
 
+test("passenger unit search expands progressively and protects driver identity until acceptance", () => {
+  assert.match(portal, /dentro de \$\{radius\} km/);
+  assert.match(portal, /Sólo mostramos el tipo de servicio antes de confirmar/);
+  assert.match(portal, /Yavoi! \$\{e\(serviceName\)\} · \$\{index === 0/);
+  assert.doesNotMatch(portal, /bindTooltip\(`\$\{index === 0 \? "Recomendada por cercanía"[\s\S]*pickup_km/);
+  assert.match(portal, /Cuando un conductor acepte, recibirás su nombre, fotografía, vehículo, color, modelo, placas y calificación/);
+  assert.match(portal, /refreshAvailableUnits\(\{ fit: false \}\)/);
+});
+
 test("street routing provides a visual guide and opens driving navigation", () => {
   assert.match(mapsFunction, /steps=true&alternatives=true/);
   assert.match(mapsFunction, /instructions/);

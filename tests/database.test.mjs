@@ -310,9 +310,13 @@ test("Postgres security and complete ride lifecycle", async () => {
     lng: -105.47045,
     category: "basic",
   });
-  assert.equal(units.length, 2);
+  assert.equal(units.length, 1);
   assert.equal(units[0].unit_id, ids.driver);
   assert.ok(Number(units[0].pickup_km) < 1);
+  assert.equal(units[0].search_radius_km, 1);
+  assert.deepEqual(Object.keys(units[0]).sort(), [
+    "category", "lat", "lng", "pickup_km", "pickup_minutes", "search_radius_km", "unit_id",
+  ]);
   await db.exec("reset role");
   await db.query("update public.driver_presence set heartbeat_at=now()-interval '2 minutes' where driver_id=$1", [ids.driver2]);
   await as(ids.rider);
@@ -322,7 +326,21 @@ test("Postgres security and complete ride lifecycle", async () => {
     category: "basic",
   })).length, 1);
   await as(ids.driver2);
-  await rpc("presence", { lat: 28.198, lng: -105.478, accuracy: 12, session_id: crypto.randomUUID() });
+  await rpc("presence", { lat: 28.211, lng: -105.478, accuracy: 12, session_id: crypto.randomUUID() });
+  await as(ids.rider);
+  await db.exec("reset role");
+  await db.query("update public.driver_presence set heartbeat_at=now()-interval '2 minutes' where driver_id=$1", [ids.driver]);
+  await as(ids.rider);
+  const expandedUnits = await rpc("available_units", {
+    lat: 28.19065,
+    lng: -105.47045,
+    category: "basic",
+  });
+  assert.equal(expandedUnits.length, 1);
+  assert.equal(expandedUnits[0].unit_id, ids.driver2);
+  assert.equal(expandedUnits[0].search_radius_km, 2);
+  await as(ids.driver);
+  await rpc("presence", { lat: 28.191, lng: -105.471, accuracy: 10, session_id: crypto.randomUUID() });
   await as(ids.rider);
   await expectError(
     () =>
@@ -359,6 +377,8 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(t.driver_id, null);
   assert.equal(t.party_size, 4);
   assert.equal(t.service_notes, "Requiero espacio para dos maletas.");
+  const unassignedDetail = await rpc("trip", { trip_id: t.id });
+  assert.equal(unassignedDetail.driver, null);
   assert.equal((await rpc("dashboard")).ride_draft, null);
   const duplicate = await rpc("request_trip", {
     quote_id: q.id,
@@ -389,6 +409,11 @@ test("Postgres security and complete ride lifecycle", async () => {
   await rpc("message", { trip_id: t.id, body: "Voy en camino; llego en unos minutos." });
   await as(ids.rider);
   const detail = await rpc("trip", { trip_id: t.id });
+  assert.equal(detail.driver.name, "Conductor Prueba 1");
+  assert.equal(detail.driver.avatar_path, `${ids.driver}/avatar.png`);
+  assert.equal(detail.driver.vehicle_model, "Versa");
+  assert.equal(detail.driver.vehicle_color, "Gris");
+  assert.equal(detail.driver.plate, "YAV101");
   assert.match(detail.pin, /^\d{4}$/);
   assert.deepEqual(detail.messages.map((message) => message.body), [
     "Estoy en la entrada principal.",
