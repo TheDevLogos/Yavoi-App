@@ -21,6 +21,14 @@ test("live map refreshes markers without recreating or refocusing the map", () =
   assert.match(portal, /data-unit-signal/);
 });
 
+test("Operations map returns to Delicias when no units have a live signal", () => {
+  assert.match(portal, /const DELICIAS_MAP_CENTER = \[DEFAULT_ORIGIN\.lat, DEFAULT_ORIGIN\.lng\]/);
+  assert.match(portal, /if \(livePosition\) connectedBounds\.push\(point\)/);
+  assert.match(portal, /fit && hasLiveUnits/);
+  assert.match(portal, /S\.opsHadLiveUnits === true && !hasLiveUnits/);
+  assert.match(portal, /S\.map\.setView\(DELICIAS_MAP_CENTER, OPERATIONS_EMPTY_ZOOM\)/);
+});
+
 test("vehicle markers stay attached to Operations, passenger and driver maps", () => {
   assert.match(css, /\.leaflet-marker-icon\.vehicle-icon-wrap\{transition:none!important;will-change:auto!important\}/);
   assert.doesNotMatch(css, /\.leaflet-marker-icon\.vehicle-icon-wrap\{transition:transform/);

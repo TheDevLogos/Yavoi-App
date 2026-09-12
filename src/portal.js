@@ -47,6 +47,8 @@ const GOOGLE_CLIENT_ID = String(
   import.meta.env.VITE_GOOGLE_CLIENT_ID ||
     "903354099441-4la2ivgqknn9q8kj1ghku6caebc1a4ar.apps.googleusercontent.com",
 ).trim();
+const DELICIAS_MAP_CENTER = [DEFAULT_ORIGIN.lat, DEFAULT_ORIGIN.lng];
+const OPERATIONS_EMPTY_ZOOM = 13;
 const button = (text, action, kind = "", icon = "arrow-right") =>
   `<button class="btn ${kind}" data-action="${action}">${text}${I(icon)}</button>`;
 const S = {
@@ -66,6 +68,7 @@ const S = {
   mapLiveLayer: null,
   opsMarkers: new Map(),
   opsRoutes: new Map(),
+  opsHadLiveUnits: null,
   opsListSignature: "",
   opsSearch: {},
   origin: DEFAULT_ORIGIN,
@@ -300,6 +303,7 @@ function teardownMap() {
   S.opsMarkers.clear();
   S.opsRoutes.clear();
   S.opsListSignature = "";
+  S.opsHadLiveUnits = null;
 }
 function clearSession() {
   teardownMap();
@@ -1964,7 +1968,7 @@ function updateOperationsMapLayers({ fit = false } = {}) {
   if (!S.map) return;
   const units = S.data.operations_units || [];
   if (!S.mapLiveLayer) S.mapLiveLayer = L.layerGroup().addTo(S.map);
-  const bounds = [];
+  const connectedBounds = [];
   const activeUnits = new Set();
   units.forEach((unit) => {
     if (!Number.isFinite(Number(unit.lat)) || !Number.isFinite(Number(unit.lng))) return;
@@ -1973,7 +1977,7 @@ function updateOperationsMapLayers({ fit = false } = {}) {
     const point = [Number(unit.lat), Number(unit.lng)];
     const [status] = operationsUnitStatus(unit);
     const livePosition = Boolean(unit.online && unit.presence_fresh);
-    bounds.push(point);
+    if (livePosition) connectedBounds.push(point);
     const tooltip = `<strong>${e(unit.full_name)}</strong><br>${e(status)} · ${e(unit.plate || "Sin placas")}<br>${unit.trip_id ? `${e(unit.passenger_name || "Pasajero")} · ${money(unit.total_cents || unit.fare_cents)}` : e(unit.vehicle || "Unidad registrada")}`;
     let marker = S.opsMarkers.get(id);
     const heading = Math.round(vehicleHeading(marker, unit.heading, point));
@@ -2005,7 +2009,7 @@ function updateOperationsMapLayers({ fit = false } = {}) {
     const history = Array.isArray(unit.route_history) ? unit.route_history : [];
     if (history.length > 1) {
       const route = history.map((item) => [Number(item.lat), Number(item.lng)]);
-      route.forEach((routePoint) => bounds.push(routePoint));
+      if (livePosition) route.forEach((routePoint) => connectedBounds.push(routePoint));
       const polyline = S.opsRoutes.get(id);
       if (polyline) polyline.setLatLngs(route);
       else S.opsRoutes.set(id, L.polyline(route, { color: "#ff6a0a", weight: 5, opacity: 0.78 }).addTo(S.mapLiveLayer));
@@ -2024,13 +2028,20 @@ function updateOperationsMapLayers({ fit = false } = {}) {
     S.mapLiveLayer.removeLayer(route);
     S.opsRoutes.delete(id);
   });
-  if (fit && bounds.length) S.map.fitBounds(bounds, { padding: [55, 55], maxZoom: 15 });
+  const hasLiveUnits = connectedBounds.length > 0;
+  if (fit && hasLiveUnits) {
+    S.map.fitBounds(connectedBounds, { padding: [55, 55], maxZoom: 15 });
+  } else if ((fit && !hasLiveUnits) || (S.opsHadLiveUnits === true && !hasLiveUnits)) {
+    S.map.setView(DELICIAS_MAP_CENTER, OPERATIONS_EMPTY_ZOOM);
+  }
+  S.opsHadLiveUnits = hasLiveUnits;
 }
 function startOperationsMap() {
   if (!$("#operations-map")) return;
+  S.opsHadLiveUnits = null;
   S.map = L.map("operations-map", { zoomControl: true, scrollWheelZoom: true }).setView(
-    [28.19065, -105.47045],
-    13,
+    DELICIAS_MAP_CENTER,
+    OPERATIONS_EMPTY_ZOOM,
   );
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
