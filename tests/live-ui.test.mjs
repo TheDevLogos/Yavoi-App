@@ -6,10 +6,11 @@ const portal = await readFile(new URL("../src/portal.js", import.meta.url), "utf
 const css = await readFile(new URL("../src/portal.css", import.meta.url), "utf8");
 const domain = await readFile(new URL("../src/domain.js", import.meta.url), "utf8");
 const paymentFunction = await readFile(new URL("../supabase/functions/mercado-pago-payment/index.ts", import.meta.url), "utf8");
+const mapsFunction = await readFile(new URL("../supabase/functions/maps/index.ts", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
-  assert.match(portal, /drawPoints\(next\.trip, \{ fit: false \}\)/);
+  assert.match(portal, /updateTripMap\(\)/);
   assert.match(portal, /S\.view === "opsmap"[\s\S]{0,120}refreshOperationsMap\(\)/);
   assert.doesNotMatch(portal, /S\.mapLiveLayer\.clearLayers\(\)/);
   assert.match(portal, /S\.opsMarkers\.get\(id\)/);
@@ -18,6 +19,30 @@ test("live map refreshes markers without recreating or refocusing the map", () =
   assert.match(portal, /image\.style\.transform = `rotate\(\$\{heading\}deg\)`/);
   assert.match(portal, /signature !== S\.opsListSignature/);
   assert.match(portal, /data-unit-signal/);
+});
+
+test("vehicle markers stay attached to Operations, passenger and driver maps", () => {
+  assert.match(css, /\.leaflet-marker-icon\.vehicle-icon-wrap\{transition:none!important;will-change:auto!important\}/);
+  assert.doesNotMatch(css, /\.leaflet-marker-icon\.vehicle-icon-wrap\{transition:transform/);
+  assert.match(portal, /const livePosition = Boolean\(unit\.online && unit\.presence_fresh\)/);
+  assert.match(portal, /if \(livePosition\) marker\.setLatLng\(point\)/);
+  assert.match(portal, /function updateTripMap\(\)/);
+  assert.match(portal, /if \(!stale\) S\.tripVehicleMarker\.setLatLng\(point\)/);
+  assert.match(portal, /marker\.getElement\(\)\?\.querySelector\("img"\)/);
+  assert.match(portal, /vehicleHeading\(marker, unit\.heading, point\)/);
+  assert.match(portal, /if \(livePosition\) rotateVehicle\(marker, heading\)/);
+  assert.doesNotMatch(portal, /drawPoints\(next\.trip, \{ fit: false \}\)/);
+});
+
+test("street routing provides a visual guide and opens driving navigation", () => {
+  assert.match(mapsFunction, /steps=true&alternatives=true/);
+  assert.match(mapsFunction, /instructions/);
+  assert.match(mapsFunction, /route:v2:/);
+  assert.match(portal, /Guía por calles/);
+  assert.match(portal, /routeStepText/);
+  assert.match(portal, /dir_action: "navigate"/);
+  assert.match(portal, /Navegar al destino/);
+  assert.match(css, /\.route-guide-summary/);
 });
 
 test("Operations modules share compact searchable and collapsible organization", () => {

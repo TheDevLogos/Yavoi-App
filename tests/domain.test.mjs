@@ -15,6 +15,8 @@ import {
   rewardDiscountCents,
   navs,
   places,
+  normalizeHeading,
+  bearingDegrees,
 } from "../src/domain.js";
 test("cash amounts round to cents and invalid amounts are rejected", () => {
   assert.equal(cents("100.25"), 10025);
@@ -79,6 +81,14 @@ test("only terminal trips are inactive", () => {
   assert.equal(active({ status: "completed" }), false);
   assert.equal(active({ status: "cancelled" }), false);
   assert.equal(active({ status: "in_progress" }), true);
+});
+test("vehicle heading follows GPS degrees and can be derived from movement", () => {
+  assert.equal(normalizeHeading(null), null);
+  assert.equal(normalizeHeading(360), 0);
+  assert.equal(normalizeHeading(-90), 270);
+  assert.ok(Math.abs(bearingDegrees({ lat: 28.19, lng: -105.47 }, { lat: 28.20, lng: -105.47 }) - 0) < 0.01);
+  assert.ok(Math.abs(bearingDegrees({ lat: 28.19, lng: -105.47 }, { lat: 28.19, lng: -105.46 }) - 90) < 0.01);
+  assert.equal(bearingDegrees({ lat: 28.19, lng: -105.47 }, { lat: 28.19, lng: -105.47 }), null);
 });
 test("MFA QR accepts Supabase data URIs without double encoding", () => {
   const dataUri = "data:image/svg+xml;utf-8,%3Csvg%3Eqr%3C/svg%3E";

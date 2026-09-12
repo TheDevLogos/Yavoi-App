@@ -160,6 +160,20 @@ export const driverDossierStatus = (profile = {}, driver = {}) => {
   };
 };
 export const allowedView = (role, view) => navs[role]?.some(([v]) => v === view) || view === "trip";
+export const normalizeHeading = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const heading = Number(value);
+  return Number.isFinite(heading) ? ((heading % 360) + 360) % 360 : null;
+};
+export const bearingDegrees = (from, to) => {
+  const values = [from?.lat, from?.lng, to?.lat, to?.lng].map(Number);
+  if (!values.every(Number.isFinite)) return null;
+  const [lat1, lng1, lat2, lng2] = values.map((value) => (value * Math.PI) / 180);
+  const y = Math.sin(lng2 - lng1) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lng2 - lng1);
+  if (Math.abs(x) < Number.EPSILON && Math.abs(y) < Number.EPSILON) return null;
+  return normalizeHeading((Math.atan2(y, x) * 180) / Math.PI);
+};
 export const mfaQrSource = (value) => {
   const qr = String(value || "").trim();
   if (/^data:image\/svg\+xml(?:;[^,]*)?,/i.test(qr)) return qr;

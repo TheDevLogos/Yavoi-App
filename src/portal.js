@@ -30,6 +30,8 @@ import {
   PRIVACY_POLICY_VERSION,
   TERMS_VERSION,
   allowedView,
+  normalizeHeading,
+  bearingDegrees,
   mfaQrSource,
   serviceAsset,
   rewardEligibleForTrip,
@@ -59,6 +61,8 @@ const S = {
   busy: false,
   map: null,
   markers: [],
+  tripVehicleMarker: null,
+  tripHistoryLine: null,
   mapLiveLayer: null,
   opsMarkers: new Map(),
   opsRoutes: new Map(),
@@ -290,6 +294,8 @@ function teardownMap() {
     S.map = null;
   }
   S.markers = [];
+  S.tripVehicleMarker = null;
+  S.tripHistoryLine = null;
   S.mapLiveLayer = null;
   S.opsMarkers.clear();
   S.opsRoutes.clear();
@@ -600,9 +606,54 @@ async function loadRoadRoute(trip = null) {
     if (version !== S.routeVersion) return;
     S.roadRoute = route;
     drawPoints(trip);
+    renderRouteGuide();
   } catch (error) {
     if (version === S.routeVersion) notify("No pudimos trazar la ruta vial; puedes continuar con la estimación operativa.");
   }
+}
+function routeStepText(step = {}) {
+  const street = String(step.street || "").trim();
+  const road = street ? ` por ${street}` : "";
+  const modifier = {
+    left: "a la izquierda",
+    "slight left": "ligeramente a la izquierda",
+    "sharp left": "pronunciadamente a la izquierda",
+    right: "a la derecha",
+    "slight right": "ligeramente a la derecha",
+    "sharp right": "pronunciadamente a la derecha",
+    uturn: "en retorno",
+    straight: "de frente",
+  }[step.modifier] || "de frente";
+  if (step.type === "depart") return `Inicia${road}`;
+  if (step.type === "arrive") return "Llegaste al destino";
+  if (["roundabout", "rotary", "roundabout turn"].includes(step.type)) return `En la glorieta continúa ${modifier}${road}`;
+  if (step.type === "merge") return `Incorpórate ${modifier}${road}`;
+  if (step.type === "fork") return `Mantente ${modifier}${road}`;
+  if (step.type === "new name" || step.type === "continue") return `Continúa${road}`;
+  return `Gira ${modifier}${road}`;
+}
+function routeDistance(value) {
+  const meters = Math.max(0, Number(value) || 0);
+  return meters < 1000 ? `${Math.round(meters)} m` : `${decimal(meters / 1000)} km`;
+}
+function routeGuideMarkup(route = S.roadRoute) {
+  const steps = Array.isArray(route?.instructions) ? route.instructions : [];
+  if (!steps.length) return '<p class="muted">Calculando indicaciones por calles…</p>';
+  return `<div class="route-guide-summary"><span>${I("route")}<strong>${decimal(route.distance_km)} km</strong></span><span>${I("clock-3")}<strong>${Number(route.duration_minutes)} min</strong></span></div><ol>${steps.map((step) => `<li><span>${I(step.type === "arrive" ? "flag" : step.type === "depart" ? "navigation" : "corner-down-right")}</span><div><strong>${e(routeStepText(step))}</strong><small>${routeDistance(step.distance_m)}</small></div></li>`).join("")}</ol>`;
+}
+function renderRouteGuide() {
+  const guide = $("#route-guide-content");
+  if (!guide) return;
+  guide.innerHTML = routeGuideMarkup();
+  iconsNow();
+}
+function googleNavigationUrl(trip) {
+  const pickup = ["accepted", "arrived"].includes(trip.status);
+  const lat = Number(pickup ? trip.origin_lat : trip.dest_lat);
+  const lng = Number(pickup ? trip.origin_lng : trip.dest_lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "";
+  const params = new URLSearchParams({ api: "1", destination: `${lat},${lng}`, travelmode: "driving", dir_action: "navigate" });
+  return `https://www.google.com/maps/dir/?${params}`;
 }
 async function refreshAvailableUnits() {
   if (!S.map || S.profile?.role !== "passenger" || !S.origin) return;
@@ -630,12 +681,29 @@ const pointIcon = (destination = false) => L.icon({
   iconAnchor: [23, 51],
   tooltipAnchor: [0, -48],
 });
-const vehicleIcon = (heading = 0, selected = false) => L.divIcon({
-  className: "vehicle-icon-wrap",
-  html: `<div class="vehicle-icon ${selected ? "selected" : ""}"><img src="/assets/map-car-top.svg" alt="" style="transform:rotate(${Number.isFinite(Number(heading)) ? Number(heading) : 0}deg)"></div>`,
-  iconSize: [48, 64],
-  iconAnchor: [24, 32],
-});
+const vehicleIcon = (heading = 0, selected = false) => {
+  const angle = normalizeHeading(heading) ?? 0;
+  return L.divIcon({
+    className: "vehicle-icon-wrap",
+    html: `<div class="vehicle-icon ${selected ? "selected" : ""}"><img src="/assets/map-car-top.svg" alt="" style="transform:rotate(${angle}deg)"></div>`,
+    iconSize: [48, 64],
+    iconAnchor: [24, 32],
+  });
+};
+function vehicleHeading(marker, reportedHeading, point) {
+  const reported = normalizeHeading(reportedHeading);
+  if (reported !== null) return reported;
+  const current = marker?.getLatLng();
+  const moved = current && S.map?.distance(current, point) >= 3
+    ? bearingDegrees({ lat: current.lat, lng: current.lng }, { lat: point[0], lng: point[1] })
+    : null;
+  return moved ?? marker?._yavoiHeading ?? 0;
+}
+function rotateVehicle(marker, heading) {
+  marker._yavoiHeading = heading;
+  const image = marker.getElement()?.querySelector("img");
+  if (image) image.style.transform = `rotate(${heading}deg)`;
+}
 function startMap(trip = null) {
   if (!$("#ride-map")) return;
   S.map = L.map("ride-map", { zoomControl: true, scrollWheelZoom: false }).setView(
@@ -671,6 +739,8 @@ function drawPoints(t = null, { fit = true } = {}) {
   if (!S.map) return;
   S.markers.forEach((m) => m.remove());
   S.markers = [];
+  S.tripVehicleMarker = null;
+  S.tripHistoryLine = null;
   const points = t
     ? [
         { lat: t.origin_lat, lng: t.origin_lng },
@@ -714,17 +784,49 @@ function drawPoints(t = null, { fit = true } = {}) {
       S.markers.push(marker);
     });
   if (t && S.trip?.route_history?.length > 1) {
-    S.markers.push(L.polyline(S.trip.route_history.map((point) => [point.lat, point.lng]), { color: "#ff6a0a", weight: 6, opacity: 0.9 }).addTo(S.map));
+    S.tripHistoryLine = L.polyline(S.trip.route_history.map((point) => [point.lat, point.lng]), { color: "#ff6a0a", weight: 6, opacity: 0.9 }).addTo(S.map);
+    S.markers.push(S.tripHistoryLine);
   }
   if (t && S.trip?.location) {
     const loc = S.trip.location;
     const stale = Date.now() - Date.parse(loc.updated_at) > 60000;
-    S.markers.push(
-      L.marker([loc.lat, loc.lng], { icon: vehicleIcon(loc.heading || 0) })
-        .bindTooltip(stale ? "Última posición; señal desactualizada" : "Posición del conductor")
-        .addTo(S.map),
-    );
+    const heading = normalizeHeading(loc.heading) ?? 0;
+    S.tripVehicleMarker = L.marker([loc.lat, loc.lng], { icon: vehicleIcon(heading), opacity: stale ? 0.55 : 1 })
+      .bindTooltip(stale ? "Última posición; señal desactualizada" : "Posición del conductor")
+      .addTo(S.map);
+    S.tripVehicleMarker._yavoiHeading = heading;
+    S.markers.push(S.tripVehicleMarker);
   }
+}
+function updateTripMap() {
+  if (!S.map || !S.trip) return;
+  const history = Array.isArray(S.trip.route_history) ? S.trip.route_history : [];
+  const route = history.map((point) => [Number(point.lat), Number(point.lng)]);
+  if (route.length > 1) {
+    if (S.tripHistoryLine) S.tripHistoryLine.setLatLngs(route);
+    else {
+      S.tripHistoryLine = L.polyline(route, { color: "#ff6a0a", weight: 6, opacity: 0.9 }).addTo(S.map);
+      S.markers.push(S.tripHistoryLine);
+    }
+  }
+  const loc = S.trip.location;
+  if (!loc || !Number.isFinite(Number(loc.lat)) || !Number.isFinite(Number(loc.lng))) return;
+  const stale = Date.now() - Date.parse(loc.updated_at) > 60000;
+  const point = [Number(loc.lat), Number(loc.lng)];
+  const heading = vehicleHeading(S.tripVehicleMarker, loc.heading, point);
+  if (!S.tripVehicleMarker) {
+    S.tripVehicleMarker = L.marker(point, { icon: vehicleIcon(heading), opacity: stale ? 0.55 : 1 })
+      .bindTooltip(stale ? "Última posición; señal desactualizada" : "Posición del conductor")
+      .addTo(S.map);
+    S.tripVehicleMarker._yavoiHeading = heading;
+    S.markers.push(S.tripVehicleMarker);
+    return;
+  }
+  if (!stale) S.tripVehicleMarker.setLatLng(point);
+  S.tripVehicleMarker
+    .setOpacity(stale ? 0.55 : 1)
+    .setTooltipContent(stale ? "Última posición; señal desactualizada" : "Posición del conductor");
+  if (!stale) rotateVehicle(S.tripVehicleMarker, heading);
 }
 function draftPoint(draft, prefix) {
   const name = draft?.[prefix === "origin" ? "origin" : "destination"];
@@ -1216,9 +1318,13 @@ async function tripView(id) {
   const cancellationFeeActions = t.status === "cancelled" && cancellationPayment?.status === "pending" && (conductor || S.profile.role === "admin")
     ? `<div class="row wrap section-gap">${button("Confirmar cuota recibida", "settle-cancel-fee", "secondary", "circle-dollar-sign")}${S.profile.role === "admin" ? button("Condonar cuota", "waive-cancel-fee", "secondary", "badge-x") : ""}</div>`
     : "";
+  const navigationUrl = conductor && ["accepted", "arrived", "in_progress"].includes(t.status) ? googleNavigationUrl(t) : "";
+  const driverNavigation = navigationUrl
+    ? `<a class="btn navy wide section-gap" href="${e(navigationUrl)}" target="_blank" rel="noopener noreferrer">${I("navigation")} ${t.status === "in_progress" ? "Navegar al destino" : "Navegar a recoger al pasajero"}</a>`
+    : "";
   const tripFooter = `<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}${terminalReport}</div>`;
   shell(
-    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${chatAction}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${tripSafetyControls}${cancellationFeeActions}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" ? tripRatingsMarkup(S.trip.ratings || []) : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}${reportHistory}${tripFooter}</section><div class="stack">${mapFrame("ride-map", e(geo))}<section class="panel trip-chat-panel" id="trip-chat"><div class="row between wrap"><div><h2>Mensajes del viaje</h2><p>Disponible desde que el conductor acepta y mientras el viaje está activo.</p></div>${I("message-circle")}</div><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Confirma una entrada, referencia o indicación…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
+    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${chatAction}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${driverNavigation}${tripSafetyControls}${cancellationFeeActions}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" ? tripRatingsMarkup(S.trip.ratings || []) : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}${reportHistory}${tripFooter}</section><div class="stack">${mapFrame("ride-map", e(geo))}<details class="panel route-guide" open><summary>${I("signpost")} Guía por calles</summary><div id="route-guide-content">${routeGuideMarkup(null)}</div></details><section class="panel trip-chat-panel" id="trip-chat"><div class="row between wrap"><div><h2>Mensajes del viaje</h2><p>Disponible desde que el conductor acepta y mientras el viaje está activo.</p></div>${I("message-circle")}</div><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Confirma una entrada, referencia o indicación…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
     "Tu viaje Yavoi!",
     "Folio " + e(t.id.slice(0, 8).toUpperCase()) + " · " + date(t.created_at),
   );
@@ -1261,7 +1367,7 @@ async function refreshTrip() {
     chat.innerHTML = messagesHtml(next.messages);
     if (followLatest) chat.scrollTop = chat.scrollHeight;
   }
-  drawPoints(next.trip, { fit: false });
+  updateTripMap();
   const caption = $(".map-caption span");
   if (caption && next.location) {
     const l = next.location;
@@ -1809,21 +1915,23 @@ function updateOperationsMapLayers({ fit = false } = {}) {
     activeUnits.add(id);
     const point = [Number(unit.lat), Number(unit.lng)];
     const [status] = operationsUnitStatus(unit);
+    const livePosition = Boolean(unit.online && unit.presence_fresh);
     bounds.push(point);
-    const heading = Number.isFinite(Number(unit.heading)) ? Math.round(Number(unit.heading)) : 0;
     const tooltip = `<strong>${e(unit.full_name)}</strong><br>${e(status)} · ${e(unit.plate || "Sin placas")}<br>${unit.trip_id ? `${e(unit.passenger_name || "Pasajero")} · ${money(unit.total_cents || unit.fare_cents)}` : e(unit.vehicle || "Unidad registrada")}`;
     let marker = S.opsMarkers.get(id);
+    const heading = Math.round(vehicleHeading(marker, unit.heading, point));
     if (!marker) {
-      marker = L.marker(point, { icon: vehicleIcon(heading, !!unit.trip_id), opacity: unit.presence_fresh ? 1 : 0.55 })
+      marker = L.marker(point, { icon: vehicleIcon(heading, !!unit.trip_id), opacity: livePosition ? 1 : 0.55 })
         .addTo(S.mapLiveLayer)
         .bindTooltip(tooltip, { direction: "top", offset: [0, -18] });
+      marker._yavoiHeading = heading;
       S.opsMarkers.set(id, marker);
     } else {
-      marker.setLatLng(point).setOpacity(unit.presence_fresh ? 1 : 0.55).setTooltipContent(tooltip);
+      if (livePosition) marker.setLatLng(point);
+      marker.setOpacity(livePosition ? 1 : 0.55).setTooltipContent(tooltip);
       const markerElement = marker.getElement();
-      const image = markerElement?.querySelector("img");
       const vehicle = markerElement?.querySelector(".vehicle-icon");
-      if (image) image.style.transform = `rotate(${heading}deg)`;
+      if (livePosition) rotateVehicle(marker, heading);
       if (vehicle) vehicle.classList.toggle("selected", Boolean(unit.trip_id));
     }
     if (unit.trip_id) {

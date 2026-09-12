@@ -62,16 +62,26 @@ Deno.serve(async (req: Request) => {
       const destination = body.destination || {};
       const values = [Number(originPoint.lat), Number(originPoint.lng), Number(destination.lat), Number(destination.lng)];
       if (!values.every(Number.isFinite) || !insideCoverage(values[0], values[1]) || !insideCoverage(values[2], values[3])) return json({ error: "Ruta fuera de cobertura." }, 400, origin);
-      key = `route:${values.map((value) => value.toFixed(5)).join(":")}`;
+      key = `route:v2:${values.map((value) => value.toFixed(5)).join(":")}`;
       const { data: cached } = await serviceClient.rpc("yavoi_map_cache_get", { key_value: key });
       if (cached) return json(cached, 200, origin);
       const routeBase = Deno.env.get("ROUTING_BASE_URL") || "https://router.project-osrm.org";
-      const upstream = await fetch(`${routeBase}/route/v1/driving/${values[1]},${values[0]};${values[3]},${values[2]}?overview=full&geometries=geojson&steps=false`);
+      const upstream = await fetch(`${routeBase}/route/v1/driving/${values[1]},${values[0]};${values[3]},${values[2]}?overview=full&geometries=geojson&steps=true&alternatives=true`);
       if (!upstream.ok) throw new Error("El servicio de rutas no respondió.");
       const raw = await upstream.json();
       const route = raw.routes?.[0];
       if (!route?.geometry?.coordinates) return json({ error: "No encontramos una ruta vial para esos puntos." }, 404, origin);
-      const payload = { distance_km: Math.round(Number(route.distance) / 10) / 100, duration_minutes: Math.max(1, Math.ceil(Number(route.duration) / 60)), coordinates: route.geometry.coordinates.slice(0, 4000) };
+      const instructions = (route.legs || []).flatMap((leg: Record<string, unknown>) => Array.isArray(leg.steps) ? leg.steps : []).slice(0, 120).map((step: Record<string, unknown>) => {
+        const maneuver = step.maneuver && typeof step.maneuver === "object" ? step.maneuver as Record<string, unknown> : {};
+        return {
+          type: String(maneuver.type || "continue").slice(0, 40),
+          modifier: String(maneuver.modifier || "straight").slice(0, 30),
+          street: String(step.name || "").slice(0, 160),
+          distance_m: Math.max(0, Math.round(Number(step.distance) || 0)),
+          duration_seconds: Math.max(0, Math.round(Number(step.duration) || 0)),
+        };
+      });
+      const payload = { distance_km: Math.round(Number(route.distance) / 10) / 100, duration_minutes: Math.max(1, Math.ceil(Number(route.duration) / 60)), coordinates: route.geometry.coordinates.slice(0, 4000), instructions };
       await serviceClient.rpc("yavoi_map_cache_put", { key_value: key, payload_value: payload, ttl_seconds: 86400 });
       return json(payload, 200, origin);
     }
