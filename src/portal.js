@@ -60,6 +60,10 @@ const S = {
   map: null,
   markers: [],
   mapLiveLayer: null,
+  opsMarkers: new Map(),
+  opsRoutes: new Map(),
+  opsListSignature: "",
+  opsSearch: {},
   origin: DEFAULT_ORIGIN,
   destination: null,
   pick: "destination",
@@ -287,6 +291,9 @@ function teardownMap() {
   }
   S.markers = [];
   S.mapLiveLayer = null;
+  S.opsMarkers.clear();
+  S.opsRoutes.clear();
+  S.opsListSignature = "";
 }
 function clearSession() {
   teardownMap();
@@ -472,9 +479,77 @@ function shell(content, title, subtitle = "") {
   teardownMap();
   const p = S.profile;
   $("#app").innerHTML =
-    `<div class="app-shell"><aside class="sidebar"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><div class="city">${I("map-pin")} Delicias, Chihuahua</div><div class="nav-label">${e(roles[p.role]).toUpperCase()}</div><nav>${navs[p.role].map(([id, icon, label]) => `<a href="#${id}" class="${S.view === id ? "active" : ""}">${I(icon)}<span>${label}</span></a>`).join("")}</nav><div class="sidebar-bottom"><a class="sidebar-user" href="#profile">${avatar(p.full_name, p.avatar_path)}<div><strong>${e(p.full_name)}</strong><small>${e(roles[p.role])}</small></div></a><button class="logout" data-action="logout">${I("log-out")}<span>Cerrar sesión</span></button></div></aside><div class="workspace"><header class="topbar"><div class="topbar-brand"><img class="mobile-brand" src="/assets/yavoi-logo.png" alt="Yavoi!"><strong>Mi Yavoi! <span class="muted">/ ${e(roles[p.role])}</span></strong></div><div class="right"><span class="connection ${S.connected ? "" : "offline"}"><i></i>${S.connected ? "Conectado" : "Sin conexión"}</span><a class="landing-link link" href="/">Ir a la landing</a>${p.role === "admin" ? `<a class="icon-btn" href="#help" aria-label="Reportes y atención">${I("headset")}</a>` : ""}<a class="icon-btn" href="#profile" aria-label="Mi perfil">${I("user-round")}</a></div></header><main><div class="page-title"><div><div class="eyebrow">${p.role === "admin" ? "CENTRO DE OPERACIÓN" : "TU CIUDAD. A TU RITMO."}</div><h1>${title}</h1><p>${subtitle}</p></div><span class="badge neutral">${I("shield-check")} Acceso personal</span></div><div id="page-content">${content}</div></main><div class="footer-note">Yavoi! · Tu raite, al instante · Delicias, Chihuahua</div></div></div>`;
+    `<div class="app-shell role-${e(p.role)}"><aside class="sidebar"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><div class="city">${I("map-pin")} Delicias, Chihuahua</div><div class="nav-label">${e(roles[p.role]).toUpperCase()}</div><nav>${navs[p.role].map(([id, icon, label]) => `<a href="#${id}" class="${S.view === id ? "active" : ""}">${I(icon)}<span>${label}</span></a>`).join("")}</nav><div class="sidebar-bottom"><a class="sidebar-user" href="#profile">${avatar(p.full_name, p.avatar_path)}<div><strong>${e(p.full_name)}</strong><small>${e(roles[p.role])}</small></div></a><button class="logout" data-action="logout">${I("log-out")}<span>Cerrar sesión</span></button></div></aside><div class="workspace"><header class="topbar"><div class="topbar-brand"><img class="mobile-brand" src="/assets/yavoi-logo.png" alt="Yavoi!"><strong>Mi Yavoi! <span class="muted">/ ${e(roles[p.role])}</span></strong></div><div class="right"><span class="connection ${S.connected ? "" : "offline"}"><i></i>${S.connected ? "Conectado" : "Sin conexión"}</span><a class="landing-link link" href="/">Ir a la landing</a>${p.role === "admin" ? `<a class="icon-btn" href="#help" aria-label="Reportes y atención">${I("headset")}</a>` : ""}<a class="icon-btn" href="#profile" aria-label="Mi perfil">${I("user-round")}</a></div></header><main><div class="page-title"><div><div class="eyebrow">${p.role === "admin" ? "CENTRO DE OPERACIÓN" : "TU CIUDAD. A TU RITMO."}</div><h1>${title}</h1><p>${subtitle}</p></div><span class="badge neutral">${I("shield-check")} Acceso personal</span></div><div id="page-content">${content}</div></main><div class="footer-note">Yavoi! · Tu raite, al instante · Delicias, Chihuahua</div></div></div>`;
+  if (p.role === "admin") enhanceOperationsLayout();
   iconsNow();
   $$("[data-action]").forEach((b) => (b.onclick = () => handleAction(b.dataset.action, b)));
+}
+function operationsSectionState() {
+  try { return JSON.parse(localStorage.getItem(`yavoi:operations:${S.view}:sections`) || "{}"); }
+  catch { return {}; }
+}
+function saveOperationsSectionState() {
+  const state = {};
+  $$("#page-content .ops-section").forEach((section) => { state[section.dataset.sectionKey] = section.open; });
+  try { localStorage.setItem(`yavoi:operations:${S.view}:sections`, JSON.stringify(state)); } catch {}
+}
+function applyOperationsSearch(value = S.opsSearch[S.view]) {
+  const query = String(value || "").trim().toLowerCase();
+  S.opsSearch[S.view] = query;
+  let visible = 0;
+  const items = $$("#page-content tbody tr, #page-content .dossier-card, #page-content .fee-card, #page-content .campaign-card, #page-content .marketing-reward, #page-content .audit-item, #operations-unit-list .fleet-unit");
+  items.forEach((item) => {
+    const show = !query || item.textContent.toLowerCase().includes(query);
+    item.classList.toggle("ops-filtered", !show);
+    if (show) {
+      visible += 1;
+      if (query && item.matches("details")) item.open = true;
+      if (query) {
+        const section = item.closest("details.ops-section");
+        if (section) section.open = true;
+      }
+    }
+  });
+  const empty = $("#ops-filter-empty");
+  if (empty) empty.classList.toggle("hidden", !query || visible > 0 || !items.length);
+}
+function enhanceOperationsLayout() {
+  const root = $("#page-content");
+  if (!root) return;
+  root.classList.add("operations-surface");
+  const toolbar = document.createElement("div");
+  toolbar.className = "operations-layout-tools";
+  toolbar.innerHTML = `<label>${I("search")}<input id="ops-quick-search" type="search" value="${e(S.opsSearch[S.view] || "")}" placeholder="Filtrar información visible" aria-label="Filtrar información visible"></label><div><button class="btn secondary" type="button" data-ops-layout="open">${I("unfold-vertical")} Expandir</button><button class="btn secondary" type="button" data-ops-layout="close">${I("fold-vertical")} Colapsar</button></div>`;
+  root.prepend(toolbar);
+  const stored = operationsSectionState();
+  const excluded = ".fleet-list,.trip-panel,.trip-chat-panel,.report-loading";
+  $$("section.panel", root).filter((panel) => !panel.matches(excluded) && !panel.closest("details.ops-section") && !panel.closest("dialog")).forEach((panel, index) => {
+    const heading = panel.querySelector(":scope > h2, :scope > .row h2, :scope > .row > div h2");
+    if (!heading) return;
+    const key = `${index}-${heading.textContent.trim().toLowerCase().replace(/[^a-z0-9áéíóúñ]+/gi, "-")}`;
+    const section = document.createElement("details");
+    section.className = "ops-section";
+    section.dataset.sectionKey = key;
+    section.open = stored[key] ?? index === 0;
+    const summary = document.createElement("summary");
+    summary.innerHTML = `<span>${I("layout-panel-top")}<strong>${e(heading.textContent.trim())}</strong></span><span class="ops-section-state">${section.open ? "Visible" : "Colapsado"}</span>${I("chevron-down")}`;
+    panel.before(section);
+    section.append(summary, panel);
+    heading.classList.add("ops-original-heading");
+    section.addEventListener("toggle", () => {
+      const label = $(".ops-section-state", section);
+      if (label) label.textContent = section.open ? "Visible" : "Colapsado";
+      saveOperationsSectionState();
+    });
+  });
+  const search = $("#ops-quick-search");
+  search.oninput = () => applyOperationsSearch(search.value);
+  $$('[data-ops-layout]').forEach((item) => item.onclick = () => {
+    $$("#page-content .ops-section").forEach((section) => { section.open = item.dataset.opsLayout === "open"; });
+    saveOperationsSectionState();
+  });
+  root.insertAdjacentHTML("beforeend", '<p class="hint hidden" id="ops-filter-empty">No hay información que coincida con este filtro.</p>');
+  applyOperationsSearch();
 }
 function mapFrame(
   id = "ride-map",
@@ -1699,38 +1774,84 @@ function operationsCards(units = []) {
   return units.length
     ? units.map((unit) => {
       const [status, kind] = operationsUnitStatus(unit);
-      return `<article class="fleet-unit">${avatar(unit.full_name, unit.avatar_path)}<div><div class="row wrap"><strong>${e(unit.full_name)}</strong><span class="badge ${kind}">${e(status)}</span></div><p>${e([unit.vehicle_color, unit.vehicle_make, unit.vehicle_model, unit.vehicle_year].filter(Boolean).join(" ") || unit.vehicle || "Unidad por completar")} · ${e(unit.plate || "Sin placas")}</p><small>${unit.heartbeat_at ? `Última señal ${date(unit.heartbeat_at)}` : "Sin señal GPS registrada"}</small>${unit.trip_id ? `<a class="link" href="#trip/${e(unit.trip_id)}">${e(unit.passenger_name || "Pasajero")} · ${e(unit.origin)} → ${e(unit.destination)} · ${money(unit.total_cents || unit.fare_cents)}</a>` : ""}</div></article>`;
+      return `<article class="fleet-unit" data-unit-id="${e(unit.driver_id)}">${avatar(unit.full_name, unit.avatar_path)}<div><div class="row wrap"><strong>${e(unit.full_name)}</strong><span class="badge ${kind}">${e(status)}</span></div><p>${e([unit.vehicle_color, unit.vehicle_make, unit.vehicle_model, unit.vehicle_year].filter(Boolean).join(" ") || unit.vehicle || "Unidad por completar")} · ${e(unit.plate || "Sin placas")}</p><small data-unit-signal>${unit.heartbeat_at ? `Última señal ${date(unit.heartbeat_at)}` : "Sin señal GPS registrada"}</small>${unit.trip_id ? `<a class="link" href="#trip/${e(unit.trip_id)}">${e(unit.passenger_name || "Pasajero")} · ${e(unit.origin)} → ${e(unit.destination)} · ${money(unit.total_cents || unit.fare_cents)}</a>` : ""}</div></article>`;
     }).join("")
     : '<div class="empty"><p>Aún no hay unidades registradas.</p></div>';
+}
+function operationsListSignature(units = []) {
+  return JSON.stringify(units.map((unit) => [unit.driver_id, unit.full_name, unit.avatar_path, unit.vehicle, unit.vehicle_make, unit.vehicle_model, unit.vehicle_year, unit.vehicle_color, unit.plate, unit.online, unit.presence_fresh, unit.trip_id, unit.trip_status, unit.passenger_name, unit.origin, unit.destination, unit.total_cents, unit.fare_cents]));
+}
+function updateOperationsList(units = []) {
+  const list = $("#operations-unit-list");
+  if (!list) return;
+  const signature = operationsListSignature(units);
+  if (signature !== S.opsListSignature) {
+    list.innerHTML = operationsCards(units);
+    S.opsListSignature = signature;
+    iconsNow();
+    applyOperationsSearch();
+    return;
+  }
+  units.forEach((unit) => {
+    const signal = $(`[data-unit-id="${CSS.escape(unit.driver_id)}"] [data-unit-signal]`, list);
+    if (signal) signal.textContent = unit.heartbeat_at ? `Última señal ${date(unit.heartbeat_at)}` : "Sin señal GPS registrada";
+  });
 }
 function updateOperationsMapLayers({ fit = false } = {}) {
   if (!S.map) return;
   const units = S.data.operations_units || [];
   if (!S.mapLiveLayer) S.mapLiveLayer = L.layerGroup().addTo(S.map);
-  S.mapLiveLayer.clearLayers();
   const bounds = [];
+  const activeUnits = new Set();
   units.forEach((unit) => {
     if (!Number.isFinite(Number(unit.lat)) || !Number.isFinite(Number(unit.lng))) return;
+    const id = unit.driver_id;
+    activeUnits.add(id);
     const point = [Number(unit.lat), Number(unit.lng)];
     const [status] = operationsUnitStatus(unit);
     bounds.push(point);
-    const marker = L.marker(point, {
-      icon: vehicleIcon(unit.heading, !!unit.trip_id),
-      opacity: unit.presence_fresh ? 1 : 0.55,
-    }).addTo(S.mapLiveLayer).bindTooltip(
-      `<strong>${e(unit.full_name)}</strong><br>${e(status)} · ${e(unit.plate || "Sin placas")}<br>${unit.trip_id ? `${e(unit.passenger_name || "Pasajero")} · ${money(unit.total_cents || unit.fare_cents)}` : e(unit.vehicle || "Unidad registrada")}`,
-      { direction: "top", offset: [0, -18] },
-    );
-    if (unit.trip_id)
-      marker.bindPopup(
-        `<strong>${e(unit.full_name)}</strong><p>${e(unit.origin)} → ${e(unit.destination)}</p><a href="#trip/${e(unit.trip_id)}">Abrir viaje y conciliación</a>`,
-      );
+    const heading = Number.isFinite(Number(unit.heading)) ? Math.round(Number(unit.heading)) : 0;
+    const tooltip = `<strong>${e(unit.full_name)}</strong><br>${e(status)} · ${e(unit.plate || "Sin placas")}<br>${unit.trip_id ? `${e(unit.passenger_name || "Pasajero")} · ${money(unit.total_cents || unit.fare_cents)}` : e(unit.vehicle || "Unidad registrada")}`;
+    let marker = S.opsMarkers.get(id);
+    if (!marker) {
+      marker = L.marker(point, { icon: vehicleIcon(heading, !!unit.trip_id), opacity: unit.presence_fresh ? 1 : 0.55 })
+        .addTo(S.mapLiveLayer)
+        .bindTooltip(tooltip, { direction: "top", offset: [0, -18] });
+      S.opsMarkers.set(id, marker);
+    } else {
+      marker.setLatLng(point).setOpacity(unit.presence_fresh ? 1 : 0.55).setTooltipContent(tooltip);
+      const markerElement = marker.getElement();
+      const image = markerElement?.querySelector("img");
+      const vehicle = markerElement?.querySelector(".vehicle-icon");
+      if (image) image.style.transform = `rotate(${heading}deg)`;
+      if (vehicle) vehicle.classList.toggle("selected", Boolean(unit.trip_id));
+    }
+    if (unit.trip_id) {
+      const popup = `<strong>${e(unit.full_name)}</strong><p>${e(unit.origin)} → ${e(unit.destination)}</p><a href="#trip/${e(unit.trip_id)}">Abrir viaje y conciliación</a>`;
+      if (marker.getPopup()) marker.setPopupContent(popup);
+      else marker.bindPopup(popup);
+    } else if (marker.getPopup()) marker.unbindPopup();
     const history = Array.isArray(unit.route_history) ? unit.route_history : [];
     if (history.length > 1) {
       const route = history.map((item) => [Number(item.lat), Number(item.lng)]);
       route.forEach((routePoint) => bounds.push(routePoint));
-      L.polyline(route, { color: "#ff6a0a", weight: 5, opacity: 0.78 }).addTo(S.mapLiveLayer);
+      const polyline = S.opsRoutes.get(id);
+      if (polyline) polyline.setLatLngs(route);
+      else S.opsRoutes.set(id, L.polyline(route, { color: "#ff6a0a", weight: 5, opacity: 0.78 }).addTo(S.mapLiveLayer));
+    } else if (S.opsRoutes.has(id)) {
+      S.mapLiveLayer.removeLayer(S.opsRoutes.get(id));
+      S.opsRoutes.delete(id);
     }
+  });
+  [...S.opsMarkers.entries()].forEach(([id, marker]) => {
+    if (activeUnits.has(id)) return;
+    S.mapLiveLayer.removeLayer(marker);
+    S.opsMarkers.delete(id);
+  });
+  [...S.opsRoutes.entries()].forEach(([id, route]) => {
+    if (activeUnits.has(id)) return;
+    S.mapLiveLayer.removeLayer(route);
+    S.opsRoutes.delete(id);
   });
   if (fit && bounds.length) S.map.fitBounds(bounds, { padding: [55, 55], maxZoom: 15 });
 }
@@ -1765,10 +1886,8 @@ async function refreshOperationsMap() {
     const element = $(selector);
     if (element) element.textContent = value;
   });
-  const list = $("#operations-unit-list");
-  if (list) list.innerHTML = operationsCards(units);
+  updateOperationsList(units);
   updateOperationsMapLayers({ fit: false });
-  iconsNow();
 }
 async function operationsMapView() {
   const units = S.data.operations_units || [];
@@ -1781,6 +1900,7 @@ async function operationsMapView() {
     "Mapa de operación en vivo",
     "Disponibilidad, ubicación, viaje activo y recorrido GPS de toda la flotilla.",
   );
+  S.opsListSignature = operationsListSignature(units);
   startOperationsMap();
 }
 function adminHome() {
@@ -1800,7 +1920,7 @@ function fleet() {
     const reward = driverRewards.get(d.id) || {};
     const weeklyBilling = d.billing_mode !== "commission";
     const doc = (path, label) => path ? `<button class="btn secondary" data-document="${e(path)}">${I("file-check")} ${label}</button>` : "";
-    return `<article class="offer dossier-card"><div class="row between"><div><h3>${e(d.full_name)}</h3><p>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</p></div><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span></div><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} requisitos${progress.missing.length ? ` · Faltan: ${e(progress.missing.slice(0, 3).join(", "))}${progress.missing.length > 3 ? "…" : ""}` : " · Expediente completo"}</small></div><div class="driver-reward-summary"><span><small>NIVEL RATING</small><strong>${e(reward.level || "Activo")}</strong></span><span><small>PUNTOS</small><strong>${Number(reward.available_points || 0)}</strong></span><span><small>VIAJES</small><strong>${Number(reward.trip_count || 0)}</strong></span><span><small>CALIFICACIÓN</small><strong>${reward.rating ? `${decimal(reward.rating)}/5` : "—"}</strong></span><span><small>INGRESOS</small><strong>${money(reward.income_cents || 0)}</strong></span><span><small>INCIDENTES 90 DÍAS</small><strong>${Number(reward.recent_incidents || 0)}</strong></span></div><div class="driver-billing-row"><div>${I(weeklyBilling ? "calendar-check" : "percent")}<span><small>MODALIDAD COMERCIAL</small><strong>${weeklyBilling ? `Aportación de ${money(d.weekly_fee_cents || 50000)}` : "Comisión por viaje"}</strong><p>Efectivo: ${Number(d.cash_commission_bps || 0) / 100}% · Electrónico: ${Number(d.card_commission_bps || 0) / 100}% para Yavoi!</p></span></div><button class="btn secondary" data-billing="${e(d.id)}">Configurar cobro ${I("settings-2")}</button></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.license_path, "Licencia")}${doc(d.insurance_path, "Seguro")}${doc(d.criminal_record_path, "No antecedentes")}${doc(d.policy_commitment_path, "Políticas Yavoi!")}${doc(d.traffic_law_commitment_path, "Obligaciones viales")}<button class="btn" data-review="${e(d.id)}">Revisar autorización ${I("arrow-right")}</button></div>${d.advertising_interest ? "<small>Interesado en convenios de publicidad</small>" : ""}</article>`;
+    return `<details class="offer dossier-card driver-admin-card" data-driver-card="${e(d.id)}"><summary class="driver-admin-summary"><span><strong>${e(d.full_name)}</strong><small>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</small></span><span class="driver-admin-glance"><small>${reward.rating ? `${decimal(reward.rating)}/5` : "Sin calificación"}</small><small>${Number(reward.trip_count || 0)} viajes</small></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span>${I("chevron-down")}</summary><div class="driver-admin-body"><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} requisitos${progress.missing.length ? ` · Faltan: ${e(progress.missing.slice(0, 3).join(", "))}${progress.missing.length > 3 ? "…" : ""}` : " · Expediente completo"}</small></div><div class="driver-reward-summary"><span><small>NIVEL RATING</small><strong>${e(reward.level || "Activo")}</strong></span><span><small>PUNTOS</small><strong>${Number(reward.available_points || 0)}</strong></span><span><small>VIAJES</small><strong>${Number(reward.trip_count || 0)}</strong></span><span><small>CALIFICACIÓN</small><strong>${reward.rating ? `${decimal(reward.rating)}/5` : "—"}</strong></span><span><small>INGRESOS</small><strong>${money(reward.income_cents || 0)}</strong></span><span><small>INCIDENTES 90 DÍAS</small><strong>${Number(reward.recent_incidents || 0)}</strong></span></div><div class="driver-billing-row"><div>${I(weeklyBilling ? "calendar-check" : "percent")}<span><small>MODALIDAD COMERCIAL</small><strong>${weeklyBilling ? `Aportación de ${money(d.weekly_fee_cents || 50000)}` : "Comisión por viaje"}</strong><p>Efectivo: ${Number(d.cash_commission_bps || 0) / 100}% · Electrónico: ${Number(d.card_commission_bps || 0) / 100}% para Yavoi!</p></span></div><button class="btn secondary" data-billing="${e(d.id)}">Configurar cobro ${I("settings-2")}</button></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.license_path, "Licencia")}${doc(d.insurance_path, "Seguro")}${doc(d.criminal_record_path, "No antecedentes")}${doc(d.policy_commitment_path, "Políticas Yavoi!")}${doc(d.traffic_law_commitment_path, "Obligaciones viales")}<button class="btn" data-review="${e(d.id)}">Revisar autorización ${I("arrow-right")}</button></div>${d.advertising_interest ? "<small>Interesado en convenios de publicidad</small>" : ""}</div></details>`;
   }).join("");
   const managedProfiles = (S.data.managed_profiles || []).map((managed) => {
     const editState = profileEditState(managed);

@@ -11,7 +11,26 @@ test("live map refreshes markers without recreating or refocusing the map", () =
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
   assert.match(portal, /drawPoints\(next\.trip, \{ fit: false \}\)/);
   assert.match(portal, /S\.view === "opsmap"[\s\S]{0,120}refreshOperationsMap\(\)/);
-  assert.match(portal, /S\.mapLiveLayer\.clearLayers\(\)/);
+  assert.doesNotMatch(portal, /S\.mapLiveLayer\.clearLayers\(\)/);
+  assert.match(portal, /S\.opsMarkers\.get\(id\)/);
+  assert.match(portal, /marker\.setLatLng\(point\)/);
+  assert.doesNotMatch(portal, /marker\.setIcon\(vehicleIcon/);
+  assert.match(portal, /image\.style\.transform = `rotate\(\$\{heading\}deg\)`/);
+  assert.match(portal, /signature !== S\.opsListSignature/);
+  assert.match(portal, /data-unit-signal/);
+});
+
+test("Operations modules share compact searchable and collapsible organization", () => {
+  assert.match(portal, /enhanceOperationsLayout\(\)/);
+  assert.match(portal, /Filtrar información visible/);
+  assert.match(portal, /data-ops-layout="open"/);
+  assert.match(portal, /data-ops-layout="close"/);
+  assert.match(portal, /yavoi:operations:/);
+  assert.match(css, /\.operations-layout-tools/);
+  assert.match(css, /\.ops-section>summary/);
+  assert.match(css, /\.role-admin \.workspace main/);
+  assert.match(portal, /class="offer dossier-card driver-admin-card"/);
+  assert.match(portal, /item\.matches\("details"\)/);
 });
 
 test("trip communication, ratings and mobile identity remain visible", () => {

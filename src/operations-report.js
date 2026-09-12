@@ -72,10 +72,9 @@ const detailLabels = Object.freeze({
   cancellation_fee_cents: "Cuota de cancelación",
   cancellation_refund_cents: "Reembolso",
   cancelled_by_role: "Cancelado por",
-  policy_version: "Versión de política",
+  policy_version: "Versión de políticas",
   status: "Estado",
   traffic_law_version: "Versión de obligaciones viales",
-  policy_version: "Versión de políticas",
 });
 
 export const auditActionInfo = (action = "") =>
