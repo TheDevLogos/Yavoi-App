@@ -34,6 +34,19 @@ test("vehicle markers stay attached to Operations, passenger and driver maps", (
   assert.doesNotMatch(portal, /drawPoints\(next\.trip, \{ fit: false \}\)/);
 });
 
+test("vehicle markers use service-specific silhouettes and adapt to map zoom", () => {
+  assert.match(portal, /function vehicleScaleForZoom\(zoom\)/);
+  assert.match(portal, /--vehicle-marker-scale/);
+  assert.match(portal, /S\.map\?\.on\("zoomend", syncVehicleScale\)/);
+  assert.match(portal, /map-vehicles\/\$\{/);
+  assert.match(portal, /unit\.category \|\| requestedCategory/);
+  assert.match(portal, /vehicleIcon\(heading, false, t\.category\)/);
+  assert.match(portal, /vehicleIcon\(heading, !!unit\.trip_id, unit\.category\)/);
+  assert.match(portal, /image\.dataset\.vehicleCategory !== category/);
+  assert.match(css, /transform:scale\(var\(--vehicle-marker-scale,1\)\)/);
+  assert.match(css, /\.leaflet-marker-icon\.vehicle-icon-wrap\{transition:none!important/);
+});
+
 test("street routing provides a visual guide and opens driving navigation", () => {
   assert.match(mapsFunction, /steps=true&alternatives=true/);
   assert.match(mapsFunction, /instructions/);

@@ -681,15 +681,29 @@ const pointIcon = (destination = false) => L.icon({
   iconAnchor: [23, 51],
   tooltipAnchor: [0, -48],
 });
-const vehicleIcon = (heading = 0, selected = false) => {
+const mapVehicleAsset = (category) => `/assets/map-vehicles/${["basic", "large", "plus", "commercial", "pickup"].includes(category) ? category : "basic"}.svg`;
+const vehicleIcon = (heading = 0, selected = false, category = "basic") => {
   const angle = normalizeHeading(heading) ?? 0;
+  const safeCategory = ["basic", "large", "plus", "commercial", "pickup"].includes(category) ? category : "basic";
   return L.divIcon({
-    className: "vehicle-icon-wrap",
-    html: `<div class="vehicle-icon ${selected ? "selected" : ""}"><img src="/assets/map-car-top.svg" alt="" style="transform:rotate(${angle}deg)"></div>`,
+    className: `vehicle-icon-wrap vehicle-${safeCategory}`,
+    html: `<div class="vehicle-icon ${selected ? "selected" : ""}"><img src="${mapVehicleAsset(safeCategory)}" alt="" data-vehicle-category="${safeCategory}" style="transform:rotate(${angle}deg)"></div>`,
     iconSize: [48, 64],
     iconAnchor: [24, 32],
   });
 };
+function vehicleScaleForZoom(zoom) {
+  const safeZoom = Number.isFinite(Number(zoom)) ? Number(zoom) : 14;
+  return Math.min(1, Math.max(0.42, 0.42 + (safeZoom - 10) * 0.095));
+}
+function syncVehicleScale() {
+  if (!S.map) return;
+  S.map.getContainer().style.setProperty("--vehicle-marker-scale", vehicleScaleForZoom(S.map.getZoom()));
+}
+function bindVehicleScale() {
+  syncVehicleScale();
+  S.map?.on("zoomend", syncVehicleScale);
+}
 function vehicleHeading(marker, reportedHeading, point) {
   const reported = normalizeHeading(reportedHeading);
   if (reported !== null) return reported;
@@ -715,6 +729,7 @@ function startMap(trip = null) {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(S.map);
   S.map.zoomControl.setPosition("bottomright");
+  bindVehicleScale();
   if (!trip)
     S.map.on("click", (ev) => {
       const point = {
@@ -770,7 +785,8 @@ function drawPoints(t = null, { fit = true } = {}) {
   }
   if (!t)
     S.units.forEach((unit, index) => {
-      const marker = L.marker([unit.lat, unit.lng], { icon: vehicleIcon(0, S.selectedUnit === unit.unit_id) })
+      const requestedCategory = $('[name=category]:checked')?.value || "basic";
+      const marker = L.marker([unit.lat, unit.lng], { icon: vehicleIcon(0, S.selectedUnit === unit.unit_id, unit.category || requestedCategory) })
         .bindTooltip(`${index === 0 ? "Recomendada por cercanía" : "Unidad disponible"} · ${decimal(unit.pickup_km)} km · ${unit.pickup_minutes} min`)
         .on("click", () => {
           S.selectedUnit = S.selectedUnit === unit.unit_id ? null : unit.unit_id;
@@ -791,7 +807,7 @@ function drawPoints(t = null, { fit = true } = {}) {
     const loc = S.trip.location;
     const stale = Date.now() - Date.parse(loc.updated_at) > 60000;
     const heading = normalizeHeading(loc.heading) ?? 0;
-    S.tripVehicleMarker = L.marker([loc.lat, loc.lng], { icon: vehicleIcon(heading), opacity: stale ? 0.55 : 1 })
+    S.tripVehicleMarker = L.marker([loc.lat, loc.lng], { icon: vehicleIcon(heading, false, t.category), opacity: stale ? 0.55 : 1 })
       .bindTooltip(stale ? "Última posición; señal desactualizada" : "Posición del conductor")
       .addTo(S.map);
     S.tripVehicleMarker._yavoiHeading = heading;
@@ -815,7 +831,7 @@ function updateTripMap() {
   const point = [Number(loc.lat), Number(loc.lng)];
   const heading = vehicleHeading(S.tripVehicleMarker, loc.heading, point);
   if (!S.tripVehicleMarker) {
-    S.tripVehicleMarker = L.marker(point, { icon: vehicleIcon(heading), opacity: stale ? 0.55 : 1 })
+    S.tripVehicleMarker = L.marker(point, { icon: vehicleIcon(heading, false, S.trip.trip?.category), opacity: stale ? 0.55 : 1 })
       .bindTooltip(stale ? "Última posición; señal desactualizada" : "Posición del conductor")
       .addTo(S.map);
     S.tripVehicleMarker._yavoiHeading = heading;
@@ -1885,7 +1901,7 @@ function operationsCards(units = []) {
     : '<div class="empty"><p>Aún no hay unidades registradas.</p></div>';
 }
 function operationsListSignature(units = []) {
-  return JSON.stringify(units.map((unit) => [unit.driver_id, unit.full_name, unit.avatar_path, unit.vehicle, unit.vehicle_make, unit.vehicle_model, unit.vehicle_year, unit.vehicle_color, unit.plate, unit.online, unit.presence_fresh, unit.trip_id, unit.trip_status, unit.passenger_name, unit.origin, unit.destination, unit.total_cents, unit.fare_cents]));
+  return JSON.stringify(units.map((unit) => [unit.driver_id, unit.full_name, unit.avatar_path, unit.vehicle, unit.vehicle_make, unit.vehicle_model, unit.vehicle_year, unit.vehicle_color, unit.plate, unit.category, unit.online, unit.presence_fresh, unit.trip_id, unit.trip_status, unit.passenger_name, unit.origin, unit.destination, unit.total_cents, unit.fare_cents]));
 }
 function updateOperationsList(units = []) {
   const list = $("#operations-unit-list");
@@ -1921,7 +1937,7 @@ function updateOperationsMapLayers({ fit = false } = {}) {
     let marker = S.opsMarkers.get(id);
     const heading = Math.round(vehicleHeading(marker, unit.heading, point));
     if (!marker) {
-      marker = L.marker(point, { icon: vehicleIcon(heading, !!unit.trip_id), opacity: livePosition ? 1 : 0.55 })
+      marker = L.marker(point, { icon: vehicleIcon(heading, !!unit.trip_id, unit.category), opacity: livePosition ? 1 : 0.55 })
         .addTo(S.mapLiveLayer)
         .bindTooltip(tooltip, { direction: "top", offset: [0, -18] });
       marker._yavoiHeading = heading;
@@ -1930,7 +1946,13 @@ function updateOperationsMapLayers({ fit = false } = {}) {
       if (livePosition) marker.setLatLng(point);
       marker.setOpacity(livePosition ? 1 : 0.55).setTooltipContent(tooltip);
       const markerElement = marker.getElement();
+      const image = markerElement?.querySelector("img");
       const vehicle = markerElement?.querySelector(".vehicle-icon");
+      const category = ["basic", "large", "plus", "commercial", "pickup"].includes(unit.category) ? unit.category : "basic";
+      if (image && image.dataset.vehicleCategory !== category) {
+        image.src = mapVehicleAsset(category);
+        image.dataset.vehicleCategory = category;
+      }
       if (livePosition) rotateVehicle(marker, heading);
       if (vehicle) vehicle.classList.toggle("selected", Boolean(unit.trip_id));
     }
@@ -1974,6 +1996,7 @@ function startOperationsMap() {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(S.map);
   S.map.zoomControl.setPosition("bottomright");
+  bindVehicleScale();
   updateOperationsMapLayers({ fit: true });
   setTimeout(() => S.map?.invalidateSize(), 80);
 }

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 112" role="img" aria-label="Yavoi Pickup">
+  <defs><linearGradient id="b" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#bbc8d3"/></linearGradient><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#315d7c"/><stop offset="1" stop-color="#071d33"/></linearGradient></defs>
+  <path d="M8 12c0-5 4-9 9-9h38c5 0 9 4 9 9v46H8Z" fill="url(#b)" stroke="#071d33" stroke-width="3"/><path d="m15 38 6-26h30l6 26Z" fill="url(#g)"/><path d="M10 58h52v48H10Z" fill="#dce4eb" stroke="#071d33" stroke-width="3"/><path d="M16 65h40v33H16Z" fill="#8fa0ad"/><path d="M20 11h10M42 11h10" stroke="#ff650a" stroke-width="4" stroke-linecap="round"/>
+  <g fill="#071d33"><rect x="1" y="23" width="8" height="24" rx="3"/><rect x="63" y="23" width="8" height="24" rx="3"/><rect x="2" y="72" width="8" height="25" rx="3"/><rect x="62" y="72" width="8" height="25" rx="3"/></g>
+</svg>

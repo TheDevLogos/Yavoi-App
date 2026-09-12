@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 112" role="img" aria-label="Yavoi Plus">
+  <defs><linearGradient id="b" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#174d79"/><stop offset=".55" stop-color="#082943"/><stop offset="1" stop-color="#03111f"/></linearGradient><linearGradient id="g"><stop stop-color="#9bc5df"/><stop offset="1" stop-color="#17364e"/></linearGradient></defs>
+  <rect x="9" y="6" width="54" height="100" rx="23" fill="url(#b)" stroke="#dcecf7" stroke-width="2"/><path d="M17 42 23 20c1-4 5-7 9-7h8c4 0 8 3 9 7l6 22Z" fill="url(#g)"/><path d="M17 68h38l-4 24c-1 4-4 7-9 7H30c-5 0-8-3-9-7Z" fill="#0a1d2d"/>
+  <path d="M15 51h42M16 61h40" stroke="#4f7896" stroke-width="2"/><path d="M18 13h11M43 13h11" stroke="#ff7621" stroke-width="4" stroke-linecap="round"/><path d="M18 76 50 29" stroke="#fff" stroke-opacity=".45" stroke-width="3" stroke-linecap="round"/>
+  <g fill="#020b13"><rect x="3" y="28" width="7" height="21" rx="3"/><rect x="62" y="28" width="7" height="21" rx="3"/><rect x="3" y="69" width="7" height="21" rx="3"/><rect x="62" y="69" width="7" height="21" rx="3"/></g>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 112" role="img" aria-label="Yavoi Comercial">
+  <defs><linearGradient id="b" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#c5d0da"/></linearGradient><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#315d7c"/><stop offset="1" stop-color="#071d33"/></linearGradient></defs>
+  <rect x="8" y="3" width="56" height="106" rx="13" fill="url(#b)" stroke="#071d33" stroke-width="3"/><path d="M14 39 19 12h34l5 27Z" fill="url(#g)"/><rect x="14" y="48" width="44" height="48" rx="5" fill="#e8edf2" stroke="#9aa9b6" stroke-width="2"/>
+  <path d="M36 48v48M15 58h42M15 86h42" stroke="#a6b3be" stroke-width="2"/><path d="M17 9h12M43 9h12" stroke="#ff650a" stroke-width="4" stroke-linecap="round"/>
+  <g fill="#071d33"><rect x="1" y="25" width="8" height="25" rx="3"/><rect x="63" y="25" width="8" height="25" rx="3"/><rect x="1" y="72" width="8" height="25" rx="3"/><rect x="63" y="72" width="8" height="25" rx="3"/></g>
+</svg>
