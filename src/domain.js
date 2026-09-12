@@ -142,6 +142,7 @@ export const driverDossierStatus = (profile = {}, driver = {}) => {
     ["Año", driver.vehicle_year],
     ["Color", driver.vehicle_color],
     ["Placas", driver.plate],
+    ["Fotografía frontal del vehículo y placa", driver.vehicle_front_path],
     ["Número de licencia", driver.license_number],
     ["Vigencia de licencia", driver.license_expires && driver.license_expires >= today],
     ["Vigencia de seguro", driver.insurance_expires && driver.insurance_expires >= today],

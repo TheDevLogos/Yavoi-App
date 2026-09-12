@@ -69,7 +69,7 @@ test("street routing provides a visual guide and opens driving navigation", () =
   assert.match(mapsFunction, /steps=true&alternatives=true/);
   assert.match(mapsFunction, /instructions/);
   assert.match(mapsFunction, /route:v2:/);
-  assert.match(portal, /Guía por calles/);
+  assert.match(portal, /guía por calles/i);
   assert.match(portal, /routeStepText/);
   assert.match(portal, /dir_action: "navigate"/);
   assert.match(portal, /Navegar al destino/);
@@ -184,4 +184,31 @@ test("driver commitment letters are branded, current and available in both porta
   assert.match(driverLetters, /1\.35 metros/);
   assert.match(driverLetters, /licencia digital/i);
   assert.match(driverLetters, /treinta metros/i);
+});
+
+test("passenger rewards refresh when opened and while the wallet changes", () => {
+  assert.match(portal, /S\.view === "rewards"[\s\S]{0,100}S\.data = await rpc\("dashboard"\)/);
+  assert.match(portal, /table: "reward_entries"/);
+  assert.match(portal, /table: "reward_redemptions"/);
+  assert.match(portal, /else if \(S\.view === "rewards"\) await refreshPage\(\)/);
+});
+
+test("passengers see the suggested route, live trace and actionable deviation status", () => {
+  assert.match(portal, /function distanceToRouteMeters/);
+  assert.match(portal, /Desviación pronunciada detectada/);
+  assert.match(portal, /Preguntar al conductor por el chat/);
+  assert.match(portal, /Ruta sugerida y guía por calles/);
+  assert.match(portal, /S\.tripHistoryLine = L\.polyline/);
+  assert.match(portal, /updateRouteMonitor\(\)/);
+  assert.match(css, /\.route-monitor\.deviation/);
+});
+
+test("vehicle front photo is required, private and shown only after assignment", () => {
+  assert.match(domain, /Fotografía frontal del vehículo y placa/);
+  assert.match(portal, /yavoi-vehicle-photos/);
+  assert.match(portal, /vehicle_front_path/);
+  assert.match(portal, /Fotografía frontal del vehículo con placa visible/);
+  assert.match(portal, /Unidad verificada · confirma que la placa visible coincida/);
+  assert.match(portal, /data-vehicle-photo/);
+  assert.doesNotMatch(portal, /Sólo mostramos el tipo de servicio antes de confirmar[\s\S]{0,300}vehicle_front_path/);
 });

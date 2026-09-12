@@ -112,6 +112,7 @@ test("driver dossier progress requires every current document and expiration", (
     vehicle_year: 2024,
     vehicle_color: "Gris",
     plate: "ABC123A",
+    vehicle_front_path: "vehicle-front.jpg",
     license_number: "LIC123",
     license_expires: "2099-12-31",
     insurance_expires: "2099-12-31",
@@ -122,8 +123,8 @@ test("driver dossier progress requires every current document and expiration", (
     traffic_law_commitment_path: "traffic.pdf",
   };
   assert.deepEqual(driverDossierStatus(profile, complete), {
-    completed: 16,
-    total: 16,
+    completed: 17,
+    total: 17,
     percent: 100,
     missing: [],
   });
@@ -132,7 +133,7 @@ test("driver dossier progress requires every current document and expiration", (
     license_expires: "2020-01-01",
     criminal_record_path: null,
   });
-  assert.equal(expired.completed, 14);
+  assert.equal(expired.completed, 15);
   assert.equal(expired.percent, 88);
   assert.ok(expired.missing.includes("Vigencia de licencia"));
   assert.ok(expired.missing.includes("Carta de no antecedentes penales"));

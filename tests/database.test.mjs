@@ -217,6 +217,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   );
   for (const [index, id] of [ids.driver, ids.driver2].entries()) {
     const avatarPath = `${id}/avatar.png`;
+    const vehicleFrontPath = `${id}/vehicle-front.jpg`;
     const documents = {
       license_path: `${id}/license.pdf`,
       insurance_path: `${id}/insurance.pdf`,
@@ -226,6 +227,7 @@ test("Postgres security and complete ride lifecycle", async () => {
     };
     await db.exec("reset role");
     await db.query("insert into storage.objects(bucket_id,name) values('yavoi-avatars',$1)", [avatarPath]);
+    await db.query("insert into storage.objects(bucket_id,name) values('yavoi-vehicle-photos',$1)", [vehicleFrontPath]);
     for (const path of Object.values(documents))
       await db.query("insert into storage.objects(bucket_id,name) values('yavoi-documents',$1)", [path]);
     await as(id);
@@ -244,6 +246,7 @@ test("Postgres security and complete ride lifecycle", async () => {
       license_number: `LIC-${index + 1}`,
       license_expires: "2099-12-31",
       insurance_expires: "2099-12-31",
+      vehicle_front_path: vehicleFrontPath,
       ...documents,
     });
     assert.equal(submitted.complete, true);
@@ -455,6 +458,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(detail.driver.vehicle_model, "Versa");
   assert.equal(detail.driver.vehicle_color, "Gris");
   assert.equal(detail.driver.plate, "YAV101");
+  assert.equal(detail.driver.vehicle_front_path, `${ids.driver}/vehicle-front.jpg`);
   assert.match(detail.pin, /^\d{4}$/);
   assert.deepEqual(detail.messages.map((message) => message.body), [
     "Estoy en la entrada principal.",
@@ -510,6 +514,12 @@ test("Postgres security and complete ride lifecycle", async () => {
     () => rpc("transition", { trip_id: t.id, status: "completed", cash_received: true }),
     /estado/,
   );
+  await as(ids.rider);
+  const passengerPointsAfterTrip = await rpc("dashboard");
+  assert.equal(passengerPointsAfterTrip.points, 10);
+  assert.equal(passengerPointsAfterTrip.reward_wallet.available_points, 10);
+  assert.equal(passengerPointsAfterTrip.reward_wallet.entries[0].entry_type, "trip_complete");
+  await as(ids.driver);
   await rpc("rating", { trip_id: t.id, stars: 5, comment: "Buen pasajero" });
   await rpc("tip", { trip_id: t.id, amount_cents: 2000 });
   await rpc("tip", { trip_id: t.id, amount_cents: 2000 });
