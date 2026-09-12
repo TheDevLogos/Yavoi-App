@@ -7,6 +7,7 @@ const css = await readFile(new URL("../src/portal.css", import.meta.url), "utf8"
 const domain = await readFile(new URL("../src/domain.js", import.meta.url), "utf8");
 const paymentFunction = await readFile(new URL("../supabase/functions/mercado-pago-payment/index.ts", import.meta.url), "utf8");
 const mapsFunction = await readFile(new URL("../supabase/functions/maps/index.ts", import.meta.url), "utf8");
+const driverLetters = await readFile(new URL("../scripts/generate-driver-documents.py", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -169,4 +170,18 @@ test("Operations edits and filters rewards while users receive shareable barcode
   assert.match(portal, /Código individual e irrepetible/);
   assert.match(css, /\.reward-coupon/);
   assert.match(css, /\.coupon-barcode/);
+});
+
+test("driver commitment letters are branded, current and available in both portals", () => {
+  assert.match(portal, /operations-letter-templates/);
+  assert.equal((portal.match(/carta-compromiso-politicas-yavoi\.pdf/g) || []).length, 2);
+  assert.equal((portal.match(/carta-aceptacion-vialidad-chihuahua\.pdf/g) || []).length, 2);
+  assert.match(driverLetters, /YV-POL-CON-2026\.09\.12/);
+  assert.match(driverLetters, /YV-VIAL-POE-2026\.08\.08-63/);
+  assert.match(driverLetters, /drawImage\(str\(cropped_logo\)/);
+  assert.match(driverLetters, /comisión por viaje/i);
+  assert.match(driverLetters, /cancelación/i);
+  assert.match(driverLetters, /1\.35 metros/);
+  assert.match(driverLetters, /licencia digital/i);
+  assert.match(driverLetters, /treinta metros/i);
 });

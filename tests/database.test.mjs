@@ -247,6 +247,20 @@ test("Postgres security and complete ride lifecycle", async () => {
       ...documents,
     });
     assert.equal(submitted.complete, true);
+    assert.equal(submitted.policy_version, "YV-POL-CON-2026.09.12");
+    assert.equal(submitted.traffic_law_version, "YV-VIAL-POE-2026.08.08-63");
+    assert.deepEqual(
+      (
+        await db.query(
+          "select policy_version,traffic_law_version from public.drivers where id=$1",
+          [id],
+        )
+      ).rows[0],
+      {
+        policy_version: "YV-POL-CON-2026.09.12",
+        traffic_law_version: "YV-VIAL-POE-2026.08.08-63",
+      },
+    );
     assert.ok(
       (await db.query("select profile_locked_at from public.profiles where id=$1", [id])).rows[0]
         .profile_locked_at,
