@@ -69,6 +69,7 @@ test("production headers allow Google Identity without weakening page isolation"
   const csp = headers.find((header) => header.key === "Content-Security-Policy")?.value || "";
   assert.match(csp, /https:\/\/accounts\.google\.com\/gsi\/client/);
   assert.match(csp, /frame-src[^;]*https:\/\/accounts\.google\.com/);
+  assert.match(csp, /connect-src[^;]*https:\/\/router\.project-osrm\.org/);
   assert.equal(
     headers.find((header) => header.key === "Cross-Origin-Opener-Policy")?.value,
     "same-origin-allow-popups",

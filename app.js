@@ -1,5 +1,6 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { fallbackStreetRoute, routeKey, routeMeasurements, routePosition, travelledPoints } from './src/landing-route.js';
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
 
@@ -37,11 +38,9 @@ $$('.category-card').forEach(card => card.addEventListener('click', () => {
 }));
 
 const DELICIAS = [28.1902, -105.4701];
-const heroRoute = [
-  [28.1940,-105.4745],[28.1934,-105.4703],[28.1919,-105.4686],[28.1896,-105.4673],
-  [28.1877,-105.4659],[28.1857,-105.4630],[28.1841,-105.4596],[28.1858,-105.4579],
-  [28.1884,-105.4592],[28.1907,-105.4622],[28.1923,-105.4664],[28.1940,-105.4745]
-];
+const DEMO_DRIVER_START = [28.1960, -105.4760];
+const ROAD_ROUTER = 'https://router.project-osrm.org/route/v1/driving';
+const routeCache = new Map();
 
 const locations = {
   centro: { label:'Plaza de la República', point:[28.19065,-105.47045] },
@@ -53,17 +52,27 @@ const locations = {
   meoqui: { label:'Meoqui, Chihuahua', point:[28.27215,-105.48075], extra:92 }
 };
 
-function interpolateRoute(a, b, bends = 5) {
-  const points = [a];
-  for (let i = 1; i < bends; i += 1) {
-    const t = i / bends;
-    const lat = a[0] + (b[0] - a[0]) * t;
-    const lng = a[1] + (b[1] - a[1]) * t;
-    const offset = Math.sin(t * Math.PI) * 0.00125;
-    points.push([lat + offset * (i % 2 ? 1 : -0.55), lng + offset * 0.7]);
+async function roadRoute(a, b) {
+  const key = routeKey(a, b);
+  if (!routeCache.has(key)) {
+    routeCache.set(key, (async () => {
+      const coordinates = `${a[1]},${a[0]};${b[1]},${b[0]}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      let response;
+      try {
+        response = await fetch(`${ROAD_ROUTER}/${coordinates}?overview=full&geometries=geojson&steps=false`, { signal:controller.signal });
+      } finally {
+        clearTimeout(timeout);
+      }
+      if (!response.ok) throw new Error('No fue posible calcular la ruta vial de demostración.');
+      const payload = await response.json();
+      const points = payload.routes?.[0]?.geometry?.coordinates?.map(([lng, lat]) => [Number(lat), Number(lng)]);
+      if (!Array.isArray(points) || points.length < 2) throw new Error('La ruta vial no contiene un recorrido válido.');
+      return points;
+    })().catch(() => fallbackStreetRoute(a, b)));
   }
-  points.push(b);
-  return points;
+  return routeCache.get(key);
 }
 
 const carSvg = `<div class="map-car-marker" aria-label="Unidad Yavoi"><img src="/assets/map-car-top.svg" alt=""></div>`;
@@ -90,9 +99,30 @@ function baseMap(id, zoom = 14, interactive = true) {
   return map;
 }
 
-function drawRoute(map, points, color = '#06192c', weight = 6) {
+function drawRoute(map, points, color = '#123a5b', weight = 6) {
   if (!map) return null;
-  return L.polyline(points, { color, weight, opacity:.9, lineCap:'round', lineJoin:'round' }).addTo(map);
+  const casing = L.polyline(points, { color:'#fff', weight:weight + 5, opacity:.92, lineCap:'round', lineJoin:'round', interactive:false });
+  const route = L.polyline(points, { color, weight, opacity:.92, lineCap:'round', lineJoin:'round', interactive:false });
+  return L.layerGroup([casing, route]).addTo(map);
+}
+
+function drawTravelledRoute(map, point) {
+  return L.polyline([point, point], {
+    color:'#ff6a0a',
+    weight:6,
+    opacity:1,
+    lineCap:'round',
+    lineJoin:'round',
+    interactive:false
+  }).addTo(map);
+}
+
+function fitRouteForPhone(map, points) {
+  map?.fitBounds(points, {
+    paddingTopLeft:[18,18],
+    paddingBottomRight:[18,155],
+    maxZoom:15
+  });
 }
 
 function addEndpoints(map, points) {
@@ -109,33 +139,46 @@ function stopMarker(marker) {
   marker._yavoiAnimation = (marker._yavoiAnimation || 0) + 1;
 }
 
-function animateMarker(marker, points, duration = 9000, loop = false, progressCallback = null, completeCallback = null) {
+function rotateMarker(marker, heading) {
+  const visual = marker.getElement()?.querySelector('img');
+  if (!visual || !Number.isFinite(heading)) return;
+  const previous = Number.isFinite(marker._yavoiHeading) ? marker._yavoiHeading : heading;
+  const turn = ((heading - previous + 540) % 360) - 180;
+  marker._yavoiHeading = previous + turn;
+  visual.style.transform = `rotate(${marker._yavoiHeading}deg)`;
+}
+
+function animateMarker(marker, points, {
+  duration = 9000,
+  loop = false,
+  loopPause = 1700,
+  progressCallback = null,
+  completeCallback = null,
+  traceLine = null
+} = {}) {
   if (!marker || !points || points.length < 2) return;
   stopMarker(marker);
   const token = marker._yavoiAnimation;
-  const segments = points.length - 1;
+  const measurements = routeMeasurements(points);
   let startTime = null;
 
   function frame(timestamp) {
     if (marker._yavoiAnimation !== token) return;
     if (!startTime) startTime = timestamp;
-    const raw = (timestamp - startTime) / duration;
-    const normalized = loop ? raw % 1 : Math.min(raw, 1);
-    const scaled = normalized * segments;
-    const index = Math.min(Math.floor(scaled), segments - 1);
-    const local = scaled - index;
-    const a = points[index];
-    const b = points[index + 1];
-    const lat = a[0] + (b[0] - a[0]) * local;
-    const lng = a[1] + (b[1] - a[1]) * local;
-    marker.setLatLng([lat,lng]);
-    const visual = marker.getElement()?.querySelector('img');
-    if (visual) {
-      const heading = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
-      visual.style.transform = `rotate(${heading}deg)`;
+    const elapsed = timestamp - startTime;
+    const cycleDuration = duration + loopPause;
+    const cycleTime = loop ? elapsed % cycleDuration : Math.min(elapsed, duration);
+    const normalized = Math.min(cycleTime / duration, 1);
+    const position = routePosition(points, measurements, normalized);
+    const resetting = loop && cycleTime > duration + loopPause * .58;
+    marker.setOpacity(resetting ? 0 : 1);
+    if (!resetting) {
+      marker.setLatLng(position.point);
+      rotateMarker(marker, position.heading);
+      traceLine?.setLatLngs(travelledPoints(points, position));
     }
     if (typeof progressCallback === 'function') progressCallback(normalized);
-    if (!loop && raw >= 1) {
+    if (!loop && elapsed >= duration) {
       if (typeof completeCallback === 'function') completeCallback();
       return;
     }
@@ -144,14 +187,16 @@ function animateMarker(marker, points, duration = 9000, loop = false, progressCa
   requestAnimationFrame(frame);
 }
 
-function setupLoopMap(id, points, duration, progressCallback = null) {
+async function setupLoopMap(id, start, end, duration, progressCallback = null) {
   const map = baseMap(id, 14, false);
   if (!map) return { map:null, marker:null };
+  const points = await roadRoute(start, end);
   drawRoute(map, points);
   addEndpoints(map, points);
   map.fitBounds(points, { padding:[36,36] });
   const marker = L.marker(points[0], { icon:carIcon(), zIndexOffset:1000 }).addTo(map);
-  animateMarker(marker, points, duration, true, progressCallback);
+  const traceLine = drawTravelledRoute(map, points[0]);
+  animateMarker(marker, points, { duration, loop:true, progressCallback, traceLine });
   return { map, marker };
 }
 
@@ -159,37 +204,48 @@ let heroMap, previewMap, securityMap, riderMap, driverMap;
 let heroCar, previewCar, securityCar, riderCar, driverCar;
 let riderRouteLine, riderEndpointLayers = [];
 let driverRouteLine, driverEndpointLayers = [];
+let riderTraceLine, driverTraceLine;
+let riderRoadPoints = [], riderApproachPoints = [];
+let driverApproachPoints = [], driverTripRoadPoints = [];
+let riderRouteVersion = 0;
 
-if (typeof L !== 'undefined') {
-  ({ map:heroMap, marker:heroCar } = setupLoopMap('heroMap', heroRoute, 18000, progress => {
+async function initializeMaps() {
+  if (typeof L === 'undefined') {
+    showToast('Los mapas requieren conexión a internet para mostrar OpenStreetMap.');
+    return;
+  }
+  const heroStart = locations.centro.point;
+  const heroEnd = locations.tec.point;
+  riderMap = baseMap('riderMap', 14, true);
+  driverMap = baseMap('driverMap', 14, true);
+  const [heroResult, previewResult, securityResult] = await Promise.all([
+    setupLoopMap('heroMap', heroStart, heroEnd, 18000, progress => {
     const eta = $('#heroEta');
     if (eta) eta.textContent = `${Math.max(3, Math.round(9 - progress * 6))} min`;
-  }));
-
-  ({ map:previewMap, marker:previewCar } = setupLoopMap('previewMap', heroRoute.slice(1,10), 15000, progress => {
+    }),
+    setupLoopMap('previewMap', DEMO_DRIVER_START, heroStart, 15000, progress => {
     const eta = $('#previewEta');
     const distance = $('#previewDistance');
     if (eta) eta.textContent = `Llega en ${Math.max(2, Math.round(5 - progress * 3))} min`;
     if (distance) distance.textContent = `${Math.max(.3, 1.4 - progress).toFixed(1)} km`;
-  }));
-
-  ({ map:securityMap, marker:securityCar } = setupLoopMap('securityMap', heroRoute.slice(2,11), 17000));
-
-  riderMap = baseMap('riderMap', 14, true);
-  driverMap = baseMap('driverMap', 14, true);
-  prepareRiderRoute();
-  prepareDriverRoute();
-} else {
-  showToast('Los mapas requieren conexión a internet para mostrar OpenStreetMap.');
+    }),
+    setupLoopMap('securityMap', heroStart, heroEnd, 17000),
+    prepareRiderRoute(),
+    prepareDriverRoute()
+  ]);
+  ({ map:heroMap, marker:heroCar } = heroResult);
+  ({ map:previewMap, marker:previewCar } = previewResult);
+  ({ map:securityMap, marker:securityCar } = securityResult);
 }
 
-function currentRiderPoints() {
+initializeMaps().catch(() => showToast('No pudimos iniciar una de las rutas demostrativas. Intenta recargar la página.'));
+
+function currentRiderSelection() {
   const originKey = $('#riderOrigin')?.value || 'centro';
   const destinationKey = $('#riderDestination')?.value || 'tec';
   const origin = locations[originKey] || locations.centro;
   const destination = locations[destinationKey] || locations.tec;
-  const bends = destinationKey === 'meoqui' ? 8 : 5;
-  return { origin, destination, points:interpolateRoute(origin.point, destination.point, bends) };
+  return { origin, destination };
 }
 
 function clearRouteLayers(map, line, endpoints) {
@@ -197,16 +253,25 @@ function clearRouteLayers(map, line, endpoints) {
   endpoints.forEach(layer => map?.removeLayer(layer));
 }
 
-function prepareRiderRoute() {
+async function prepareRiderRoute() {
   if (!riderMap) return;
+  const version = ++riderRouteVersion;
+  const { origin, destination } = currentRiderSelection();
+  const [points, approach] = await Promise.all([
+    roadRoute(origin.point, destination.point),
+    roadRoute(DEMO_DRIVER_START, origin.point)
+  ]);
+  if (version !== riderRouteVersion) return;
+  riderRoadPoints = points;
+  riderApproachPoints = approach;
   clearRouteLayers(riderMap, riderRouteLine, riderEndpointLayers);
   if (riderCar) riderMap.removeLayer(riderCar);
-  const { points } = currentRiderPoints();
+  if (riderTraceLine) riderMap.removeLayer(riderTraceLine);
   riderRouteLine = drawRoute(riderMap, points);
   riderEndpointLayers = addEndpoints(riderMap, points);
-  riderMap.fitBounds(points, { padding:[42,42] });
-  const nearby = [points[0][0] + .0042, points[0][1] - .0045];
-  riderCar = L.marker(nearby, { icon:carIcon(), zIndexOffset:1000, opacity:0 }).addTo(riderMap);
+  fitRouteForPhone(riderMap, [...approach, ...points]);
+  riderCar = L.marker(approach[0], { icon:carIcon(), zIndexOffset:1000, opacity:0 }).addTo(riderMap);
+  riderTraceLine = drawTravelledRoute(riderMap, points[0]);
 }
 
 function updateRiderEstimate() {
@@ -222,8 +287,8 @@ function updateRiderEstimate() {
   return price;
 }
 
-$('#riderOrigin')?.addEventListener('change', () => { resetRider(false); prepareRiderRoute(); });
-$('#riderDestination')?.addEventListener('change', () => { resetRider(false); prepareRiderRoute(); updateRiderEstimate(); });
+$('#riderOrigin')?.addEventListener('change', async () => { resetRider(false); await prepareRiderRoute(); });
+$('#riderDestination')?.addEventListener('change', async () => { resetRider(false); await prepareRiderRoute(); updateRiderEstimate(); });
 
 let riderPhase = 0;
 let riderBusy = false;
@@ -248,28 +313,30 @@ function resetRider(rebuild = true) {
 
 $('#resetRider')?.addEventListener('click', () => resetRider(true));
 
-$('#riderAction')?.addEventListener('click', () => {
+$('#riderAction')?.addEventListener('click', async () => {
   if (riderBusy) return;
-  const { origin, destination, points } = currentRiderPoints();
-  const action = $('#riderAction');
+  const { destination } = currentRiderSelection();
+  if (!riderRoadPoints.length || !riderApproachPoints.length) await prepareRiderRoute();
+  const points = riderRoadPoints;
+  const approach = riderApproachPoints;
 
   if (riderPhase === 0) {
     riderBusy = true;
     setRiderUI({ state:'Buscando', kicker:'CONECTANDO', title:'Buscando un conductor cercano', action:'Buscando conductor', disabled:true });
-    const approachStart = [origin.point[0] + .0042, origin.point[1] - .0045];
-    const approach = interpolateRoute(approachStart, origin.point, 4);
-    riderCar.setLatLng(approachStart).setOpacity(1);
+    fitRouteForPhone(riderMap, approach);
+    riderCar.setLatLng(approach[0]).setOpacity(1);
     setTimeout(() => {
       $('#assignedDriver')?.classList.remove('hidden');
       setRiderUI({ state:'Asignado', kicker:'CONDUCTOR EN CAMINO', title:'Laura llega en pocos minutos', action:'Unidad acercándose', disabled:true });
-      animateMarker(riderCar, approach, 3600, false, progress => {
+      riderTraceLine?.setLatLngs([approach[0], approach[0]]);
+      animateMarker(riderCar, approach, { duration:3600, traceLine:riderTraceLine, progressCallback:progress => {
         const eta = $('#riderEta');
         if (eta) eta.textContent = `${Math.max(1, Math.round(4 - progress * 3))} min`;
-      }, () => {
+      }, completeCallback:() => {
         riderBusy = false;
         riderPhase = 1;
         setRiderUI({ state:'Llegó', kicker:'UNIDAD EN EL PUNTO', title:'Tu Yavoi! ya llegó', action:'Iniciar viaje' });
-      });
+      }});
     }, 900);
     return;
   }
@@ -277,14 +344,16 @@ $('#riderAction')?.addEventListener('click', () => {
   if (riderPhase === 1) {
     riderBusy = true;
     setRiderUI({ state:'En viaje', kicker:'VIAJE EN CURSO', title:`Rumbo a ${destination.label}`, action:'Ruta monitoreada', disabled:true });
-    animateMarker(riderCar, points, destination.label.includes('Meoqui') ? 7800 : 5600, false, progress => {
+    fitRouteForPhone(riderMap, points);
+    riderTraceLine?.setLatLngs([points[0], points[0]]);
+    animateMarker(riderCar, points, { duration:destination.label.includes('Meoqui') ? 7800 : 5600, traceLine:riderTraceLine, progressCallback:progress => {
       const eta = $('#riderEta');
       if (eta) eta.textContent = `${Math.max(1, Math.round((destination.label.includes('Meoqui') ? 18 : 9) * (1-progress)))} min`;
-    }, () => {
+    }, completeCallback:() => {
       riderBusy = false;
       riderPhase = 2;
       setRiderUI({ state:'Llegaste', kicker:'DESTINO ALCANZADO', title:'Llegaste a tu destino', action:'Finalizar y calificar' });
-    });
+    }});
     return;
   }
 
@@ -298,25 +367,33 @@ $('#riderAction')?.addEventListener('click', () => {
   resetRider(true);
 });
 
-function driverTripPoints() {
+async function driverTripPoints() {
   const pickup = [28.19065,-105.47045];
   const destination = [28.19015,-105.45785];
+  const [approach, trip] = await Promise.all([
+    roadRoute(DEMO_DRIVER_START, pickup),
+    roadRoute(pickup, destination)
+  ]);
   return {
-    approach: interpolateRoute([28.1960,-105.4760], pickup, 5),
-    trip: interpolateRoute(pickup, destination, 6)
+    approach,
+    trip
   };
 }
 
-function prepareDriverRoute() {
+async function prepareDriverRoute() {
   if (!driverMap) return;
+  const { approach, trip } = await driverTripPoints();
+  driverApproachPoints = approach;
+  driverTripRoadPoints = trip;
   clearRouteLayers(driverMap, driverRouteLine, driverEndpointLayers);
   if (driverCar) driverMap.removeLayer(driverCar);
-  const { approach, trip } = driverTripPoints();
+  if (driverTraceLine) driverMap.removeLayer(driverTraceLine);
   const full = [...approach, ...trip.slice(1)];
   driverRouteLine = drawRoute(driverMap, full);
   driverEndpointLayers = addEndpoints(driverMap, full);
-  driverMap.fitBounds(full, { padding:[38,38] });
+  fitRouteForPhone(driverMap, full);
   driverCar = L.marker(approach[0], { icon:carIcon(), zIndexOffset:1000 }).addTo(driverMap);
+  driverTraceLine = drawTravelledRoute(driverMap, approach[0]);
 }
 
 let driverPhase = 0;
@@ -344,10 +421,10 @@ function setDriverUI({ status, kicker, action, help, disabled = false }) {
   if (button) { button.textContent = action; button.disabled = disabled; button.style.opacity = disabled ? '.65' : '1'; }
 }
 
-function resetDriver() {
+async function resetDriver() {
   driverPhase = 0;
   driverBusy = false;
-  prepareDriverRoute();
+  await prepareDriverRoute();
   setDriverUI({ status:'Conectado', kicker:'NUEVO SERVICIO', action:'Aceptar servicio', help:'Acepta el servicio para activar la navegación hacia el pasajero. Después podrás marcar llegada, iniciar el viaje y finalizarlo.' });
   if ($('#driverPrice')) $('#driverPrice').textContent = '$86';
   startDriverCountdown();
@@ -355,19 +432,23 @@ function resetDriver() {
 
 $('#resetDriver')?.addEventListener('click', resetDriver);
 
-$('#driverAction')?.addEventListener('click', () => {
+$('#driverAction')?.addEventListener('click', async () => {
   if (driverBusy) return;
-  const { approach, trip } = driverTripPoints();
+  if (!driverApproachPoints.length || !driverTripRoadPoints.length) await prepareDriverRoute();
+  const approach = driverApproachPoints;
+  const trip = driverTripRoadPoints;
 
   if (driverPhase === 0) {
     clearInterval(countdownTimer);
     driverBusy = true;
     setDriverUI({ status:'En ruta', kicker:'SERVICIO ACEPTADO', action:'Navegando al pasajero', disabled:true, help:'La unidad se dirige al punto de recogida. El pasajero puede seguir el avance en su mapa.' });
-    animateMarker(driverCar, approach, 4200, false, null, () => {
+    fitRouteForPhone(driverMap, approach);
+    driverTraceLine?.setLatLngs([approach[0], approach[0]]);
+    animateMarker(driverCar, approach, { duration:4200, traceLine:driverTraceLine, completeCallback:() => {
       driverBusy = false;
       driverPhase = 1;
       setDriverUI({ status:'En punto', kicker:'PUNTO DE RECOGIDA', action:'Marcar llegada', help:'Llegaste al origen. Marca la llegada para avisar al pasajero y habilitar el inicio del viaje.' });
-    });
+    }});
     return;
   }
 
@@ -380,11 +461,13 @@ $('#driverAction')?.addEventListener('click', () => {
   if (driverPhase === 2) {
     driverBusy = true;
     setDriverUI({ status:'En viaje', kicker:'VIAJE EN CURSO', action:'Navegación activa', disabled:true, help:'El servicio está en curso. La ruta y la unidad permanecen visibles durante el trayecto.' });
-    animateMarker(driverCar, trip, 5200, false, null, () => {
+    fitRouteForPhone(driverMap, trip);
+    driverTraceLine?.setLatLngs([trip[0], trip[0]]);
+    animateMarker(driverCar, trip, { duration:5200, traceLine:driverTraceLine, completeCallback:() => {
       driverBusy = false;
       driverPhase = 3;
       setDriverUI({ status:'Destino', kicker:'DESTINO ALCANZADO', action:'Finalizar servicio', help:'Llegaste al destino. Finaliza para registrar el servicio y actualizar ganancias.' });
-    });
+    }});
     return;
   }
 
