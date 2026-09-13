@@ -41,6 +41,17 @@ test("Postgres security and complete ride lifecycle", async () => {
     ).replace(/alter publication supabase_realtime add table[^;]+;/g, "");
     await db.exec(sql);
   }
+  assert.equal(
+    (await db.query("select to_regclass('public.scheduled_trip_series') as relation")).rows[0].relation,
+    "scheduled_trip_series",
+  );
+  assert.deepEqual(
+    (await db.query("select column_name from information_schema.columns where table_schema='public' and table_name='trips' and column_name in ('planned_route','planned_route_distance_km','schedule_series_id') order by column_name")).rows.map((row) => row.column_name),
+    ["planned_route", "planned_route_distance_km", "schedule_series_id"],
+  );
+  assert.ok(
+    (await db.query("select 1 from pg_proc where proname in ('capture_trip_route_v1','assign_scheduled_trip_v1','release_scheduled_trips_v1')")).rows.length === 3,
+  );
   for (const [name, id] of Object.entries(ids))
     await db.query("insert into auth.users(id,email,email_confirmed_at)values($1,$2,now())", [
       id,

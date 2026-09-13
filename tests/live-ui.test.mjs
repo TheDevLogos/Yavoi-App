@@ -8,6 +8,7 @@ const domain = await readFile(new URL("../src/domain.js", import.meta.url), "utf
 const paymentFunction = await readFile(new URL("../supabase/functions/mercado-pago-payment/index.ts", import.meta.url), "utf8");
 const mapsFunction = await readFile(new URL("../supabase/functions/maps/index.ts", import.meta.url), "utf8");
 const driverLetters = await readFile(new URL("../scripts/generate-driver-documents.py", import.meta.url), "utf8");
+const schedulingMigration = await readFile(new URL("../supabase/migrations/20260913141001_trip_routes_and_scheduling.sql", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -211,4 +212,23 @@ test("vehicle front photo is required, private and shown only after assignment",
   assert.match(portal, /Unidad verificada · confirma que la placa visible coincida/);
   assert.match(portal, /data-vehicle-photo/);
   assert.doesNotMatch(portal, /Sólo mostramos el tipo de servicio antes de confirmar[\s\S]{0,300}vehicle_front_path/);
+});
+
+test("scheduled rides persist the planned route and present reminders, assignment and navigation", () => {
+  assert.match(schedulingMigration, /planned_route jsonb/);
+  assert.match(schedulingMigration, /scheduled_trip_series/);
+  assert.match(schedulingMigration, /capture_trip_route_v1/);
+  assert.match(schedulingMigration, /planned_route is null/);
+  assert.match(schedulingMigration, /assign_scheduled_trip_v1/);
+  assert.match(schedulingMigration, /coalesce\(auth\.jwt\(\)->>'aal','aal1'\)<>'aal2'/);
+  assert.match(portal, /maybeShowSchedulePromo/);
+  assert.match(portal, /data-schedule-slide/);
+  assert.match(portal, /recurrence_count/);
+  assert.match(portal, /assign-scheduled/);
+  assert.match(portal, /driver-navigation/);
+  assert.match(portal, /tripSuggestedCasing/);
+  assert.match(portal, /color: "#153e63"/);
+  assert.match(portal, /color: "#fff"/);
+  assert.match(mapsFunction, /time_distance_balanced/);
+  assert.match(mapsFunction, /0\.65 \* \(Number\(item\.duration\) \/ fastest\)/);
 });

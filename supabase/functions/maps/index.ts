@@ -109,7 +109,19 @@ Deno.serve(async (req: Request) => {
       const upstream = await fetch(`${routeBase}/route/v1/driving/${values[1]},${values[0]};${values[3]},${values[2]}?overview=full&geometries=geojson&steps=true&alternatives=true`);
       if (!upstream.ok) throw new Error("El servicio de rutas no respondió.");
       const raw = await upstream.json();
-      const route = raw.routes?.[0];
+      const candidates = Array.isArray(raw.routes) ? raw.routes.filter((item: Record<string, unknown>) => item?.geometry && Number(item?.distance) > 0 && Number(item?.duration) > 0) : [];
+      if (!candidates.length) return json({ error: "No encontramos una ruta vial para esos puntos." }, 404, origin);
+      const fastest = Math.min(...candidates.map((item: Record<string, unknown>) => Number(item.duration)));
+      const shortest = Math.min(...candidates.map((item: Record<string, unknown>) => Number(item.distance)));
+      // OSRM already avoids impossible streets. Rank valid alternatives by both time and distance,
+      // with time slightly favored so the recommended route is useful while the trip is active.
+      const route = candidates
+        .map((item: Record<string, unknown>, index: number) => ({
+          item,
+          index,
+          score: 0.65 * (Number(item.duration) / fastest) + 0.35 * (Number(item.distance) / shortest),
+        }))
+        .sort((a, b) => a.score - b.score || Number(a.item.duration) - Number(b.item.duration) || Number(a.item.distance) - Number(b.item.distance))[0].item;
       if (!route?.geometry?.coordinates) return json({ error: "No encontramos una ruta vial para esos puntos." }, 404, origin);
       const instructions = (route.legs || []).flatMap((leg: Record<string, unknown>) => Array.isArray(leg.steps) ? leg.steps : []).slice(0, 120).map((step: Record<string, unknown>) => {
         const maneuver = step.maneuver && typeof step.maneuver === "object" ? step.maneuver as Record<string, unknown> : {};
@@ -121,7 +133,7 @@ Deno.serve(async (req: Request) => {
           duration_seconds: Math.max(0, Math.round(Number(step.duration) || 0)),
         };
       });
-      const payload = { distance_km: Math.round(Number(route.distance) / 10) / 100, duration_minutes: Math.max(1, Math.ceil(Number(route.duration) / 60)), coordinates: route.geometry.coordinates.slice(0, 4000), instructions };
+      const payload = { distance_km: Math.round(Number(route.distance) / 10) / 100, duration_minutes: Math.max(1, Math.ceil(Number(route.duration) / 60)), coordinates: route.geometry.coordinates.slice(0, 4000), instructions, route_quality: "time_distance_balanced" };
       await serviceClient.rpc("yavoi_map_cache_put", { key_value: key, payload_value: payload, ttl_seconds: 86400 });
       return json(payload, 200, origin);
     }

@@ -66,6 +66,7 @@ const S = {
   tripVehicleMarker: null,
   tripHistoryLine: null,
   tripSuggestedLine: null,
+  tripSuggestedCasing: null,
   mapLiveLayer: null,
   opsMarkers: new Map(),
   opsRoutes: new Map(),
@@ -649,6 +650,14 @@ async function searchAddress(kind) {
   });
 }
 async function loadRoadRoute(trip = null) {
+  const savedRoute = trip && S.trip?.route_plan?.coordinates?.length > 1 ? S.trip.route_plan : null;
+  if (savedRoute) {
+    S.roadRoute = savedRoute;
+    drawPoints(trip);
+    renderRouteGuide();
+    updateRouteMonitor();
+    return;
+  }
   const origin = trip ? { lat: trip.origin_lat, lng: trip.origin_lng } : S.origin;
   const destination = trip ? { lat: trip.dest_lat, lng: trip.dest_lng } : S.destination;
   if (!origin || !destination) return;
@@ -844,8 +853,12 @@ function startMap(trip = null) {
       const kind = S.pick;
       await placeRidePoint(kind, ev.latlng, { resolveAddress: true });
     });
+  if (trip?.route_plan?.coordinates?.length > 1) S.roadRoute = trip.route_plan;
   drawPoints(trip);
-  loadRoadRoute(trip);
+  if (trip?.route_plan?.coordinates?.length > 1) {
+    renderRouteGuide();
+    updateRouteMonitor();
+  } else loadRoadRoute(trip);
   setTimeout(() => S.map?.invalidateSize(), 70);
 }
 function drawPoints(t = null, { fit = true } = {}) {
@@ -855,6 +868,7 @@ function drawPoints(t = null, { fit = true } = {}) {
   S.tripVehicleMarker = null;
   S.tripHistoryLine = null;
   S.tripSuggestedLine = null;
+  S.tripSuggestedCasing = null;
   const points = t
     ? [
         { lat: t.origin_lat, lng: t.origin_lng },
@@ -872,12 +886,14 @@ function drawPoints(t = null, { fit = true } = {}) {
     }
   });
   if (points.every(Boolean)) {
-    const suggestedLine = L.polyline(
-        S.roadRoute?.coordinates?.length
-          ? S.roadRoute.coordinates.map(([lng, lat]) => [lat, lng])
-          : points.map((p) => [p.lat, p.lng]),
-        { color: "#183c54", weight: 5, opacity: 0.72, dashArray: t ? "10 8" : null },
-      ).addTo(S.map);
+    const routeCoordinates = S.roadRoute?.coordinates?.length
+      ? S.roadRoute.coordinates.map(([lng, lat]) => [lat, lng])
+      : points.map((p) => [p.lat, p.lng]);
+    if (t) {
+      S.tripSuggestedCasing = L.polyline(routeCoordinates, { color: "#fff", weight: 10, opacity: 0.96, lineCap: "round", lineJoin: "round" }).addTo(S.map);
+      S.markers.push(S.tripSuggestedCasing);
+    }
+    const suggestedLine = L.polyline(routeCoordinates, { color: "#153e63", weight: t ? 6 : 5, opacity: 0.9, lineCap: "round", lineJoin: "round" }).addTo(S.map);
     if (t) S.tripSuggestedLine = suggestedLine;
     S.markers.push(suggestedLine);
   }
@@ -974,6 +990,8 @@ function rideDraftPayload(form = $("#quote-form")) {
     women_only: values.women_only === "on",
     accessible: values.accessible === "on",
     scheduled_at: values.scheduled_at || null,
+    recurrence: values.recurrence || "once",
+    recurrence_count: Number(values.recurrence_count || 1),
   };
 }
 function scheduleRideDraft() {
@@ -1017,6 +1035,7 @@ function riderHome() {
     "Elige tu destino, necesidades y revisa el precio antes de confirmar.",
   );
   startMap();
+  $('[name=scheduled_at]')?.closest("label")?.insertAdjacentHTML("afterend", `<div class="grid2 schedule-options"><label>Frecuencia<select name="recurrence"><option value="once">Una vez</option><option value="daily" ${draft?.recurrence === "daily" ? "selected" : ""}>Diario</option><option value="weekly" ${draft?.recurrence === "weekly" ? "selected" : ""}>Semanal</option><option value="monthly" ${draft?.recurrence === "monthly" ? "selected" : ""}>Mensual</option></select></label><label id="recurrence-count" class="${!draft?.recurrence || draft?.recurrence === "once" ? "hidden" : ""}">Número de viajes<input name="recurrence_count" type="number" min="2" max="31" value="${e(draft?.recurrence_count || 2)}"></label></div><p class="hint schedule-help">Programa una vez o repite tu recorrido. Cada fecha se guardará en Mis viajes; el pago con tarjeta se confirma por cada servicio.</p>`);
   refreshAvailableUnits();
   $$('[data-search-address]').forEach((search) => search.onclick = () => searchAddress(search.dataset.searchAddress));
   ["origin", "destination"].forEach((kind) => {
@@ -1030,7 +1049,12 @@ function riderHome() {
     refreshAvailableUnits();
     scheduleRideDraft();
   }));
-  $$('[name=origin],[name=destination],[name=party_size],[name=service_notes],[name=scheduled_at]').forEach((control) => control.addEventListener("input", scheduleRideDraft));
+  $$('[name=origin],[name=destination],[name=party_size],[name=service_notes],[name=scheduled_at],[name=recurrence],[name=recurrence_count]').forEach((control) => control.addEventListener("input", scheduleRideDraft));
+  $("[name=recurrence]")?.addEventListener("change", (event) => {
+    const repeated = event.target.value !== "once";
+    $("#recurrence-count")?.classList.toggle("hidden", !repeated);
+    scheduleRideDraft();
+  });
   ["origin", "destination"].forEach((kind) =>
     $(`[name=${kind}]`).addEventListener("change", (event) => {
       const place = places.find((item) => item.name === event.target.value);
@@ -1084,6 +1108,14 @@ function riderHome() {
       S.quote.road_distance_km = S.roadRoute.distance_km;
       S.quote.road_duration_minutes = S.roadRoute.duration_minutes;
     }
+    S.quote.recurrence = values.recurrence || "once";
+    S.quote.recurrence_count = Number(values.recurrence_count || 1);
+    S.quote.planned_route = S.roadRoute ? {
+      coordinates: S.roadRoute.coordinates,
+      distance_km: S.roadRoute.distance_km,
+      duration_minutes: S.roadRoute.duration_minutes,
+      instructions: S.roadRoute.instructions || [],
+    } : null;
     paymentModal();
   });
 }
@@ -1173,6 +1205,9 @@ function paymentModal() {
       tip_cents: tip,
       preferred_driver_id: q.preferred_driver_id,
       reward_code: v.reward_code || null,
+      planned_route: q.planned_route,
+      recurrence: q.recurrence || "once",
+      recurrence_count: q.recurrence_count || 1,
     });
     closeModal();
     S.quote = null;
@@ -1251,7 +1286,7 @@ function driverSafetyMarkup() {
   return `<section class="panel section-gap driver-safety"><div><div class="eyebrow">AYUDA Y SEGURIDAD</div><h2>Asistencia desde Conducir</h2><p>Registra un incidente para seguimiento de Operaciones. Si existe peligro inmediato, llama directamente a emergencias.</p></div><div class="driver-safety-buttons">${button("Crear reporte", "complaint", "secondary", "message-square-warning")}<a class="btn danger" href="tel:911">${I("phone-call")} Emergencias 911</a></div>${reports.length ? `<details><summary>Mis reportes recientes</summary>${reports.map((report) => `<article class="audit-item"><div class="row between"><strong>${e(report.subject)}</strong><span class="badge ${report.status === "resolved" ? "" : "pending"}">${e({ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[report.status] || report.status)}</span></div><small>${date(report.created_at)} · ${e(report.id.slice(0, 8))}</small>${report.response ? `<p class="hint">Respuesta: ${e(report.response)}</p>` : ""}</article>`).join("")}</details>` : ""}</section>`;
 }
 async function driverHome() {
-  const activeTrip = S.data.trips.find((trip) => trip.driver_id === S.user.id && active(trip));
+  const activeTrip = S.data.trips.find((trip) => trip.driver_id === S.user.id && active(trip) && trip.status !== "scheduled");
   if (activeTrip) {
     location.hash = "trip/" + activeTrip.id;
     return;
@@ -1314,6 +1349,11 @@ async function driverHome() {
       });
   });
 }
+function scheduledTripsMarkup() {
+  const scheduled = S.data.scheduling?.upcoming || [];
+  if (!scheduled.length) return "";
+  return `<section class="panel scheduled-trips"><div class="row between wrap"><div><div class="eyebrow">VIAJES PROGRAMADOS</div><h2>${S.profile.role === "admin" ? "Aparta una unidad con anticipación" : "Próximos viajes programados"}</h2><p>${S.profile.role === "admin" ? "Asigna o libera conductores antes de la hora de salida." : "Tus fechas permanecen guardadas y se activarán cerca de su horario."}</p></div>${I("calendar-clock")}</div><div class="scheduled-list">${scheduled.map((trip) => `<article class="scheduled-card"><div><strong>${e(trip.origin)}</strong><span>${I("arrow-down")} ${e(trip.destination)}</span><small>${date(trip.scheduled_at)} · Yavoi! ${e(S.categories.find((category) => category.id === trip.category)?.name || trip.category)} · ${money(trip.total_cents || 0)}</small>${trip.schedule_total > 1 ? `<small>Serie ${trip.schedule_sequence}/${trip.schedule_total}</small>` : ""}</div><div class="scheduled-actions">${S.profile.role === "admin" ? `<small>${trip.driver_name ? `Reservado: ${e(trip.driver_name)}` : "Sin conductor reservado"}</small><button class="btn secondary" type="button" data-action="assign-scheduled" data-trip-id="${e(trip.id)}">${trip.driver_id ? "Cambiar unidad" : "Asignar unidad"} ${I("user-round-check")}</button>` : `<span class="badge ${trip.payment_status === "paid" || trip.payment_method === "cash" ? "" : "pending"}">${trip.payment_method === "card" && trip.payment_status !== "paid" ? "Pago pendiente" : trip.driver_id ? "Unidad reservada" : "Por asignar"}</span><a class="link" href="#trip/${e(trip.id)}">Ver viaje</a>`}</div></article>`).join("")}</div></section>`;
+}
 function tableTrips() {
   return `<div class="table-wrap"><table><thead><tr><th>Folio / fecha</th><th>Recorrido</th><th>Estado</th><th>Pago</th><th>Importe</th><th>Valoración</th><th></th></tr></thead><tbody id="trip-rows">${tripRows(S.data.trips)}</tbody></table></div>${!S.data.trips.length ? `<div class="empty">${I("route")}<h3>Tu historial empieza con el primer viaje</h3><p>Los viajes guardados aparecerán aquí.</p></div>` : ""}`;
 }
@@ -1335,6 +1375,12 @@ function tripsView() {
     "Cada viaje, en un solo lugar.",
     "Consulta el recorrido, el pago y el detalle de tus viajes.",
   );
+  const scheduledMarkup = scheduledTripsMarkup();
+  if (scheduledMarkup) {
+    $("#page-content").insertAdjacentHTML("afterbegin", scheduledMarkup);
+    $$('[data-action="assign-scheduled"]').forEach((item) => (item.onclick = () => handleAction("assign-scheduled", item)));
+    iconsNow();
+  }
   const filter = () => {
     const q = $("#search-trips").value.toLowerCase(),
       status = $("#filter-status").value;
@@ -1393,7 +1439,7 @@ async function tripView(id) {
   const statusMessage =
     t.status === "payment_pending" ? "Completa o espera la confirmación de Mercado Pago antes de asignar una unidad."
       : t.status === "requested" ? "Buscamos un conductor disponible que cumpla tus preferencias."
-        : t.status === "scheduled" ? "Tu solicitud se asignará cerca de la hora programada."
+        : t.status === "scheduled" ? (t.driver_id ? "Operaciones reservó una unidad. El conductor recibirá el recordatorio antes de tu salida." : "Tu solicitud se asignará cerca de la hora programada.")
           : t.status === "accepted" ? "Verifica la fotografía, el color, el modelo y las placas antes de abordar."
             : t.status === "arrived" ? "Comparte el PIN sólo cuando estés frente al conductor correcto."
               : t.status === "in_progress" ? "Sigue el recorrido en el mapa y comunícate con tu conductor."
@@ -1450,7 +1496,7 @@ async function tripView(id) {
     : "";
   const navigationUrl = conductor && ["accepted", "arrived", "in_progress"].includes(t.status) ? googleNavigationUrl(t) : "";
   const driverNavigation = navigationUrl
-    ? `<a class="btn navy wide section-gap" href="${e(navigationUrl)}" target="_blank" rel="noopener noreferrer">${I("navigation")} ${t.status === "in_progress" ? "Navegar al destino" : "Navegar a recoger al pasajero"}</a>`
+    ? `<a class="btn driver-navigation wide section-gap" href="${e(navigationUrl)}" target="_blank" rel="noopener noreferrer">${I("navigation")} ${t.status === "in_progress" ? "Navegar al destino con Maps" : "Navegar a recoger al pasajero con Maps"}</a><p class="hint driver-navigation-note">Usa la guía por voz de Maps mientras conduces. Yavoi! seguirá registrando el recorrido GPS del viaje.</p>`
     : "";
   const tripFooter = `<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}${terminalReport}</div>`;
   shell(
@@ -1780,8 +1826,26 @@ function maybeShowCampaignPromo() {
   $("#campaign-rewards").onclick = () => { closeModal(); location.hash = "rewards"; };
   return true;
 }
+function maybeShowSchedulePromo() {
+  if (!S.profile || S.profile.role === "admin" || modal.open) return false;
+  const scheduled = S.data.scheduling?.upcoming || [];
+  const driver = S.profile.role === "driver";
+  const key = `yavoi-schedule-promo:${S.user.id}:${driver && scheduled.length ? "entry" : new Date().toISOString().slice(0, 10)}`;
+  try { if (sessionStorage.getItem(key)) return false; sessionStorage.setItem(key, "shown"); } catch {}
+  const next = scheduled[0];
+  openModal(
+    driver && next ? "Tienes un viaje programado" : "Programa tus próximos viajes",
+    `<div class="schedule-promo-slider"><section class="schedule-promo-slide" data-schedule-slide="schedule"><div class="reward-welcome">${I("calendar-clock")}<div><span class="badge">NUEVO EN YAVOI!</span><h3>${driver && next ? `${date(next.scheduled_at)}` : "Organiza tus viajes con tiempo"}</h3><p>${driver && next ? `${e(next.origin)} → ${e(next.destination)}. Revisa el servicio en Mis viajes antes de tu turno.` : "Elige tu ruta y fecha, después repítela diario, semanal o mensual. Cada servicio se guarda por separado para que siempre tengas control."}</p></div></div><div class="next-reward"><small>${driver && next ? "RECORDATORIO" : "CÓMO FUNCIONA"}</small><strong>${driver && next ? "Operaciones puede reservarte con anticipación" : "Programa, confirma y revisa cada fecha"}</strong><p>${driver && next ? "Cuando falten quince minutos, el viaje se activa y podrás iniciar navegación hacia el punto de partida." : "Con tarjeta se confirma cada servicio de forma segura; con efectivo se conserva el detalle de pago para cada viaje."}</p></div><div class="schedule-promo-actions"><button class="btn wide" id="schedule-open">${driver && next ? "Ver mis viajes programados" : "Programar un viaje"} ${I("calendar-plus")}</button><button class="btn secondary wide" id="schedule-next">Ver recompensas ${I("chevron-right")}</button></div></section><section class="schedule-promo-slide hidden" data-schedule-slide="rewards"><div class="reward-welcome">${I(driver ? "star" : "gift")}<div><span class="badge">RECOMPENSAS</span><h3>${S.data.reward_wallet?.available_points || 0} puntos disponibles</h3><p>${driver ? "Tu actividad, ingresos y calificaciones acercan beneficios para tu unidad." : "Cada viaje completado suma Puntos Viajeros y cada 15 viajes locales puedes obtener un viaje Básico gratis."}</p></div></div><div class="schedule-promo-actions"><button class="btn secondary wide" id="schedule-back">${I("chevron-left")} Programar viajes</button><button class="btn wide" id="schedule-rewards">Abrir recompensas ${I("gift")}</button></div></section></div>`,
+  );
+  const setSlide = (name) => $$('[data-schedule-slide]').forEach((slide) => slide.classList.toggle("hidden", slide.dataset.scheduleSlide !== name));
+  $("#schedule-next").onclick = () => setSlide("rewards");
+  $("#schedule-back").onclick = () => setSlide("schedule");
+  $("#schedule-open").onclick = () => { closeModal(); location.hash = driver ? "trips" : "home"; };
+  $("#schedule-rewards").onclick = () => { closeModal(); location.hash = "rewards"; };
+  return true;
+}
 function maybeShowEngagementPromo() {
-  if (!maybeShowCampaignPromo()) maybeShowRewardPromo();
+  if (!maybeShowSchedulePromo() && !maybeShowCampaignPromo()) maybeShowRewardPromo();
 }
 async function upload(file, bucket) {
   if (!file || !file.size) return null;
@@ -2818,6 +2882,20 @@ async function handleAction(action, b) {
       closeModal();
       await refreshPage();
       notify("Reporte guardado. Consulta aquí su seguimiento.");
+    });
+    return;
+  }
+  if (action === "assign-scheduled") {
+    if (S.profile?.role !== "admin") return;
+    const scheduled = (S.data.scheduling?.upcoming || []).find((trip) => trip.id === b.dataset.tripId);
+    if (!scheduled) return notify("Actualiza el panel para consultar este viaje programado.");
+    const compatible = (S.data.scheduling?.drivers || []).filter((driver) => driver.category === scheduled.category);
+    openModal("Reservar conductor para viaje programado", `<form id="assign-scheduled"><div class="route-line">${I("circle-dot")}${e(scheduled.origin)}</div><div class="route-line destination">${I("map-pin")}${e(scheduled.destination)}</div><p class="hint">${date(scheduled.scheduled_at)} · Yavoi! ${e(S.categories.find((category) => category.id === scheduled.category)?.name || scheduled.category)}</p><label>Conductor<select name="driver_id"><option value="">Sin unidad reservada</option>${compatible.map((driver) => `<option value="${e(driver.id)}" ${driver.id === scheduled.driver_id ? "selected" : ""}>${e(driver.full_name)}${driver.online ? " · conectado" : ""}</option>`).join("")}</select></label><p class="hint">La reserva se valida contra servicios activos y horarios cercanos. El conductor verá el viaje en Mis viajes y recibirá el recordatorio al ingresar.</p><button class="btn wide" type="submit">Guardar reserva ${I("calendar-check")}</button></form>`);
+    bindForm("#assign-scheduled", async (values) => {
+      await rpc("assign_scheduled_trip", { trip_id: scheduled.id, driver_id: values.driver_id || null });
+      closeModal();
+      await refreshPage();
+      notify(values.driver_id ? "Unidad reservada y conductor avisado en su próxima entrada." : "Reserva liberada.");
     });
     return;
   }
