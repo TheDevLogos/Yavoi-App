@@ -232,3 +232,19 @@ test("scheduled rides persist the planned route and present reminders, assignmen
   assert.match(mapsFunction, /time_distance_balanced/);
   assert.match(mapsFunction, /0\.65 \* \(Number\(item\.duration\) \/ fastest\)/);
 });
+
+test("drivers receive an audible, visible and recoverable offer alert", () => {
+  assert.match(portal, /function armOfferSound\(\)/);
+  assert.match(portal, /function playOfferSound\(\)/);
+  assert.match(portal, /navigator\.vibrate/);
+  assert.match(portal, /function presentDriverOfferAlert\(offer\)/);
+  assert.match(portal, /RESPONDE EN 60 SEGUNDOS/);
+  assert.match(portal, /function syncDriverOffers/);
+  assert.match(portal, /setInterval\(\(\) => syncDriverOffers\(\)\.catch\(\(\) => \{\}\), 8000\)/);
+  assert.match(portal, /S\.pendingOfferIds\.add\(payload\.new\.id\)/);
+  assert.match(portal, /syncDriverOffers\(\)\.catch\(\(\) => \{\}\);[\s\S]{0,80}safeRefresh\(\)/);
+  assert.match(portal, /document\.addEventListener\("visibilitychange"/);
+  assert.match(portal, /Activar sonido/);
+  assert.match(portal, /Probar alerta/);
+  assert.match(css, /\.driver-offer-alert/);
+});

@@ -100,7 +100,12 @@ const S = {
   presenceSending: false,
   presenceSession: crypto.randomUUID(),
   knownOfferIds: new Set(),
+  pendingOfferIds: new Set(),
   offersInitialized: false,
+  offerSyncTimer: null,
+  offerSyncing: false,
+  offerAudioContext: null,
+  offerAudioArmed: false,
   draftTimer: null,
   auditReport: null,
   auditFilters: { report: "overview", period: "month", driver_id: "", from: "", to: "" },
@@ -204,21 +209,89 @@ function serviceNotification(title, body, { tag = "yavoi-update", target = "home
     };
   } catch {}
 }
+async function armOfferSound() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return false;
+  if (!S.offerAudioContext) S.offerAudioContext = new AudioContext();
+  if (S.offerAudioContext.state === "suspended") await S.offerAudioContext.resume();
+  S.offerAudioArmed = S.offerAudioContext.state === "running";
+  return S.offerAudioArmed;
+}
+function playOfferSound() {
+  const audio = S.offerAudioContext;
+  if (!S.offerAudioArmed || !audio || audio.state !== "running") return false;
+  const now = audio.currentTime;
+  [0, 0.23, 0.46].forEach((offset, index) => {
+    const tone = audio.createOscillator();
+    const gain = audio.createGain();
+    tone.type = index === 2 ? "triangle" : "sine";
+    tone.frequency.setValueAtTime(index === 1 ? 740 : 880, now + offset);
+    gain.gain.setValueAtTime(0.0001, now + offset);
+    gain.gain.exponentialRampToValueAtTime(0.11, now + offset + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.18);
+    tone.connect(gain).connect(audio.destination);
+    tone.start(now + offset);
+    tone.stop(now + offset + 0.2);
+  });
+  navigator.vibrate?.([110, 80, 110, 80, 180]);
+  return true;
+}
 function announceOffers(offers) {
   const newOffers = offers.filter((offer) => !S.knownOfferIds.has(offer.offer_id));
   offers.forEach((offer) => S.knownOfferIds.add(offer.offer_id));
-  if (newOffers.length)
+  if (newOffers.length) {
+    newOffers.forEach((offer) => S.pendingOfferIds.add(offer.offer_id));
+    playOfferSound();
     serviceNotification(
       "Nueva solicitud de viaje",
       `${newOffers[0].passenger_name}, ${newOffers[0].party_size} persona${newOffers[0].party_size === 1 ? "" : "s"}, servicio ${newOffers[0].category}.`,
+      { tag: `yavoi-offer-${newOffers[0].offer_id}`, target: "home" },
     );
+  }
   S.offersInitialized = true;
+  return newOffers;
+}
+function presentDriverOfferAlert(offer) {
+  if (!offer || S.profile?.role !== "driver" || document.hidden || modal.open) return false;
+  S.pendingOfferIds.delete(offer.offer_id);
+  openModal(
+    "Nueva solicitud de viaje",
+    `<section class="driver-offer-alert" role="alert"><span class="badge pending">RESPONDE EN 60 SEGUNDOS</span><h3>Yavoi! ${e(S.categories.find((category) => category.id === offer.category)?.name || offer.category)}</h3><p>${e(offer.passenger_name)} solicita un viaje para ${e(offer.party_size)} persona${Number(offer.party_size) === 1 ? "" : "s"}.</p><div class="route-line">${I("circle-dot")}${e(offer.origin)}</div><div class="route-line destination">${I("map-pin")}${e(offer.destination)}</div><div class="driver-offer-alert-meta"><span>${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min</span><strong>Ganas ${money(offer.net_cents)}</strong></div><button class="btn wide" type="button" id="review-driver-offer">Revisar solicitud ${I("arrow-right")}</button><button class="link wide" type="button" id="dismiss-driver-offer">Cerrar aviso</button></section>`,
+  );
+  $("#review-driver-offer").onclick = () => {
+    closeModal();
+    location.hash = "home";
+    refreshPage().catch((error) => notify(errorMessage(error)));
+  };
+  $("#dismiss-driver-offer").onclick = () => closeModal();
+  return true;
+}
+function presentPendingOffer(offers) {
+  const pending = offers.find((offer) => S.pendingOfferIds.has(offer.offer_id));
+  if (pending) return presentDriverOfferAlert(pending);
+  S.pendingOfferIds.clear();
+  return false;
+}
+async function syncDriverOffers({ present = true } = {}) {
+  if (S.offerSyncing || S.profile?.role !== "driver" || !S.driver?.online) return [];
+  S.offerSyncing = true;
+  try {
+    const offers = await rpc("offers");
+    await Promise.all(offers.map((offer) => loadAvatar(offer.passenger_avatar_path)));
+    announceOffers(offers);
+    if (present) presentPendingOffer(offers);
+    return offers;
+  } finally {
+    S.offerSyncing = false;
+  }
 }
 function closeModal() {
   S.mpController?.unmount?.();
   S.mpController = null;
   modal.close();
   modal.innerHTML = "";
+  if (S.profile?.role === "driver" && S.pendingOfferIds.size)
+    setTimeout(() => safeRefresh(), 0);
 }
 function openModal(title, content) {
   modal.innerHTML = `<button class="close" type="button" aria-label="Cerrar">${I("x")}</button><h2 id="modal-title">${e(title)}</h2>${content}`;
@@ -333,9 +406,16 @@ function clearSession() {
   S.avatarUrls = {};
   S.vehiclePhotoUrls = {};
   S.knownOfferIds = new Set();
+  S.pendingOfferIds.clear();
   S.offersInitialized = false;
+  S.offerSyncing = false;
+  S.offerAudioContext?.close?.().catch?.(() => {});
+  S.offerAudioContext = null;
+  S.offerAudioArmed = false;
   clearTimeout(S.draftTimer);
   clearInterval(pollTimer);
+  clearInterval(S.offerSyncTimer);
+  S.offerSyncTimer = null;
 }
 function authPage(view = "login", message = "") {
   clearSession();
@@ -1308,14 +1388,15 @@ async function driverHome() {
     );
     return;
   }
-  const offers = await rpc("offers");
-  await Promise.all(offers.map((offer) => loadAvatar(offer.passenger_avatar_path)));
-  announceOffers(offers);
+  const offers = await syncDriverOffers({ present: false });
   const notificationButton =
     "Notification" in window && Notification.permission !== "granted"
       ? button("Activar avisos", "notifications", "secondary", "bell-ring")
       : "";
-  const availabilityActions = `<div class="driver-actions">${button(driver.online ? "Desconectarme" : "Conectarme", "availability", driver.online ? "secondary" : "", "power")}${driver.online ? button("Actualizar ubicación", "presence", "secondary", "locate-fixed") : ""}${notificationButton}</div>`;
+  const soundButton = driver.online
+    ? button(S.offerAudioArmed ? "Probar alerta" : "Activar sonido", "offer-sound", "secondary", "volume-2")
+    : "";
+  const availabilityActions = `<div class="driver-actions">${button(driver.online ? "Desconectarme" : "Conectarme", "availability", driver.online ? "secondary" : "", "power")}${driver.online ? button("Actualizar ubicación", "presence", "secondary", "locate-fixed") : ""}${soundButton}${notificationButton}</div>`;
   const offerCards = offers.length
     ? offers
         .map(
@@ -1348,6 +1429,7 @@ async function driverHome() {
         notify("Solicitud rechazada. Yavoi! buscará la siguiente unidad disponible.");
       });
   });
+  presentPendingOffer(offers);
 }
 function scheduledTripsMarkup() {
   const scheduled = S.data.scheduling?.upcoming || [];
@@ -2779,6 +2861,7 @@ async function handleAction(action, b) {
   }
   if (action === "notifications")
     return run(async () => {
+      await armOfferSound();
       if (!("Notification" in window)) throw Error("Este navegador no admite avisos del sistema.");
       const permission = await Notification.requestPermission();
       if (permission !== "granted")
@@ -2786,9 +2869,18 @@ async function handleAction(action, b) {
       serviceNotification("Avisos de Yavoi! activados", "Te avisaremos cuando recibas una solicitud dirigida a tu unidad.");
       await renderRoute();
     });
+  if (action === "offer-sound")
+    return run(async () => {
+      if (!(await armOfferSound()))
+        throw Error("Este navegador no admite alertas con sonido.");
+      playOfferSound();
+      notify("Alerta con sonido activada. La escucharás al recibir una solicitud.");
+      await renderRoute();
+    });
   if (action === "availability")
     return run(async () => {
       const goingOnline = !S.driver.online;
+      if (goingOnline) await armOfferSound();
       const position = goingOnline ? await browserPosition() : null;
       try {
         await rpc("availability", { online: goingOnline });
@@ -3105,6 +3197,8 @@ async function refreshPage() {
 }
 function startUpdates() {
   clearInterval(pollTimer);
+  clearInterval(S.offerSyncTimer);
+  S.offerSyncTimer = null;
   if (S.channel) db.removeChannel(S.channel);
   S.channel = db
     .channel("yavoi-account-" + S.user.id)
@@ -3118,11 +3212,10 @@ function startUpdates() {
         filter: `driver_id=eq.${S.user.id}`,
       },
       (payload) => {
-        if (S.profile?.role === "driver" && payload.new?.status === "offered")
-          serviceNotification(
-            "Nueva solicitud de viaje",
-            "Abre Yavoi! para revisar al pasajero, el recorrido y el pago antes de responder.",
-          );
+        if (S.profile?.role === "driver" && payload.new?.status === "offered") {
+          S.pendingOfferIds.add(payload.new.id);
+          syncDriverOffers().catch((error) => notify(errorMessage(error)));
+        }
         safeRefresh();
       },
     )
@@ -3168,6 +3261,8 @@ function startUpdates() {
     })
     .subscribe();
   pollTimer = setInterval(safeRefresh, 15000);
+  if (S.profile?.role === "driver" && S.driver?.online)
+    S.offerSyncTimer = setInterval(() => syncDriverOffers().catch(() => {}), 8000);
 }
 async function safeRefresh() {
   if (S.refreshing || S.busy || modal.open || !S.profile || document.hidden) return;
@@ -3210,9 +3305,18 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     startDriverTracking();
     sendDriverPosition().catch(() => {});
+    syncDriverOffers().catch(() => {});
     safeRefresh();
   }
 });
+document.addEventListener(
+  "pointerdown",
+  () => {
+    if (S.profile?.role === "driver" && S.driver?.online && !S.offerAudioArmed)
+      armOfferSound().catch(() => {});
+  },
+  { passive: true },
+);
 let authLoading = false;
 db.auth.onAuthStateChange((event) => {
   if (event === "PASSWORD_RECOVERY") {
