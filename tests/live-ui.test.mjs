@@ -9,6 +9,7 @@ const paymentFunction = await readFile(new URL("../supabase/functions/mercado-pa
 const mapsFunction = await readFile(new URL("../supabase/functions/maps/index.ts", import.meta.url), "utf8");
 const driverLetters = await readFile(new URL("../scripts/generate-driver-documents.py", import.meta.url), "utf8");
 const schedulingMigration = await readFile(new URL("../supabase/migrations/20260913141001_trip_routes_and_scheduling.sql", import.meta.url), "utf8");
+const bookingHardeningMigration = await readFile(new URL("../supabase/migrations/20260914010851_booking_flow_hardening.sql", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -62,7 +63,7 @@ test("passenger unit search expands progressively and protects driver identity u
   assert.match(portal, /Sólo mostramos el tipo de servicio antes de confirmar/);
   assert.match(portal, /Yavoi! \$\{e\(serviceName\)\} · \$\{index === 0/);
   assert.doesNotMatch(portal, /bindTooltip\(`\$\{index === 0 \? "Recomendada por cercanía"[\s\S]*pickup_km/);
-  assert.match(portal, /Cuando un conductor acepte, recibirás su nombre, fotografía, vehículo, color, modelo, placas y calificación/);
+  assert.match(portal, /Los datos personales del conductor se muestran cuando acepte el viaje/);
   assert.match(portal, /refreshAvailableUnits\(\{ fit: false \}\)/);
 });
 
@@ -247,4 +248,21 @@ test("drivers receive an audible, visible and recoverable offer alert", () => {
   assert.match(portal, /Activar sonido/);
   assert.match(portal, /Probar alerta/);
   assert.match(css, /\.driver-offer-alert/);
+});
+
+test("fast booking, recurring schedules, GPS and flexible street names are hardened", () => {
+  assert.match(portal, /id="advanced-options-toggle"/);
+  assert.match(portal, /id="schedule-enabled"/);
+  assert.match(portal, /recurrence === "once" \? 1/);
+  assert.match(portal, /name="confirm_terms" type="checkbox" required/);
+  assert.doesNotMatch(portal, /La búsqueda comienza en 1 km/);
+  assert.match(portal, /function requestInitialLocation\(\)/);
+  assert.match(portal, /requestInitialLocation\(\);/);
+  assert.match(portal, /gain\.gain\.exponentialRampToValueAtTime\(0\.95/);
+  assert.match(mapsFunction, /addressQueryVariants/);
+  assert.match(mapsFunction, /1\/2/);
+  assert.match(mapsFunction, /nueve/);
+  assert.match(bookingHardeningMigration, /if cadence_value='once' then\s+count_value:=1/);
+  assert.match(bookingHardeningMigration, /'recurrence_count',count_value/);
+  assert.match(css, /\.compact-details/);
 });

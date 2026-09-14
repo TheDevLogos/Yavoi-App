@@ -36,6 +36,38 @@ function nominatimHeaders() {
   return { "user-agent": "Yavoi/1.1 (+https://yavoi-app.vercel.app/)", "accept-language": "es-MX,es;q=0.9" };
 }
 
+const streetNumbers: Record<string, number> = {
+  uno: 1, una: 1, primero: 1, dos: 2, segundo: 2, tres: 3, tercero: 3, cuatro: 4,
+  cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12,
+  trece: 13, catorce: 14, quince: 15, dieciseis: 16, diecisiete: 17, dieciocho: 18,
+  diecinueve: 19, veinte: 20, veintiuno: 21, veintidos: 22, veintitres: 23,
+  veinticuatro: 24, veinticinco: 25, veintiseis: 26, veintisiete: 27, veintiocho: 28,
+  veintinueve: 29, treinta: 30,
+};
+
+function plainWord(value: string) {
+  return value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es-MX");
+}
+
+function addressQueryVariants(value: string) {
+  const original = value.trim().replace(/\s+/g, " ");
+  const fraction = original.replace(/(\d)\s*½/g, "$1 1/2");
+  const numeric = fraction.replace(
+    /\b(calle|avenida|av\.?|privada|priv\.?|calzada)\s+(uno|una|primero|dos|segundo|tres|tercero|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis[eé]is|diecisiete|dieciocho|diecinueve|veinte|veintiuno|veintid[oó]s|veintitr[eé]s|veinticuatro|veinticinco|veintis[eé]is|veintisiete|veintiocho|veintinueve|treinta)(\s+y\s+media)?\b/gi,
+    (_match, prefix: string, numberWord: string, half: string) =>
+      `${prefix} ${streetNumbers[plainWord(numberWord)]}${half ? " 1/2" : ""}`,
+  );
+  const compactHalf = numeric.replace(/(\d+)\s+1\/2/g, "$1½");
+  const decimalHalf = numeric.replace(/(\d+)\s+1\/2/g, (_match, number) => String(Number(number) + 0.5));
+  return [...new Set([numeric, compactHalf, decimalHalf, original])].slice(0, 4);
+}
+
+function localAddressQuery(query: string) {
+  return /\b(delicias|meoqui)\b/i.test(query)
+    ? `${query}, Chihuahua, México`
+    : `${query}, Delicias, Chihuahua, México`;
+}
+
 Deno.serve(async (req: Request) => {
   const origin = originFor(req);
   if (!origin) return json({ error: "Origen no permitido." }, 403, "null");
@@ -53,18 +85,19 @@ Deno.serve(async (req: Request) => {
     if (type === "search") {
       const query = String(body.query || "").trim().replace(/\s+/g, " ");
       if (query.length < 3 || query.length > 160) return json({ error: "Escribe al menos tres caracteres." }, 400, origin);
-      const localQuery = /\b(delicias|meoqui)\b/i.test(query)
-        ? `${query}, Chihuahua, México`
-        : `${query}, Delicias, Chihuahua, México`;
-      key = `search:v2:${localQuery.toLocaleLowerCase("es-MX")}`;
+      key = `search:v3:${plainWord(query)}`;
       const { data: cached } = await serviceClient.rpc("yavoi_map_cache_get", { key_value: key });
       if (cached) return json(cached, 200, origin);
       const { data: permitted } = await serviceClient.rpc("yavoi_map_rate_limit", { target_user: authData.user.id });
       if (!permitted) return json({ error: "Espera un segundo antes de buscar otra dirección." }, 429, origin);
-      const params = new URLSearchParams({ format: "jsonv2", q: localQuery, countrycodes: "mx", viewbox: "-105.7,28.4,-105.2,28.0", bounded: "1", limit: "10", addressdetails: "1", dedupe: "1" });
-      const upstream = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { headers: nominatimHeaders() });
-      if (!upstream.ok) throw new Error("El buscador de direcciones no respondió.");
-      const raw = await upstream.json();
+      let raw: Record<string, unknown>[] = [];
+      for (const variant of addressQueryVariants(query)) {
+        const params = new URLSearchParams({ format: "jsonv2", q: localAddressQuery(variant), countrycodes: "mx", viewbox: "-105.7,28.4,-105.2,28.0", bounded: "1", limit: "10", addressdetails: "1", dedupe: "1" });
+        const upstream = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { headers: nominatimHeaders() });
+        if (!upstream.ok) throw new Error("El buscador de direcciones no respondió.");
+        raw = await upstream.json();
+        if (raw.length) break;
+      }
       const results = raw.map((item: Record<string, unknown>) => {
         const address = item.address && typeof item.address === "object" ? item.address as Record<string, unknown> : {};
         return {

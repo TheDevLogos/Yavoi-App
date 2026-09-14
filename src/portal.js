@@ -106,6 +106,8 @@ const S = {
   offerSyncing: false,
   offerAudioContext: null,
   offerAudioArmed: false,
+  initialLocationRequested: false,
+  initialLocationPromise: null,
   draftTimer: null,
   auditReport: null,
   auditFilters: { report: "overview", period: "month", driver_id: "", from: "", to: "" },
@@ -221,19 +223,19 @@ function playOfferSound() {
   const audio = S.offerAudioContext;
   if (!S.offerAudioArmed || !audio || audio.state !== "running") return false;
   const now = audio.currentTime;
-  [0, 0.23, 0.46].forEach((offset, index) => {
+  [0, 0.23, 0.46, 0.76].forEach((offset, index) => {
     const tone = audio.createOscillator();
     const gain = audio.createGain();
     tone.type = index === 2 ? "triangle" : "sine";
-    tone.frequency.setValueAtTime(index === 1 ? 740 : 880, now + offset);
+    tone.frequency.setValueAtTime(index % 2 ? 740 : 880, now + offset);
     gain.gain.setValueAtTime(0.0001, now + offset);
-    gain.gain.exponentialRampToValueAtTime(0.11, now + offset + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.18);
+    gain.gain.exponentialRampToValueAtTime(0.95, now + offset + 0.018);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.2);
     tone.connect(gain).connect(audio.destination);
     tone.start(now + offset);
-    tone.stop(now + offset + 0.2);
+    tone.stop(now + offset + 0.22);
   });
-  navigator.vibrate?.([110, 80, 110, 80, 180]);
+  navigator.vibrate?.([150, 70, 150, 70, 150, 70, 260]);
   return true;
 }
 function announceOffers(offers) {
@@ -412,6 +414,8 @@ function clearSession() {
   S.offerAudioContext?.close?.().catch?.(() => {});
   S.offerAudioContext = null;
   S.offerAudioArmed = false;
+  S.initialLocationRequested = false;
+  S.initialLocationPromise = null;
   clearTimeout(S.draftTimer);
   clearInterval(pollTimer);
   clearInterval(S.offerSyncTimer);
@@ -551,7 +555,11 @@ async function loadSession() {
   S.categories = b.categories || [];
   S.cardEnabled = !!b.card_enabled;
   S.mercadoPagoPublicKey = b.mercado_pago_public_key || "";
-  if (!S.profile.onboarding_complete) return onboarding();
+  if (!S.profile.onboarding_complete) {
+    onboarding();
+    requestInitialLocation();
+    return;
+  }
   if (S.profile.role === "admin") {
     const { data, error } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
     if (error) throw error;
@@ -561,6 +569,7 @@ async function loadSession() {
   S.data = await rpc("dashboard");
   S.auditReport = null;
   await renderRoute();
+  requestInitialLocation();
   startUpdates();
   if (S.profile.role === "driver" && S.driver?.online) startDriverTracking();
   else stopDriverTracking();
@@ -1057,6 +1066,10 @@ function rideDraftPayload(form = $("#quote-form")) {
   const values = Object.fromEntries(new FormData(form));
   const originValid = S.origin && values.origin === S.origin.name;
   const destinationValid = S.destination && values.destination === S.destination.name;
+  const scheduling = values.schedule_enabled === "on" && Boolean(values.scheduled_at);
+  const recurrence = scheduling && ["daily", "weekly", "monthly"].includes(values.recurrence)
+    ? values.recurrence
+    : "once";
   return {
     origin: values.origin || "",
     origin_lat: originValid ? S.origin.lat : null,
@@ -1069,9 +1082,9 @@ function rideDraftPayload(form = $("#quote-form")) {
     service_notes: values.service_notes || "",
     women_only: values.women_only === "on",
     accessible: values.accessible === "on",
-    scheduled_at: values.scheduled_at || null,
-    recurrence: values.recurrence || "once",
-    recurrence_count: Number(values.recurrence_count || 1),
+    scheduled_at: scheduling ? values.scheduled_at : null,
+    recurrence,
+    recurrence_count: recurrence === "once" ? 1 : Number(values.recurrence_count || 2),
   };
 }
 function scheduleRideDraft() {
@@ -1109,13 +1122,64 @@ function riderHome() {
   }
   const cats = S.categories.filter((category) => category.active);
   const selectedCategory = draft?.category || cats[0]?.id;
+  const scheduled = Boolean(draft?.scheduled_at);
+  const recurrence = scheduled && ["daily", "weekly", "monthly"].includes(draft?.recurrence)
+    ? draft.recurrence
+    : "once";
+  const advancedOpen = Boolean(scheduled || draft?.service_notes || draft?.women_only || draft?.accessible);
+  const minSchedule = localDateTime(new Date(Date.now() + 15 * 60000));
+  const maxSchedule = localDateTime(new Date(Date.now() + 30 * 86400000));
   shell(
-    `<div class="booking"><section class="panel"><div class="row between"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form"><div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address" placeholder="Ej. Av. Río Conchos 123"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}<span>Buscar</span></button></div><div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="destinations" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Ej. Calle 3a Norte 120, colonia Centro" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}<span>Buscar</span></button></div><datalist id="destinations">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist><div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Elegir origen en mapa</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Elegir destino en mapa</button></div><h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt=""></div><div><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div><div class="grid2 service-request"><label>Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label><label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label></div><label class="check women">${I("shield-check")}<span>Prefiero una conductora<small>Sujeto a disponibilidad de conductoras conectadas.</small></span><input name="women_only" type="checkbox" ${draft?.women_only ? "checked" : ""}></label><label class="check accessible-service">${I("accessibility")}<span>Servicio para personas con alguna discapacidad</span><input name="accessible" type="checkbox" ${draft?.accessible ? "checked" : ""}></label><div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""> <div><strong id="unit-selection">Asignación automática a la unidad más cercana</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div><label>Programar (opcional)<input name="scheduled_at" type="datetime-local" value="${e(draft?.scheduled_at || "")}"></label><button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button><p class="hint">La búsqueda comienza en 1 km y se amplía de kilómetro en kilómetro hasta encontrar unidades compatibles. Antes de confirmar sólo verás el tipo de servicio y su ubicación aproximada. Cuando un conductor acepte, recibirás su nombre, fotografía, vehículo, color, modelo, placas y calificación.</p></form></section>${mapFrame()}</div>`,
+    `<div class="booking"><section class="panel booking-panel"><div class="row between booking-title"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form">
+      <div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address" placeholder="Ej. Av. Río Conchos 123"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}<span>Buscar</span></button></div>
+      <div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="destinations" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Ej. Calle 9 1/2, colonia Centro" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}<span>Buscar</span></button></div>
+      <datalist id="destinations">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist>
+      <div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Elegir origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Elegir destino</button></div>
+      <h3>Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt=""></div><div><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div>
+      <label class="passenger-count">Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label>
+      <label class="check advanced-toggle"><input id="advanced-options-toggle" type="checkbox" ${advancedOpen ? "checked" : ""}><span>${I("sliders-horizontal")}<strong>Opciones avanzadas</strong><small>Programar, agregar indicaciones o preferencias.</small></span>${I("chevron-down")}</label>
+      <fieldset id="advanced-options" class="advanced-options ${advancedOpen ? "" : "hidden"}" ${advancedOpen ? "" : "disabled"}>
+        <label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label>
+        <label class="check women">${I("shield-check")}<span>Prefiero una conductora<small>Sujeto a disponibilidad de conductoras conectadas.</small></span><input name="women_only" type="checkbox" ${draft?.women_only ? "checked" : ""}></label>
+        <label class="check accessible-service">${I("accessibility")}<span>Servicio para personas con alguna discapacidad</span><input name="accessible" type="checkbox" ${draft?.accessible ? "checked" : ""}></label>
+        <label class="check schedule-toggle"><input id="schedule-enabled" name="schedule_enabled" type="checkbox" ${scheduled ? "checked" : ""}><span>${I("calendar-clock")}<strong>Programar para otra fecha</strong><small>El viaje inmediato sigue siendo la opción predeterminada.</small></span></label>
+        <div id="schedule-fields" class="schedule-fields ${scheduled ? "" : "hidden"}">
+          <label>Fecha y hora<input name="scheduled_at" type="datetime-local" min="${minSchedule}" max="${maxSchedule}" value="${e(draft?.scheduled_at || "")}" ${scheduled ? "required" : "disabled"}></label>
+          <div class="grid2 schedule-options"><label>Frecuencia<select name="recurrence" ${scheduled ? "" : "disabled"}><option value="once">Una vez</option><option value="daily" ${recurrence === "daily" ? "selected" : ""}>Diario</option><option value="weekly" ${recurrence === "weekly" ? "selected" : ""}>Semanal</option><option value="monthly" ${recurrence === "monthly" ? "selected" : ""}>Mensual</option></select></label><label id="recurrence-count" class="${recurrence === "once" ? "hidden" : ""}">Número de viajes<input name="recurrence_count" type="number" min="2" max="${recurrence === "daily" ? 31 : 12}" value="${e(recurrence === "once" ? 2 : draft?.recurrence_count || 2)}" ${scheduled && recurrence !== "once" ? "" : "disabled"}></label></div>
+        </div>
+      </fieldset>
+      <div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""><div><strong id="unit-selection">Asignación automática a la unidad más cercana</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div>
+      <button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button>
+      <small class="booking-privacy-note">Los datos personales del conductor se muestran cuando acepte el viaje.</small>
+    </form></section>${mapFrame()}</div>`,
     `¿A dónde vamos, ${e(S.profile.full_name.split(" ")[0])}?`,
     "Elige tu destino, necesidades y revisa el precio antes de confirmar.",
   );
   startMap();
-  $('[name=scheduled_at]')?.closest("label")?.insertAdjacentHTML("afterend", `<div class="grid2 schedule-options"><label>Frecuencia<select name="recurrence"><option value="once">Una vez</option><option value="daily" ${draft?.recurrence === "daily" ? "selected" : ""}>Diario</option><option value="weekly" ${draft?.recurrence === "weekly" ? "selected" : ""}>Semanal</option><option value="monthly" ${draft?.recurrence === "monthly" ? "selected" : ""}>Mensual</option></select></label><label id="recurrence-count" class="${!draft?.recurrence || draft?.recurrence === "once" ? "hidden" : ""}">Número de viajes<input name="recurrence_count" type="number" min="2" max="31" value="${e(draft?.recurrence_count || 2)}"></label></div><p class="hint schedule-help">Programa una vez o repite tu recorrido. Cada fecha se guardará en Mis viajes; el pago con tarjeta se confirma por cada servicio.</p>`);
+  const syncAdvancedOptions = () => {
+    const advanced = $("#advanced-options-toggle").checked;
+    if (!advanced) $("#schedule-enabled").checked = false;
+    const scheduledEnabled = advanced && $("#schedule-enabled").checked;
+    const repeated = scheduledEnabled && $("[name=recurrence]").value !== "once";
+    $("#advanced-options").disabled = !advanced;
+    $("#advanced-options").classList.toggle("hidden", !advanced);
+    $("#schedule-fields").classList.toggle("hidden", !scheduledEnabled);
+    $("[name=scheduled_at]").disabled = !scheduledEnabled;
+    $("[name=scheduled_at]").required = scheduledEnabled;
+    $("[name=recurrence]").disabled = !scheduledEnabled;
+    $("#recurrence-count").classList.toggle("hidden", !repeated);
+    $("[name=recurrence_count]").disabled = !repeated;
+    $("[name=recurrence_count]").max = $("[name=recurrence]").value === "daily" ? "31" : "12";
+    if (!scheduledEnabled) {
+      $("[name=scheduled_at]").value = "";
+      $("[name=recurrence]").value = "once";
+    }
+    if (!repeated) $("[name=recurrence_count]").value = "2";
+  };
+  $("#advanced-options-toggle").addEventListener("change", () => { syncAdvancedOptions(); refreshAvailableUnits(); scheduleRideDraft(); });
+  $("#schedule-enabled").addEventListener("change", () => { syncAdvancedOptions(); scheduleRideDraft(); });
+  $("[name=recurrence]").addEventListener("change", () => { syncAdvancedOptions(); scheduleRideDraft(); });
+  syncAdvancedOptions();
   refreshAvailableUnits();
   $$('[data-search-address]').forEach((search) => search.onclick = () => searchAddress(search.dataset.searchAddress));
   ["origin", "destination"].forEach((kind) => {
@@ -1129,12 +1193,7 @@ function riderHome() {
     refreshAvailableUnits();
     scheduleRideDraft();
   }));
-  $$('[name=origin],[name=destination],[name=party_size],[name=service_notes],[name=scheduled_at],[name=recurrence],[name=recurrence_count]').forEach((control) => control.addEventListener("input", scheduleRideDraft));
-  $("[name=recurrence]")?.addEventListener("change", (event) => {
-    const repeated = event.target.value !== "once";
-    $("#recurrence-count")?.classList.toggle("hidden", !repeated);
-    scheduleRideDraft();
-  });
+  $$('[name=origin],[name=destination],[name=party_size],[name=service_notes],[name=scheduled_at],[name=recurrence_count]').forEach((control) => control.addEventListener("input", scheduleRideDraft));
   ["origin", "destination"].forEach((kind) =>
     $(`[name=${kind}]`).addEventListener("change", (event) => {
       const place = places.find((item) => item.name === event.target.value);
@@ -1172,6 +1231,12 @@ function riderHome() {
   bindForm("#quote-form", async (values) => {
     if (!S.origin || !S.destination)
       throw Error("Selecciona ambos puntos en el mapa o en las sugerencias.");
+    const scheduling = values.schedule_enabled === "on";
+    if (scheduling && !values.scheduled_at)
+      throw Error("Elige la fecha y hora del viaje programado.");
+    const recurrence = scheduling && ["daily", "weekly", "monthly"].includes(values.recurrence)
+      ? values.recurrence
+      : "once";
     S.quote = await rpc("quote", {
       ...values,
       party_size: Number(values.party_size),
@@ -1181,15 +1246,15 @@ function riderHome() {
       dest_lng: S.destination.lng,
       women_only: values.women_only === "on",
       accessible: values.accessible === "on",
-      scheduled_at: values.scheduled_at ? new Date(values.scheduled_at).toISOString() : null,
+      scheduled_at: scheduling ? new Date(values.scheduled_at).toISOString() : null,
       preferred_driver_id: S.selectedUnit,
     });
     if (S.roadRoute) {
       S.quote.road_distance_km = S.roadRoute.distance_km;
       S.quote.road_duration_minutes = S.roadRoute.duration_minutes;
     }
-    S.quote.recurrence = values.recurrence || "once";
-    S.quote.recurrence_count = Number(values.recurrence_count || 1);
+    S.quote.recurrence = recurrence;
+    S.quote.recurrence_count = recurrence === "once" ? 1 : Number(values.recurrence_count || 2);
     S.quote.planned_route = S.roadRoute ? {
       coordinates: S.roadRoute.coordinates,
       distance_km: S.roadRoute.distance_km,
@@ -1229,7 +1294,7 @@ function paymentModal() {
     : `<p class="hint">Aún no tienes recompensas disponibles para aplicar a este viaje. Puedes conseguirlas en Puntos Viajeros.</p>`;
   openModal(
     "Tu viaje, con todo claro",
-    `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.distance_km)} km · ${q.trip_eta_minutes} min</strong><span>${zoneLabel(q.service_zone)}</span></div></div><p class="hint">El precio usa la distancia y duración estimadas por el servidor. Puede variar en una nueva cotización por tráfico, cierre de calles o disponibilidad. ${q.scheduled_at ? "Programado: " + date(q.scheduled_at) : ""}</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Distancia · ${decimal(q.distance_km)} km</span><span>${money(q.distance_charge_cents)}</span></div><div class="receipt-row"><span>Tiempo estimado · ${q.trip_eta_minutes} min</span><span>${money(q.time_charge_cents)}</span></div>${q.minimum_adjustment_cents ? `<div class="receipt-row"><span>Ajuste a tarifa mínima</span><span>${money(q.minimum_adjustment_cents)}</span></div>` : ""}${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Unidad elegida a más de 7 km · sólo excedente</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Servicio para personas con alguna discapacidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}<div class="receipt-row reward-discount-row hidden"><span id="reward-preview-name">Recompensa</span><strong id="reward-preview-value">-$0.00</strong></div><div class="receipt-row"><span>Propina voluntaria</span><strong id="tip-preview">$0.00</strong></div><div class="receipt-row total"><span>Total</span><strong id="total-preview">${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>Tu recompensa</h3>${rewardOptions}<h3>Agrega una propina (opcional)</h3><div class="tip-options"><label><input type="radio" name="tip" value="0" checked>Sin propina</label><label><input type="radio" name="tip" value="10">10%</label><label><input type="radio" name="tip" value="15">15%</label><label><input type="radio" name="tip" value="custom">Otro</label></div><label id="custom-tip-label" class="hidden">Propina (MXN)<input name="custom_tip" type="number" min="1" max="1000" step="0.01"></label><h3>¿Cómo quieres pagar?</h3><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo al finalizar el viaje</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input id="card-payment-choice" type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago ${S.cardEnabled ? "" : "· lista para activar"}</label><p class="hint">Los datos de tarjeta se capturan en el formulario seguro de Mercado Pago y Yavoi! no recibe ni almacena el número o CVV.</p><div id="cash-options"><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="3000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p></div><button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`,
+    `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.distance_km)} km · ${q.trip_eta_minutes} min</strong><span>${zoneLabel(q.service_zone)}</span></div></div>${q.scheduled_at ? `<div class="scheduled-confirmation">${I("calendar-check")}<div><strong>${q.recurrence === "once" ? "Viaje programado" : `${q.recurrence_count} viajes programados`}</strong><small>${date(q.scheduled_at)}${q.recurrence !== "once" ? ` · ${e({ daily: "diarios", weekly: "semanales", monthly: "mensuales" }[q.recurrence])}` : ""}</small></div></div>` : ""}<p class="hint">El precio usa la distancia y duración estimadas por el servidor. Puede variar en una nueva cotización por tráfico, cierre de calles o disponibilidad.</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Distancia · ${decimal(q.distance_km)} km</span><span>${money(q.distance_charge_cents)}</span></div><div class="receipt-row"><span>Tiempo estimado · ${q.trip_eta_minutes} min</span><span>${money(q.time_charge_cents)}</span></div>${q.minimum_adjustment_cents ? `<div class="receipt-row"><span>Ajuste a tarifa mínima</span><span>${money(q.minimum_adjustment_cents)}</span></div>` : ""}${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Unidad elegida a más de 7 km · sólo excedente</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Servicio para personas con alguna discapacidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}<div class="receipt-row reward-discount-row hidden"><span id="reward-preview-name">Recompensa</span><strong id="reward-preview-value">-$0.00</strong></div><div class="receipt-row"><span>Propina voluntaria</span><strong id="tip-preview">$0.00</strong></div><div class="receipt-row total"><span>Total</span><strong id="total-preview">${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>Tu recompensa</h3>${rewardOptions}<h3>Agrega una propina (opcional)</h3><div class="tip-options"><label><input type="radio" name="tip" value="0" checked>Sin propina</label><label><input type="radio" name="tip" value="10">10%</label><label><input type="radio" name="tip" value="15">15%</label><label><input type="radio" name="tip" value="custom">Otro</label></div><label id="custom-tip-label" class="hidden">Propina (MXN)<input name="custom_tip" type="number" min="1" max="1000" step="0.01"></label><h3>¿Cómo quieres pagar?</h3><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo al finalizar el viaje</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input id="card-payment-choice" type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago ${S.cardEnabled ? "" : "· lista para activar"}</label><p class="hint">Los datos de tarjeta se capturan en el formulario seguro de Mercado Pago y Yavoi! no recibe ni almacena el número o CVV.</p><div id="cash-options"><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="3000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p></div><label class="check payment-consent"><input name="confirm_terms" type="checkbox" required><span>Confirmo la tarifa, el método de pago y las condiciones de cancelación.</span></label><button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`,
   );
   const tipCents = () => {
     const choice = $('[name=tip]:checked').value;
@@ -1842,6 +1907,30 @@ function rewards() {
     driver ? "Tu buen servicio se recompensa." : "Viaja, suma y disfruta.",
     driver ? "Beneficios graduales para cuidar tu unidad y reconocer tu desempeño." : "Puntos Viajeros y recompensas que puedes guardar para cuando las necesites.",
   );
+  const compactSection = (section, summaryMarkup, { openOnDesktop = false } = {}) => {
+    if (!section) return;
+    const details = document.createElement("details");
+    details.className = `${section.className} compact-details`;
+    details.open = openOnDesktop && !window.matchMedia("(max-width: 650px)").matches;
+    const summary = document.createElement("summary");
+    summary.innerHTML = summaryMarkup;
+    details.append(summary, ...section.childNodes);
+    section.replaceWith(details);
+  };
+  const catalogHeading = $(".reward-heading");
+  const catalogSection = catalogHeading?.closest("section");
+  if (catalogHeading && catalogSection) {
+    const summaryMarkup = catalogHeading.innerHTML;
+    catalogHeading.remove();
+    compactSection(catalogSection, summaryMarkup, { openOnDesktop: true });
+  }
+  const rules = $(".reward-rules");
+  const rulesSection = rules?.closest("section");
+  if (rules && rulesSection) {
+    $("h2", rulesSection)?.remove();
+    compactSection(rulesSection, `<span>${I("plus-circle")}<strong>Cómo sumas</strong></span>${I("chevron-down")}`);
+  }
+  iconsNow();
   $$('[data-view-coupon]').forEach((item) => item.onclick = () => {
     const redemption = redemptions.find((entry) => entry.id === item.dataset.viewCoupon);
     if (redemption) openRewardCoupon(redemption);
@@ -2773,6 +2862,34 @@ function browserPosition() {
   ).catch(() => {
     throw Error("No pudimos obtener tu ubicación. Revisa el permiso del navegador e inténtalo de nuevo.");
   });
+}
+function requestInitialLocation() {
+  if (S.initialLocationRequested || !["passenger", "driver"].includes(S.profile?.role))
+    return S.initialLocationPromise;
+  S.initialLocationRequested = true;
+  S.initialLocationPromise = browserPosition()
+    .then(async (position) => {
+      S.latestPosition = position;
+      if (S.profile?.role === "passenger") {
+        if (draftPoint(S.data?.ride_draft, "origin")) return position;
+        const point = {
+          name: "Mi ubicación actual",
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        };
+        S.origin = point;
+        if ($("#quote-form"))
+          await placeRidePoint("origin", point, { resolveAddress: true, focus: true });
+      } else if (S.driver?.online) {
+        await sendDriverPosition(position);
+      }
+      return position;
+    })
+    .catch((error) => {
+      notify(errorMessage(error));
+      return null;
+    });
+  return S.initialLocationPromise;
 }
 function positionPayload(position) {
   return {

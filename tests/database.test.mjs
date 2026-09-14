@@ -958,6 +958,85 @@ test("Postgres security and complete ride lifecycle", async () => {
   );
   await as(ids.rider);
 
+  const scheduledAt = new Date(Date.now() + 2 * 86400000).toISOString();
+  await rpc("save_ride_draft", {
+    origin: "Mi ubicación actual",
+    origin_lat: 28.19065,
+    origin_lng: -105.47045,
+    destination: "Hotel Baeza",
+    dest_lat: 28.1965594,
+    dest_lng: -105.4706209,
+    category: "basic",
+    party_size: 1,
+    scheduled_at: scheduledAt,
+    recurrence: "weekly",
+    recurrence_count: 3,
+  });
+  let savedDraft = (await rpc("dashboard")).ride_draft;
+  assert.equal(savedDraft.recurrence, "weekly");
+  assert.equal(savedDraft.recurrence_count, 3);
+  await rpc("save_ride_draft", { category: "basic", party_size: 1, recurrence: "weekly", recurrence_count: 9 });
+  savedDraft = (await rpc("dashboard")).ride_draft;
+  assert.equal(savedDraft.recurrence, "once");
+  assert.equal(savedDraft.recurrence_count, 1);
+
+  const scheduledQuote = await rpc("quote", {
+    origin: "Centro",
+    destination: "Hotel Baeza",
+    origin_lat: 28.19065,
+    origin_lng: -105.47045,
+    dest_lat: 28.1965594,
+    dest_lng: -105.4706209,
+    category: "basic",
+    scheduled_at: scheduledAt,
+  });
+  const singleScheduled = await rpc("request_trip", {
+    quote_id: scheduledQuote.id,
+    request_key: crypto.randomUUID(),
+    payment_method: "cash",
+    cash_tender_cents: scheduledQuote.fare_cents,
+    recurrence: "once",
+    recurrence_count: 7,
+  });
+  assert.equal(singleScheduled.scheduled_count, 1);
+  assert.equal((await db.query("select schedule_series_id from public.trips where id=$1", [singleScheduled.id])).rows[0].schedule_series_id, null);
+
+  const recurringQuote = await rpc("quote", {
+    origin: "Centro",
+    destination: "Hotel Casa Grande",
+    origin_lat: 28.19065,
+    origin_lng: -105.47045,
+    dest_lat: 28.192823,
+    dest_lng: -105.462647,
+    category: "basic",
+    scheduled_at: scheduledAt,
+  });
+  const recurringTrip = await rpc("request_trip", {
+    quote_id: recurringQuote.id,
+    request_key: crypto.randomUUID(),
+    payment_method: "cash",
+    cash_tender_cents: recurringQuote.fare_cents,
+    recurrence: "weekly",
+    recurrence_count: 3,
+  });
+  assert.equal(recurringTrip.scheduled_count, 3);
+  assert.equal((await db.query("select count(*)::integer as count from public.trips where schedule_series_id=$1", [recurringTrip.schedule_series_id])).rows[0].count, 3);
+  const recurringAmounts = (await db.query(
+    `select t.schedule_sequence,t.fare_cents,t.total_cents,q.fare_cents as quote_fare_cents,
+      p.amount_cents as payment_cents
+     from public.trips t
+     join public.quotes q on q.id=t.quote_id
+     join public.payments p on p.trip_id=t.id and p.kind='ride'
+     where t.schedule_series_id=$1 order by t.schedule_sequence`,
+    [recurringTrip.schedule_series_id],
+  )).rows;
+  assert.equal(new Set((await db.query("select quote_id from public.trips where schedule_series_id=$1", [recurringTrip.schedule_series_id])).rows.map((row) => row.quote_id)).size, 3);
+  for (const amount of recurringAmounts) {
+    assert.equal(amount.fare_cents, amount.quote_fare_cents);
+    assert.equal(amount.total_cents, amount.quote_fare_cents);
+    assert.equal(amount.payment_cents, amount.total_cents);
+  }
+
   const regional = await rpc("quote", {
     origin: "Zona norte",
     destination: "Centro de Meoqui",
