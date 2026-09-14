@@ -43,6 +43,10 @@ const auditActions = Object.freeze({
   trip_cancelled: ["Viaje cancelado", "Viajes"],
   cancellation_fee_settled: ["Cuota de cancelación conciliada", "Pagos"],
   operations_report_exported: ["Informe generado", "Informes"],
+  scheduled_trip_confirmed: ["Viaje programado confirmado", "Viajes"],
+  scheduled_trip_assigned: ["Conductor reservado para viaje programado", "Viajes"],
+  saved_place_updated: ["Destino frecuente guardado", "Perfil"],
+  saved_place_deleted: ["Destino frecuente eliminado", "Perfil"],
 });
 const detailLabels = Object.freeze({
   active: "Cuenta activa",
@@ -76,6 +80,8 @@ const detailLabels = Object.freeze({
   cancelled_by_role: "Cancelado por",
   policy_version: "Versión de políticas",
   status: "Estado",
+  scheduled_at: "Fecha programada",
+  slot: "Destino frecuente",
   traffic_law_version: "Versión de obligaciones viales",
 });
 
@@ -124,6 +130,11 @@ export function reportSections(report = {}, type = "overview") {
         const item = report.periods?.[key] || {};
         return [periodNames[key], num(item.trips), num(item.completed), money(item.gross_cents), money(item.platform_commission_cents)];
       }),
+    },
+    {
+      title: "Servicios por categoría",
+      head: ["Tipo de servicio", "Solicitados", "Completados", "Ingresos", "Ticket promedio"],
+      body: (report.service_mix || []).map((item) => [`Yavoi! ${item.name}`, num(item.trips), num(item.completed), money(item.gross_cents), money(item.average_ticket_cents)]),
     },
     {
       title: "Rendimiento de conductores",

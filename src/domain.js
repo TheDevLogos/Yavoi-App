@@ -27,6 +27,7 @@ export const navs = {
   admin: [
     ["home", "layout-dashboard", "Resumen"],
     ["opsmap", "map", "Mapa en vivo"],
+    ["schedule", "calendar-days", "Agenda de viajes"],
     ["trips", "route", "Viajes"],
     ["fleet", "car", "Conductores y flotilla"],
     ["payments", "credit-card", "Pagos y cuotas"],

@@ -111,6 +111,8 @@ const S = {
   draftTimer: null,
   auditReport: null,
   auditFilters: { report: "overview", period: "month", driver_id: "", from: "", to: "" },
+  scheduleMonth: new Date().toISOString().slice(0, 7),
+  scheduleData: null,
 };
 const modal = $("#modal");
 let toastTimer, pollTimer;
@@ -405,6 +407,7 @@ function clearSession() {
   S.units = [];
   S.selectedUnit = null;
   S.auditReport = null;
+  S.scheduleData = null;
   S.avatarUrls = {};
   S.vehiclePhotoUrls = {};
   S.knownOfferIds = new Set();
@@ -568,6 +571,7 @@ async function loadSession() {
   await loadAvatar(S.profile.avatar_path);
   S.data = await rpc("dashboard");
   S.auditReport = null;
+  S.scheduleData = null;
   await renderRoute();
   requestInitialLocation();
   startUpdates();
@@ -1100,6 +1104,34 @@ function scheduleRideDraft() {
     } catch {}
   }, 700);
 }
+function openSavedDestinationEditor() {
+  const labels = { home: "Casa", work: "Trabajo", school: "Escuela" };
+  const saved = S.data.saved_places || [];
+  openModal(
+    "Destinos frecuentes",
+    `<form id="saved-destination-form"><p>${S.destination ? `Guarda <strong>${e(S.destination.name)}</strong> para elegirlo después escribiendo Casa, Trabajo o Escuela.` : "Selecciona primero un destino buscando la dirección o colocando el marcador."}</p><label>Guardar como<select name="slot" required><option value="home">Casa</option><option value="work">Trabajo</option><option value="school">Escuela</option></select></label><button class="btn wide" type="submit" ${S.destination ? "" : "disabled"}>Guardar ubicación ${I("bookmark-check")}</button></form>${saved.length ? `<div class="saved-place-list">${saved.map((place) => `<div><span>${I(place.slot === "home" ? "house" : place.slot === "work" ? "briefcase-business" : "school")}<strong>${e(labels[place.slot])}</strong><small>${e(place.address)}</small></span><button type="button" class="icon-btn" data-delete-saved-place="${e(place.slot)}" aria-label="Eliminar ${e(labels[place.slot])}">${I("trash-2")}</button></div>`).join("")}</div>` : ""}`,
+  );
+  bindForm("#saved-destination-form", async (values) => {
+    if (!S.destination) throw Error("Selecciona primero el destino que quieres guardar.");
+    const place = await rpc("save_saved_place", {
+      slot: values.slot,
+      address: S.destination.name.replace(/^(Casa|Trabajo|Escuela):\s*/i, ""),
+      lat: S.destination.lat,
+      lng: S.destination.lng,
+    });
+    S.data.saved_places = [...saved.filter((item) => item.slot !== place.slot), place];
+    closeModal();
+    riderHome();
+    notify(`${labels[place.slot]} quedó disponible en el campo Destino.`);
+  });
+  $$('[data-delete-saved-place]', modal).forEach((item) => item.onclick = () => run(async () => {
+    await rpc("delete_saved_place", { slot: item.dataset.deleteSavedPlace });
+    S.data.saved_places = saved.filter((place) => place.slot !== item.dataset.deleteSavedPlace);
+    closeModal();
+    riderHome();
+    notify("Destino guardado eliminado.");
+  }));
+}
 function riderHome() {
   const current = S.data.trips.find((trip) => active(trip) && trip.status !== "scheduled");
   if (current) {
@@ -1121,6 +1153,12 @@ function riderHome() {
     S.destination = draftPoint(draft, "destination");
   }
   const cats = S.categories.filter((category) => category.active);
+  const savedPlaceLabels = { home: "Casa", work: "Trabajo", school: "Escuela" };
+  const savedDestinations = (S.data.saved_places || []).map((place) => ({
+    ...place,
+    name: `${savedPlaceLabels[place.slot] || "Guardado"}: ${place.address}`,
+  }));
+  const destinationChoices = [...savedDestinations, ...places];
   const selectedCategory = draft?.category || cats[0]?.id;
   const scheduled = Boolean(draft?.scheduled_at);
   const recurrence = scheduled && ["daily", "weekly", "monthly"].includes(draft?.recurrence)
@@ -1133,8 +1171,8 @@ function riderHome() {
     `<div class="booking"><section class="panel booking-panel"><div class="row between booking-title"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form">
       <div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address" placeholder="Ej. Av. Río Conchos 123"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}<span>Buscar</span></button></div>
       <div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="destinations" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Ej. Calle 9 1/2, colonia Centro" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}<span>Buscar</span></button></div>
-      <datalist id="destinations">${places.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist>
-      <div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Elegir origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Elegir destino</button></div>
+      <datalist id="destinations">${destinationChoices.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist>
+      <div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Elegir origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Elegir destino</button><button type="button" id="save-destination">${I("bookmark-plus")} Guardar destino</button></div>
       <h3 class="service-picker-title">Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt="Vehículo Yavoi! ${e(category.name)}"></div><div class="category-copy"><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div>
       <label class="passenger-count">Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label>
       <label class="check advanced-toggle"><input id="advanced-options-toggle" type="checkbox" ${advancedOpen ? "checked" : ""}><span>${I("sliders-horizontal")}<strong>Opciones avanzadas</strong><small>Programar, agregar indicaciones o preferencias.</small></span>${I("chevron-down")}</label>
@@ -1196,7 +1234,7 @@ function riderHome() {
   $$('[name=origin],[name=destination],[name=party_size],[name=service_notes],[name=scheduled_at],[name=recurrence_count]').forEach((control) => control.addEventListener("input", scheduleRideDraft));
   ["origin", "destination"].forEach((kind) =>
     $(`[name=${kind}]`).addEventListener("change", (event) => {
-      const place = places.find((item) => item.name === event.target.value);
+      const place = (kind === "destination" ? destinationChoices : places).find((item) => item.name === event.target.value);
       if (place) {
         S[kind] = place;
         S.roadRoute = null;
@@ -1216,6 +1254,7 @@ function riderHome() {
   $("#map-destination").onclick = () => {
     setMapPicker(S.pick === "destination" ? null : "destination");
   };
+  $("#save-destination").onclick = () => openSavedDestinationEditor();
   $("#gps-origin").onclick = () => {
     if (!navigator.geolocation) return notify("Tu navegador no permite ubicación. Usa el mapa.");
     navigator.geolocation.getCurrentPosition(
@@ -1500,6 +1539,132 @@ function scheduledTripsMarkup() {
   const scheduled = S.data.scheduling?.upcoming || [];
   if (!scheduled.length) return "";
   return `<section class="panel scheduled-trips"><div class="row between wrap"><div><div class="eyebrow">VIAJES PROGRAMADOS</div><h2>${S.profile.role === "admin" ? "Aparta una unidad con anticipación" : "Próximos viajes programados"}</h2><p>${S.profile.role === "admin" ? "Asigna o libera conductores antes de la hora de salida." : "Tus fechas permanecen guardadas y se activarán cerca de su horario."}</p></div>${I("calendar-clock")}</div><div class="scheduled-list">${scheduled.map((trip) => `<article class="scheduled-card"><div><strong>${e(trip.origin)}</strong><span>${I("arrow-down")} ${e(trip.destination)}</span><small>${date(trip.scheduled_at)} · Yavoi! ${e(S.categories.find((category) => category.id === trip.category)?.name || trip.category)} · ${money(trip.total_cents || 0)}</small>${trip.schedule_total > 1 ? `<small>Serie ${trip.schedule_sequence}/${trip.schedule_total}</small>` : ""}</div><div class="scheduled-actions">${S.profile.role === "admin" ? `<small>${trip.driver_name ? `Reservado: ${e(trip.driver_name)}` : "Sin conductor reservado"}</small><button class="btn secondary" type="button" data-action="assign-scheduled" data-trip-id="${e(trip.id)}">${trip.driver_id ? "Cambiar unidad" : "Asignar unidad"} ${I("user-round-check")}</button>` : `<span class="badge ${trip.payment_status === "paid" || trip.payment_method === "cash" ? "" : "pending"}">${trip.payment_method === "card" && trip.payment_status !== "paid" ? "Pago pendiente" : trip.driver_id ? "Unidad reservada" : "Por asignar"}</span><a class="link" href="#trip/${e(trip.id)}">Ver viaje</a>`}</div></article>`).join("")}</div></section>`;
+}
+const scheduleDateKey = (value) => {
+  const item = new Date(value);
+  const year = item.getFullYear();
+  const month = String(item.getMonth() + 1).padStart(2, "0");
+  const day = String(item.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+const scheduleMonthLabel = (month) => new Intl.DateTimeFormat("es-MX", { month: "long", year: "numeric" })
+  .format(new Date(`${month}-01T12:00:00`));
+function shiftedScheduleMonth(offset) {
+  const value = new Date(`${S.scheduleMonth}-01T12:00:00`);
+  value.setMonth(value.getMonth() + offset);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`;
+}
+function scheduleWhatsAppNumber(phone = "") {
+  const digits = String(phone).replace(/\D/g, "");
+  if (digits.length === 10) return `52${digits}`;
+  return digits.startsWith("52") ? digits : digits;
+}
+function scheduleWhatsAppMessage(trip) {
+  const category = S.categories.find((item) => item.id === trip.category)?.name || trip.category;
+  const payment = trip.payment_method === "card" ? "tarjeta" : "efectivo";
+  return `Hola ${trip.passenger_name}, somos Yavoi!. Queremos confirmar tu viaje programado para ${date(trip.scheduled_at)}.\n\nOrigen: ${trip.origin}\nDestino: ${trip.destination}\nServicio: Yavoi! ${category}\nPasajeros: ${trip.party_size || 1}\nImporte estimado: ${money(trip.total_cents)}\nPago: ${payment}\nFolio: ${String(trip.id).slice(0, 8).toUpperCase()}\n\nPor favor responde a este mensaje para confirmar que los datos son correctos.`;
+}
+function announceScheduleReminders(reminders = []) {
+  reminders.forEach((trip) => {
+    const key = `yavoi:schedule-alert:${trip.id}:${trip.minutes_before}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "shown");
+    } catch {}
+    serviceNotification(
+      `Viaje programado en ${trip.minutes_before} minutos`,
+      `${trip.passenger_name}: ${trip.origin} hacia ${trip.destination}. Confirma la reserva desde la Agenda.`,
+      { tag: key, target: "schedule" },
+    );
+  });
+}
+async function loadScheduleOperations() {
+  S.scheduleData = await rpc("scheduled_operations", { month: S.scheduleMonth });
+}
+function scheduleCalendarMarkup(data) {
+  const trips = data.trips || [];
+  const grouped = Object.groupBy
+    ? Object.groupBy(trips, (trip) => scheduleDateKey(trip.scheduled_at))
+    : trips.reduce((all, trip) => ((all[scheduleDateKey(trip.scheduled_at)] ||= []).push(trip), all), {});
+  const first = new Date(`${S.scheduleMonth}-01T12:00:00`);
+  const days = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const leading = (first.getDay() + 6) % 7;
+  const cells = Array.from({ length: leading }, () => '<div class="schedule-day empty-day" aria-hidden="true"></div>');
+  for (let day = 1; day <= days; day += 1) {
+    const key = `${S.scheduleMonth}-${String(day).padStart(2, "0")}`;
+    const items = grouped[key] || [];
+    const today = key === scheduleDateKey(new Date());
+    cells.push(`<button type="button" class="schedule-day ${today ? "today" : ""} ${items.length ? "has-trips" : ""}" data-schedule-day="${key}" ${items.length ? "" : "disabled"}><span class="schedule-day-number">${day}</span>${items.length ? `<strong>${items.length} ${items.length === 1 ? "viaje" : "viajes"}</strong>${items.slice(0, 2).map((trip) => `<small>${e(trip.passenger_name)}</small>`).join("")}${items.length > 2 ? `<small>+${items.length - 2} más</small>` : ""}` : ""}</button>`);
+  }
+  const reminders = data.reminders || [];
+  return `${reminders.length ? `<section class="schedule-reminders"><div class="row between wrap"><div><div class="eyebrow">REQUIEREN CONFIRMACIÓN</div><h2>Próximas salidas</h2></div><span class="badge pending">${reminders.length} pendientes</span></div>${reminders.map((trip) => `<button type="button" data-scheduled-trip="${e(trip.id)}">${I("alarm-clock")}<span><strong>En ${trip.minutes_before} minutos · ${e(trip.passenger_name)}</strong><small>${e(trip.origin)} → ${e(trip.destination)}</small></span>${I("chevron-right")}</button>`).join("")}</section>` : ""}<section class="panel schedule-calendar-panel"><div class="schedule-calendar-toolbar"><button class="icon-btn" type="button" data-schedule-month="-1" aria-label="Mes anterior">${I("chevron-left")}</button><div><div class="eyebrow">AGENDA OPERATIVA</div><h2>${e(scheduleMonthLabel(S.scheduleMonth))}</h2></div><button class="icon-btn" type="button" data-schedule-month="1" aria-label="Mes siguiente">${I("chevron-right")}</button><input id="schedule-month" type="month" value="${e(S.scheduleMonth)}" aria-label="Elegir mes"></div><div class="schedule-weekdays">${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day) => `<span>${day}</span>`).join("")}</div><div class="schedule-calendar">${cells.join("")}</div></section>`;
+}
+function openScheduledDay(day) {
+  const items = (S.scheduleData?.trips || []).filter((trip) => scheduleDateKey(trip.scheduled_at) === day);
+  if (!items.length) return;
+  openModal(
+    `Viajes del ${new Intl.DateTimeFormat("es-MX", { dateStyle: "long" }).format(new Date(`${day}T12:00:00`))}`,
+    `<div class="scheduled-day-list">${items.map((trip) => `<button type="button" data-scheduled-trip="${e(trip.id)}"><span><strong>${new Date(trip.scheduled_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })} · ${e(trip.passenger_name)}</strong><small>${e(trip.origin)} → ${e(trip.destination)}</small></span><span class="badge ${trip.operations_confirmed_at ? "" : "pending"}">${trip.operations_confirmed_at ? "Confirmado" : "Pendiente"}</span>${I("chevron-right")}</button>`).join("")}</div>`,
+  );
+  $$('[data-scheduled-trip]', modal).forEach((item) => item.onclick = () => openScheduledTrip(item.dataset.scheduledTrip));
+}
+function openScheduledTrip(id) {
+  const trip = (S.scheduleData?.trips || []).find((item) => item.id === id)
+    || (S.scheduleData?.reminders || []).find((item) => item.id === id);
+  if (!trip) return notify("Actualiza la agenda para consultar este viaje.");
+  const category = S.categories.find((item) => item.id === trip.category)?.name || trip.category;
+  const compatible = (S.scheduleData?.drivers || []).filter((driver) => driver.category === trip.category);
+  const canAssignDriver = trip.status === "scheduled";
+  const number = scheduleWhatsAppNumber(trip.passenger_phone);
+  const whatsapp = number ? `https://wa.me/${number}?text=${encodeURIComponent(scheduleWhatsAppMessage(trip))}` : "";
+  openModal(
+    `Viaje ${String(trip.id).slice(0, 8).toUpperCase()}`,
+    `<div class="scheduled-trip-detail"><div class="scheduled-detail-head"><span class="badge ${trip.operations_confirmed_at ? "" : "pending"}">${trip.operations_confirmed_at ? "Confirmado por Operaciones" : "Confirmación pendiente"}</span><strong>${date(trip.scheduled_at)}</strong></div><div class="route-line">${I("circle-dot")}${e(trip.origin)}</div><div class="route-line destination">${I("map-pin")}${e(trip.destination)}</div><div class="audit-detail-grid"><span><small>USUARIO</small><strong>${e(trip.passenger_name)}</strong><small>${e(trip.passenger_phone || "Sin teléfono")}</small></span><span><small>SERVICIO</small><strong>Yavoi! ${e(category)}</strong><small>${trip.party_size || 1} pasajeros</small></span><span><small>PAGO</small><strong>${trip.payment_method === "card" ? "Tarjeta" : "Efectivo"}</strong><small>${money(trip.total_cents)}</small></span><span><small>CONDUCTOR</small><strong>${e(trip.driver_name || "Sin conductor reservado")}</strong><small>${e(trip.vehicle || "")}${trip.plate ? ` · ${e(trip.plate)}` : ""}</small></span></div>${trip.service_notes ? `<div class="hint"><strong>Indicaciones:</strong> ${e(trip.service_notes)}</div>` : ""}<div class="meta-row"><span>${trip.women_only ? "Solicitó conductora" : "Sin preferencia de género"}</span><span>${trip.accessible ? "Servicio para discapacidad" : "Sin accesibilidad solicitada"}</span>${trip.schedule_total > 1 ? `<span>Serie ${trip.schedule_sequence}/${trip.schedule_total}</span>` : ""}</div>${whatsapp ? `<a class="btn whatsapp wide" href="${e(whatsapp)}" target="_blank" rel="noopener noreferrer">${I("message-circle")} Preparar mensaje en WhatsApp</a>` : '<p class="hint warning">El usuario no tiene un teléfono válido para preparar el mensaje.</p>'}${canAssignDriver ? `<form id="calendar-driver" class="calendar-action-form"><label>Conductor reservado<select name="driver_id"><option value="">Sin conductor reservado</option>${compatible.map((driver) => `<option value="${e(driver.id)}" ${driver.id === trip.driver_id ? "selected" : ""}>${e(driver.full_name)}${driver.online ? " · conectado" : ""}</option>`).join("")}</select></label><button class="btn secondary wide" type="submit">Guardar conductor ${I("user-round-check")}</button></form>` : '<p class="hint">La reserva de conductor se habilita cuando el viaje programado está confirmado y pendiente de liberarse.</p>'}${trip.operations_confirmed_at ? `<p class="hint">Confirmado ${date(trip.operations_confirmed_at)}${trip.operations_confirmation_note ? ` · ${e(trip.operations_confirmation_note)}` : ""}</p>` : `<form id="confirm-scheduled" class="calendar-action-form"><label>Nota de confirmación (opcional)<input name="note" maxlength="500" placeholder="Ej. Cliente confirmó por WhatsApp"></label><button class="btn wide" type="submit">Marcar viaje confirmado ${I("calendar-check")}</button></form>`}<a class="link scheduled-open-trip" href="#trip/${e(trip.id)}">Abrir ficha completa del viaje</a></div>`,
+  );
+  if (canAssignDriver) {
+    bindForm("#calendar-driver", async (values) => {
+      await rpc("assign_scheduled_trip", { trip_id: trip.id, driver_id: values.driver_id || null });
+      closeModal();
+      await loadScheduleOperations();
+      renderScheduleOperations();
+      notify(values.driver_id ? "Conductor reservado." : "Viaje liberado para asignación.");
+    });
+  }
+  bindForm("#confirm-scheduled", async (values) => {
+    await rpc("confirm_scheduled_trip", { trip_id: trip.id, note: values.note || "Confirmado desde la agenda de Operaciones." });
+    closeModal();
+    await loadScheduleOperations();
+    renderScheduleOperations();
+    notify("Viaje programado confirmado.");
+  });
+}
+function renderScheduleOperations() {
+  shell(
+    scheduleCalendarMarkup(S.scheduleData || { trips: [], reminders: [] }),
+    "Agenda de viajes programados",
+    "Consulta cada fecha, confirma con el cliente y reserva al conductor adecuado.",
+  );
+  $$('[data-schedule-month]').forEach((item) => item.onclick = () => run(async () => {
+    S.scheduleMonth = shiftedScheduleMonth(Number(item.dataset.scheduleMonth));
+    await loadScheduleOperations();
+    renderScheduleOperations();
+  }));
+  $("#schedule-month").onchange = (event) => run(async () => {
+    if (!event.target.value) return;
+    S.scheduleMonth = event.target.value;
+    await loadScheduleOperations();
+    renderScheduleOperations();
+  });
+  $$('[data-schedule-day]').forEach((item) => item.onclick = () => openScheduledDay(item.dataset.scheduleDay));
+  $$('[data-scheduled-trip]').forEach((item) => item.onclick = () => openScheduledTrip(item.dataset.scheduledTrip));
+  announceScheduleReminders(S.scheduleData?.reminders);
+}
+async function scheduleOperations() {
+  if (!S.scheduleData || S.scheduleData.month !== S.scheduleMonth) {
+    shell('<section class="panel report-loading"><span></span><h2>Cargando agenda</h2><p>Organizamos los viajes programados del mes.</p></section>', "Agenda de viajes programados", "Confirmaciones, usuarios y unidades en un calendario.");
+    await loadScheduleOperations();
+  }
+  renderScheduleOperations();
 }
 function tableTrips() {
   return `<div class="table-wrap"><table><thead><tr><th>Folio / fecha</th><th>Recorrido</th><th>Estado</th><th>Pago</th><th>Importe</th><th>Valoración</th><th></th></tr></thead><tbody id="trip-rows">${tripRows(S.data.trips)}</tbody></table></div>${!S.data.trips.length ? `<div class="empty">${I("route")}<h3>Tu historial empieza con el primer viaje</h3><p>Los viajes guardados aparecerán aquí.</p></div>` : ""}`;
@@ -2736,7 +2901,9 @@ function overviewReport(report) {
   const series = report.series || [];
   const max = Math.max(1, ...series.map((item) => Number(item.gross_cents || 0)));
   const chart = series.slice(-31).map((item) => `<div class="report-bar" title="${e(item.day)} · ${money(item.gross_cents)}"><span style="height:${Math.max(3, Math.round((Number(item.gross_cents || 0) / max) * 100))}%"></span><small>${e(String(item.day).slice(8))}</small></div>`).join("");
-  return `<section class="period-comparison">${periodCards}</section><div class="grid2 report-grid"><section class="panel"><div class="row between wrap"><div><h2>Actividad e ingresos</h2><p>Últimos ${Math.min(31, series.length)} días del periodo elegido.</p></div><span class="badge neutral">${decimal(report.summary?.distance_km)} km recorridos</span></div><div class="report-chart">${chart || '<div class="empty"><p>Sin actividad en este periodo.</p></div>'}</div></section><section class="panel"><h2>Distribución económica</h2><div class="receipt-row"><span>Tarifas de viaje</span><strong>${money(report.summary?.fares_cents)}</strong></div><div class="receipt-row"><span>Propinas</span><strong>${money(report.summary?.tips_cents)}</strong></div><div class="receipt-row"><span>Descuentos y recompensas</span><strong>${money(report.summary?.discounts_cents)}</strong></div><div class="receipt-row"><span>Pago en efectivo</span><strong>${money(report.summary?.cash_cents)}</strong></div><div class="receipt-row"><span>Pago con tarjeta</span><strong>${money(report.summary?.card_cents)}</strong></div><div class="receipt-row total"><span>Ingreso de conductores</span><strong>${money(report.summary?.driver_earnings_cents)}</strong></div></section></div><section class="panel section-gap"><h2>Rendimiento de la flotilla</h2><div class="table-wrap"><table><thead><tr><th>Conductor</th><th>Viajes</th><th>Ingresos</th><th>Comisión</th><th>Rating</th><th>Incidentes</th></tr></thead><tbody>${(report.drivers || []).map((item) => `<tr><td><strong>${e(item.full_name)}</strong><small>${e(item.vehicle || "Unidad pendiente")} · ${e(item.plate || "Sin placas")}</small></td><td>${item.completed}</td><td>${money(item.gross_cents)}</td><td>${money(item.platform_commission_cents)}</td><td>${item.rating ? `${decimal(item.rating)}/5` : "Sin datos"}</td><td>${item.incidents}</td></tr>`).join("") || '<tr><td colspan="6">Sin conductores registrados.</td></tr>'}</tbody></table></div></section>`;
+  const mix = report.service_mix || [];
+  const mixMax = Math.max(1, ...mix.map((item) => Number(item.completed || 0)));
+  return `<section class="period-comparison">${periodCards}</section><div class="grid2 report-grid"><section class="panel"><div class="row between wrap"><div><h2>Actividad e ingresos</h2><p>Últimos ${Math.min(31, series.length)} días del periodo elegido.</p></div><span class="badge neutral">${decimal(report.summary?.distance_km)} km recorridos</span></div><div class="report-chart">${chart || '<div class="empty"><p>Sin actividad en este periodo.</p></div>'}</div></section><section class="panel"><h2>Distribución económica</h2><div class="receipt-row"><span>Tarifas de viaje</span><strong>${money(report.summary?.fares_cents)}</strong></div><div class="receipt-row"><span>Propinas</span><strong>${money(report.summary?.tips_cents)}</strong></div><div class="receipt-row"><span>Descuentos y recompensas</span><strong>${money(report.summary?.discounts_cents)}</strong></div><div class="receipt-row"><span>Pago en efectivo</span><strong>${money(report.summary?.cash_cents)}</strong></div><div class="receipt-row"><span>Pago con tarjeta</span><strong>${money(report.summary?.card_cents)}</strong></div><div class="receipt-row total"><span>Ingreso de conductores</span><strong>${money(report.summary?.driver_earnings_cents)}</strong></div></section></div><section class="panel section-gap"><h2>Servicios por categoría</h2><p>Compara demanda, ingresos y ticket promedio de cada tipo de unidad.</p><div class="service-mix">${mix.map((item) => `<div><span><strong>Yavoi! ${e(item.name)}</strong><small>${item.completed || 0} completados · Ticket ${money(item.average_ticket_cents)}</small></span><progress max="${mixMax}" value="${item.completed || 0}">${item.completed || 0}</progress><strong>${money(item.gross_cents)}</strong></div>`).join("") || '<div class="empty"><p>Sin servicios en este periodo.</p></div>'}</div></section><section class="panel section-gap"><h2>Rendimiento de la flotilla</h2><div class="table-wrap"><table><thead><tr><th>Conductor</th><th>Viajes</th><th>Ingresos</th><th>Comisión</th><th>Rating</th><th>Incidentes</th></tr></thead><tbody>${(report.drivers || []).map((item) => `<tr><td><strong>${e(item.full_name)}</strong><small>${e(item.vehicle || "Unidad pendiente")} · ${e(item.plate || "Sin placas")}</small></td><td>${item.completed}</td><td>${money(item.gross_cents)}</td><td>${money(item.platform_commission_cents)}</td><td>${item.rating ? `${decimal(item.rating)}/5` : "Sin datos"}</td><td>${item.incidents}</td></tr>`).join("") || '<tr><td colspan="6">Sin conductores registrados.</td></tr>'}</tbody></table></div></section>`;
 }
 function driversReport(report) {
   return `<section class="panel"><h2>Resultados individuales</h2><p>Cada ficha separa ingresos cobrados, ingreso estimado del conductor, comisión, actividad, calificaciones e incidentes.</p><div class="driver-report-list">${(report.drivers || []).map((item, index) => `<details class="driver-report-card" ${index === 0 && S.auditFilters.driver_id ? "open" : ""}><summary><span><strong>${e(item.full_name)}</strong><small>${e(item.vehicle || "Unidad pendiente")} · ${e(item.plate || "Sin placas")}</small></span><span><strong>${item.completed} viajes</strong><small>${money(item.gross_cents)}</small></span>${I("chevron-down")}</summary><div class="driver-report-body"><div><small>Ingreso del conductor</small><strong>${money(item.driver_earnings_cents)}</strong></div><div><small>Comisión Yavoi!</small><strong>${money(item.platform_commission_cents)}</strong></div><div><small>Rating</small><strong>${item.rating ? `${decimal(item.rating)}/5 (${item.ratings_count})` : "Sin datos"}</strong></div><div><small>Incidentes</small><strong>${item.incidents}</strong></div><div><small>Viajes cancelados</small><strong>${item.cancelled}</strong></div><div><small>Último viaje</small><strong>${item.last_trip_at ? date(item.last_trip_at) : "Sin viajes"}</strong></div></div><a class="btn secondary" href="#audit" data-driver-report="${e(item.id)}">Generar informe individual ${I("file-text")}</a></details>`).join("") || '<div class="empty"><p>Sin conductores registrados.</p></div>'}</div></section>`;
@@ -2774,10 +2941,11 @@ async function loadOperationsReport() {
   if (payload.period !== "custom") { delete payload.from; delete payload.to; }
   S.auditReport = await rpc("operations_report", payload);
 }
-function audit() {
+async function audit() {
   if (S.auditReport) return renderAuditReport();
   shell('<section class="panel report-loading"><span></span><h2>Preparando tus indicadores</h2><p>Calculamos viajes, ingresos, valoraciones, incidentes y vigencias.</p></section>', "Informes y auditoría", "Información operativa protegida para la toma de decisiones.");
-  run(async () => { await loadOperationsReport(); renderAuditReport(); });
+  await loadOperationsReport();
+  renderAuditReport();
 }
 function bindOperationsReportActions() {
   const filter = $("#operations-report-filter");
@@ -3297,10 +3465,12 @@ async function renderRoute() {
     else if (S.profile.role === "driver") await driverHome();
     else adminHome();
   } else if (S.view === "opsmap") await operationsMapView();
+  else if (S.view === "schedule") await scheduleOperations();
   else if (S.view === "rewards") {
     S.data = await rpc("dashboard");
     rewards();
-  } else ({ trips: tripsView, profile, wallet, payments: paymentsView, help, fleet, rates, marketing: marketingView, audit })[S.view]?.();
+  } else if (S.view === "audit") await audit();
+  else ({ trips: tripsView, profile, wallet, payments: paymentsView, help, fleet, rates, marketing: marketingView })[S.view]?.();
 }
 async function refreshPage() {
   const b = await rpc("bootstrap");
@@ -3388,6 +3558,10 @@ async function safeRefresh() {
     if (S.view === "trip") await refreshTrip();
     else if (S.view === "home" && S.profile.role === "passenger") await refreshAvailableUnits({ fit: false });
     else if (S.view === "opsmap" && S.profile.role === "admin") await refreshOperationsMap();
+    else if (S.view === "schedule" && S.profile.role === "admin") {
+      await loadScheduleOperations();
+      renderScheduleOperations();
+    }
     else if (S.view === "rewards") await refreshPage();
     else if (
       (S.view === "home" && S.profile.role === "driver") ||

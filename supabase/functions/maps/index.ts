@@ -51,7 +51,11 @@ function plainWord(value: string) {
 
 function addressQueryVariants(value: string) {
   const original = value.trim().replace(/\s+/g, " ");
-  const fraction = original.replace(/(\d)\s*½/g, "$1 1/2");
+  // Accept the common ways people type half-numbered streets on a phone,
+  // including the frequent !/2 typo produced by compact keyboards.
+  const fraction = original
+    .replace(/(\d+)\s+y\s+media\b/gi, "$1 1/2")
+    .replace(/(\d+)\s*(?:½|[1!il]\/2)/gi, "$1 1/2");
   const numeric = fraction.replace(
     /\b(calle|avenida|av\.?|privada|priv\.?|calzada)\s+(uno|una|primero|dos|segundo|tres|tercero|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis[eé]is|diecisiete|dieciocho|diecinueve|veinte|veintiuno|veintid[oó]s|veintitr[eé]s|veinticuatro|veinticinco|veintis[eé]is|veintisiete|veintiocho|veintinueve|treinta)(\s+y\s+media)?\b/gi,
     (_match, prefix: string, numberWord: string, half: string) =>
@@ -59,7 +63,18 @@ function addressQueryVariants(value: string) {
   );
   const compactHalf = numeric.replace(/(\d+)\s+1\/2/g, "$1½");
   const decimalHalf = numeric.replace(/(\d+)\s+1\/2/g, (_match, number) => String(Number(number) + 0.5));
-  return [...new Set([numeric, compactHalf, decimalHalf, original])].slice(0, 4);
+  const numbered = numeric.match(/^(.*?)(?:\s*#\s*|\s+)(\d{3,6}[a-z]?)$/i);
+  const street = numbered?.[1]?.trim();
+  const house = numbered?.[2];
+  return [...new Set([
+    numeric,
+    street && house ? `${street}, ${house}` : "",
+    street && house ? `${house} ${street}` : "",
+    compactHalf,
+    decimalHalf,
+    original,
+    street || "",
+  ].filter(Boolean))].slice(0, 7);
 }
 
 function localAddressQuery(query: string) {
@@ -85,7 +100,7 @@ Deno.serve(async (req: Request) => {
     if (type === "search") {
       const query = String(body.query || "").trim().replace(/\s+/g, " ");
       if (query.length < 3 || query.length > 160) return json({ error: "Escribe al menos tres caracteres." }, 400, origin);
-      key = `search:v3:${plainWord(query)}`;
+      key = `search:v4:${plainWord(query)}`;
       const { data: cached } = await serviceClient.rpc("yavoi_map_cache_get", { key_value: key });
       if (cached) return json(cached, 200, origin);
       const { data: permitted } = await serviceClient.rpc("yavoi_map_rate_limit", { target_user: authData.user.id });

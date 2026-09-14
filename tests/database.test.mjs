@@ -95,6 +95,18 @@ test("Postgres security and complete ride lifecycle", async () => {
     terms_version: "2026-09-11",
   };
   await rpc("profile", riderProfile);
+  const savedHome = await rpc("save_saved_place", {
+    slot: "home",
+    address: "Calle 11 1/2 1108, Delicias",
+    lat: 28.193,
+    lng: -105.469,
+  });
+  assert.equal(savedHome.slot, "home");
+  assert.equal((await rpc("dashboard")).saved_places[0].address, "Calle 11 1/2 1108, Delicias");
+  await expectError(
+    () => rpc("save_saved_place", { slot: "favorite", address: "Fuera", lat: 28.193, lng: -105.469 }),
+    /Casa, Trabajo o Escuela/,
+  );
   assert.ok(
     (await db.query("select profile_locked_at from public.profiles where id=$1", [ids.rider])).rows[0]
       .profile_locked_at,
@@ -1036,6 +1048,17 @@ test("Postgres security and complete ride lifecycle", async () => {
     assert.equal(amount.total_cents, amount.quote_fare_cents);
     assert.equal(amount.payment_cents, amount.total_cents);
   }
+  await as(ids.admin, "aal2");
+  const calendar = await rpc("scheduled_operations", { month: scheduledAt.slice(0, 7) });
+  assert.ok(calendar.trips.some((item) => item.id === recurringTrip.id));
+  const calendarTrip = calendar.trips.find((item) => item.id === recurringTrip.id);
+  assert.equal(calendarTrip.passenger_name, "Pasajero Actualizado");
+  assert.equal(calendarTrip.passenger_phone, "6391234567");
+  await rpc("confirm_scheduled_trip", { trip_id: recurringTrip.id, note: "Confirmado por WhatsApp en prueba." });
+  assert.ok((await db.query("select operations_confirmed_at from public.trips where id=$1", [recurringTrip.id])).rows[0].operations_confirmed_at);
+  const reportWithMix = await rpc("operations_report", { report: "overview", period: "year" });
+  assert.ok(reportWithMix.service_mix.some((item) => item.id === "basic"));
+  await as(ids.rider);
 
   const regional = await rpc("quote", {
     origin: "Zona norte",

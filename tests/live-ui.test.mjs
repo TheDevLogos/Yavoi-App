@@ -5,11 +5,13 @@ import { readFile } from "node:fs/promises";
 const portal = await readFile(new URL("../src/portal.js", import.meta.url), "utf8");
 const css = await readFile(new URL("../src/portal.css", import.meta.url), "utf8");
 const domain = await readFile(new URL("../src/domain.js", import.meta.url), "utf8");
+const operationsReport = await readFile(new URL("../src/operations-report.js", import.meta.url), "utf8");
 const paymentFunction = await readFile(new URL("../supabase/functions/mercado-pago-payment/index.ts", import.meta.url), "utf8");
 const mapsFunction = await readFile(new URL("../supabase/functions/maps/index.ts", import.meta.url), "utf8");
 const driverLetters = await readFile(new URL("../scripts/generate-driver-documents.py", import.meta.url), "utf8");
 const schedulingMigration = await readFile(new URL("../supabase/migrations/20260913141001_trip_routes_and_scheduling.sql", import.meta.url), "utf8");
 const bookingHardeningMigration = await readFile(new URL("../supabase/migrations/20260914010851_booking_flow_hardening.sql", import.meta.url), "utf8");
+const scheduleCalendarMigration = await readFile(new URL("../supabase/migrations/20260914043000_saved_places_schedule_calendar_and_reports.sql", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -261,8 +263,47 @@ test("fast booking, recurring schedules, GPS and flexible street names are harde
   assert.match(portal, /gain\.gain\.exponentialRampToValueAtTime\(0\.95/);
   assert.match(mapsFunction, /addressQueryVariants/);
   assert.match(mapsFunction, /1\/2/);
+  assert.match(mapsFunction, /y\\s\+media/);
+  assert.match(mapsFunction, /\[1!il\]\\\/2/);
+  assert.match(mapsFunction, /\\d\{3,6\}/);
   assert.match(mapsFunction, /nueve/);
   assert.match(bookingHardeningMigration, /if cadence_value='once' then\s+count_value:=1/);
   assert.match(bookingHardeningMigration, /'recurrence_count',count_value/);
   assert.match(css, /\.compact-details/);
+});
+
+test("passengers save Casa, Trabajo and Escuela inside the destination selector", () => {
+  assert.match(domain, /Agenda de viajes/);
+  assert.match(portal, /S\.data\.saved_places/);
+  assert.match(portal, /Casa.*Trabajo.*Escuela/);
+  assert.match(portal, /save_saved_place/);
+  assert.match(portal, /delete_saved_place/);
+  assert.match(portal, /Guardar destino/);
+  assert.match(scheduleCalendarMigration, /create table public\.saved_places/);
+  assert.match(scheduleCalendarMigration, /passenger_id=\(select auth\.uid\(\)\)/);
+  assert.match(scheduleCalendarMigration, /private\.dashboard_v11/);
+});
+
+test("Operations manages scheduled trips from a calendar with WhatsApp and timed reminders", () => {
+  assert.match(portal, /scheduleCalendarMarkup/);
+  assert.match(portal, /data-schedule-day/);
+  assert.match(portal, /minutes_before/);
+  assert.match(portal, /https:\/\/wa\.me\//);
+  assert.match(portal, /confirm_scheduled_trip/);
+  assert.match(scheduleCalendarMigration, /private\.scheduled_operations_v1/);
+  assert.match(scheduleCalendarMigration, /interval '30 minutes'/);
+  assert.match(scheduleCalendarMigration, /interval '15 minutes'/);
+  assert.match(scheduleCalendarMigration, /coalesce\(auth\.jwt\(\)->>'aal','aal1'\)<>'aal2'/);
+});
+
+test("Operations audit loads once and exports service and driver metrics", () => {
+  assert.match(portal, /async function audit\(\)/);
+  assert.match(portal, /await loadOperationsReport\(\);\s*renderAuditReport\(\);/);
+  const auditBody = portal.match(/async function audit\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  assert.doesNotMatch(auditBody, /run\(/);
+  assert.match(portal, /Servicios por categoría/);
+  assert.match(scheduleCalendarMigration, /private\.operations_report_v2/);
+  assert.match(scheduleCalendarMigration, /'service_mix'/);
+  assert.match(operationsReport, /Servicios por categoría/);
+  assert.match(operationsReport, /Ticket promedio/);
 });
