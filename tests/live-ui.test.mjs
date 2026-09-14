@@ -12,6 +12,8 @@ const driverLetters = await readFile(new URL("../scripts/generate-driver-documen
 const schedulingMigration = await readFile(new URL("../supabase/migrations/20260913141001_trip_routes_and_scheduling.sql", import.meta.url), "utf8");
 const bookingHardeningMigration = await readFile(new URL("../supabase/migrations/20260914010851_booking_flow_hardening.sql", import.meta.url), "utf8");
 const scheduleCalendarMigration = await readFile(new URL("../supabase/migrations/20260914043000_saved_places_schedule_calendar_and_reports.sql", import.meta.url), "utf8");
+const routeRecoveryMigration = await readFile(new URL("../supabase/migrations/20260914123000_trip_route_recovery.sql", import.meta.url), "utf8");
+const actualTripTraceMigration = await readFile(new URL("../supabase/migrations/20260914124500_actual_trip_trace.sql", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -306,4 +308,31 @@ test("Operations audit loads once and exports service and driver metrics", () =>
   assert.match(scheduleCalendarMigration, /'service_mix'/);
   assert.match(operationsReport, /Servicios por categoría/);
   assert.match(operationsReport, /Ticket promedio/);
+});
+
+test("terminal trips release navigation and every trip renders both route layers", () => {
+  assert.match(portal, /function syncTripSummary\(trip\)/);
+  assert.match(portal, /syncTripSummary\(t\)/);
+  assert.match(portal, /function requestRouteRender\(\)/);
+  assert.match(portal, /if \(S\.busy\) return requestRouteRender\(\)/);
+  assert.match(portal, /const routePlan = trip \? S\.trip\?\.route_plan : S\.roadRoute/);
+  assert.match(portal, /mapFrame\("ride-map", e\(geo\), "trip"\)/);
+  assert.match(portal, /Ruta sugerida/);
+  assert.match(portal, /Recorrido real/);
+  assert.match(portal, /rpc\("capture_trip_route"/);
+  assert.match(routeRecoveryMigration, /private\.capture_visible_trip_route_v1/);
+  assert.match(routeRecoveryMigration, /passenger_id is distinct from uid/);
+  assert.match(actualTripTraceMigration, /private\.trip_v9/);
+  assert.match(actualTripTraceMigration, /event='in_progress'/);
+  assert.match(actualTripTraceMigration, /captured_at>=started_at/);
+  assert.match(actualTripTraceMigration, /when 'trip' then private\.trip_v9/);
+  assert.match(css, /\.map-route-legend/);
+  assert.match(css, /border-top:5px solid #153e63/);
+  assert.match(css, /border-top:5px solid #ff6a0a/);
+});
+
+test("service vehicles receive enough vertical room to remain fully visible", () => {
+  assert.match(css, /\.category-option \.car\{width:102px;height:76px/);
+  assert.match(css, /overflow:visible/);
+  assert.match(css, /grid-template-columns:92px minmax\(0,1fr\) auto/);
 });

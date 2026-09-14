@@ -444,6 +444,23 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(t.driver_id, null);
   assert.equal(t.party_size, 4);
   assert.equal(t.service_notes, "Requiero espacio para dos maletas.");
+  const persistedRoute = await rpc("capture_trip_route", {
+    trip_id: t.id,
+    planned_route: {
+      coordinates: [[-105.47045, 28.19065], [-105.465, 28.188], [-105.4593, 28.18415]],
+      distance_km: 1.8,
+      duration_minutes: 5,
+      instructions: [{ type: "depart", street: "Avenida principal", distance_m: 1800 }],
+    },
+  });
+  assert.equal(persistedRoute.coordinates.length, 3);
+  assert.equal((await rpc("trip", { trip_id: t.id })).route_plan.instructions[0].street, "Avenida principal");
+  await as(ids.other);
+  await expectError(
+    () => rpc("capture_trip_route", { trip_id: t.id, planned_route: persistedRoute }),
+    /No tienes acceso/,
+  );
+  await as(ids.rider);
   const unassignedDetail = await rpc("trip", { trip_id: t.id });
   assert.equal(unassignedDetail.driver, null);
   assert.equal((await rpc("dashboard")).ride_draft, null);
@@ -520,11 +537,19 @@ test("Postgres security and complete ride lifecycle", async () => {
   await rpc("reset_pin", { trip_id: t.id });
   await as(ids.rider);
   const newPin = (await rpc("trip", { trip_id: t.id })).pin;
+  await db.exec("reset role");
+  await db.query(
+    "insert into public.location_history(trip_id,driver_id,lat,lng,accuracy,captured_at) values($1,$2,28.18,-105.48,10,now()-interval '1 minute')",
+    [t.id, ids.driver],
+  );
   await as(ids.driver);
   await rpc("transition", { trip_id: t.id, status: "in_progress", pin: newPin });
   await rpc("location", { trip_id: t.id, lat: 28.19, lng: -105.47, accuracy: 10 });
   await as(ids.rider);
-  assert.equal((await rpc("trip", { trip_id: t.id })).location.lat, 28.19);
+  const activeTrip = await rpc("trip", { trip_id: t.id });
+  assert.equal(activeTrip.location.lat, 28.19);
+  assert.equal(activeTrip.route_history.length, 1);
+  assert.equal(activeTrip.route_history[0].lat, 28.19);
   await rpc("message", { trip_id: t.id, body: "Hola conductor" });
   await as(ids.other);
   assert.equal((await db.query("select * from public.messages")).rows.length, 0);

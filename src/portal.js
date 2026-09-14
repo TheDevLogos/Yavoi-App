@@ -113,6 +113,7 @@ const S = {
   auditFilters: { report: "overview", period: "month", driver_id: "", from: "", to: "" },
   scheduleMonth: new Date().toISOString().slice(0, 7),
   scheduleData: null,
+  routeRenderTimer: null,
 };
 const modal = $("#modal");
 let toastTimer, pollTimer;
@@ -377,6 +378,7 @@ async function loadVehiclePhoto(path) {
   if (!error) S.vehiclePhotoUrls[path] = data.signedUrl;
 }
 function teardownMap() {
+  S.routeVersion += 1;
   if (S.map) {
     S.map.remove();
     S.map = null;
@@ -385,6 +387,7 @@ function teardownMap() {
   S.tripVehicleMarker = null;
   S.tripHistoryLine = null;
   S.tripSuggestedLine = null;
+  S.tripSuggestedCasing = null;
   S.mapLiveLayer = null;
   S.opsMarkers.clear();
   S.opsRoutes.clear();
@@ -420,6 +423,7 @@ function clearSession() {
   S.initialLocationRequested = false;
   S.initialLocationPromise = null;
   clearTimeout(S.draftTimer);
+  clearTimeout(S.routeRenderTimer);
   clearInterval(pollTimer);
   clearInterval(S.offerSyncTimer);
   S.offerSyncTimer = null;
@@ -668,8 +672,12 @@ function enhanceOperationsLayout() {
 function mapFrame(
   id = "ride-map",
   caption = "Busca una dirección con calle y número, o elige qué marcador colocar en el mapa.",
+  routeMode = "",
 ) {
-  return `<section class="map-panel"><div class="map-top">Delicias, Chihuahua</div><div class="map-placement hidden" id="${id}-placement">${I("crosshair")}<span></span><button type="button" data-action="cancel-map-placement" aria-label="Cancelar selección">${I("x")}</button></div><button class="map-fullscreen" type="button" data-action="map-fullscreen" aria-label="Ver mapa en pantalla completa">${I("maximize-2")}<span>Ampliar</span></button><div class="map" id="${id}" aria-label="Mapa de Delicias"></div><div class="map-caption">${I("shield-check")}<span>${caption}</span></div></section>`;
+  const legend = routeMode
+    ? `<div class="map-route-legend"><span class="suggested"><i></i>Ruta sugerida</span>${routeMode === "trip" ? '<span class="actual"><i></i>Recorrido real</span>' : ""}</div>`
+    : "";
+  return `<section class="map-panel"><div class="map-top">Delicias, Chihuahua</div>${legend}<div class="map-placement hidden" id="${id}-placement">${I("crosshair")}<span></span><button type="button" data-action="cancel-map-placement" aria-label="Cancelar selección">${I("x")}</button></div><button class="map-fullscreen" type="button" data-action="map-fullscreen" aria-label="Ver mapa en pantalla completa">${I("maximize-2")}<span>Ampliar</span></button><div class="map" id="${id}" aria-label="Mapa de Delicias"></div><div class="map-caption">${I("shield-check")}<span>${caption}</span></div></section>`;
 }
 async function mapService(body) {
   const { data, error } = await db.functions.invoke("maps", { body });
@@ -759,9 +767,27 @@ async function loadRoadRoute(trip = null) {
     const route = await mapService({ type: "route", origin, destination });
     if (version !== S.routeVersion) return;
     S.roadRoute = route;
+    if (trip && !savedRoute) {
+      try {
+        const stored = await rpc("capture_trip_route", {
+          trip_id: trip.id,
+          planned_route: {
+            coordinates: route.coordinates,
+            distance_km: route.distance_km,
+            duration_minutes: route.duration_minutes,
+            instructions: route.instructions || [],
+          },
+        });
+        if (stored?.coordinates?.length > 1) S.trip.route_plan = stored;
+      } catch {}
+    }
     drawPoints(trip);
     renderRouteGuide();
     updateRouteMonitor();
+    if (!trip) {
+      const caption = $(".map-caption span");
+      if (caption) caption.textContent = `Ruta sugerida por calles · ${decimal(route.distance_km)} km · ${route.duration_minutes} min`;
+    }
   } catch (error) {
     if (version === S.routeVersion) notify("No pudimos trazar la ruta vial; puedes continuar con la estimación operativa.");
   }
@@ -946,9 +972,10 @@ function startMap(trip = null) {
       const kind = S.pick;
       await placeRidePoint(kind, ev.latlng, { resolveAddress: true });
     });
-  if (trip?.route_plan?.coordinates?.length > 1) S.roadRoute = trip.route_plan;
+  const routePlan = trip ? S.trip?.route_plan : S.roadRoute;
+  if (routePlan?.coordinates?.length > 1) S.roadRoute = routePlan;
   drawPoints(trip);
-  if (trip?.route_plan?.coordinates?.length > 1) {
+  if (routePlan?.coordinates?.length > 1) {
     renderRouteGuide();
     updateRouteMonitor();
   } else loadRoadRoute(trip);
@@ -982,12 +1009,10 @@ function drawPoints(t = null, { fit = true } = {}) {
     const routeCoordinates = S.roadRoute?.coordinates?.length
       ? S.roadRoute.coordinates.map(([lng, lat]) => [lat, lng])
       : points.map((p) => [p.lat, p.lng]);
-    if (t) {
-      S.tripSuggestedCasing = L.polyline(routeCoordinates, { color: "#fff", weight: 10, opacity: 0.96, lineCap: "round", lineJoin: "round" }).addTo(S.map);
-      S.markers.push(S.tripSuggestedCasing);
-    }
+    S.tripSuggestedCasing = L.polyline(routeCoordinates, { color: "#fff", weight: t ? 10 : 9, opacity: 0.96, lineCap: "round", lineJoin: "round" }).addTo(S.map);
+    S.markers.push(S.tripSuggestedCasing);
     const suggestedLine = L.polyline(routeCoordinates, { color: "#153e63", weight: t ? 6 : 5, opacity: 0.9, lineCap: "round", lineJoin: "round" }).addTo(S.map);
-    if (t) S.tripSuggestedLine = suggestedLine;
+    S.tripSuggestedLine = suggestedLine;
     S.markers.push(suggestedLine);
   }
   if (!t) {
@@ -1189,7 +1214,7 @@ function riderHome() {
       <div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""><div><strong id="unit-selection">Asignación automática a la unidad más cercana</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div>
       <button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button>
       <small class="booking-privacy-note">Los datos personales del conductor se muestran cuando acepte el viaje.</small>
-    </form></section>${mapFrame()}</div>`,
+    </form></section>${mapFrame("ride-map", undefined, "planning")}</div>`,
     `¿A dónde vamos, ${e(S.profile.full_name.split(" ")[0])}?`,
     "Elige tu destino, necesidades y revisa el precio antes de confirmar.",
   );
@@ -1276,6 +1301,7 @@ function riderHome() {
     const recurrence = scheduling && ["daily", "weekly", "monthly"].includes(values.recurrence)
       ? values.recurrence
       : "once";
+    if (!S.roadRoute) await loadRoadRoute();
     S.quote = await rpc("quote", {
       ...values,
       party_size: Number(values.party_size),
@@ -1718,9 +1744,16 @@ function tripRatingsMarkup(ratings = []) {
   }).join("");
   return `<section class="trip-ratings"><h3>Valoraciones de este viaje</h3>${cards || '<p class="hint">Este viaje todavía no tiene una valoración registrada.</p>'}</section>`;
 }
+function syncTripSummary(trip) {
+  if (!trip || !Array.isArray(S.data?.trips)) return;
+  const index = S.data.trips.findIndex((item) => item.id === trip.id);
+  if (index >= 0) S.data.trips[index] = { ...S.data.trips[index], ...trip };
+  else S.data.trips.unshift(trip);
+}
 async function tripView(id) {
   S.trip = await rpc("trip", { trip_id: id });
   const { trip: t, driver, passenger, location: loc, pin, my_rating } = S.trip;
+  syncTripSummary(t);
   await Promise.all([
     loadAvatar(driver?.avatar_path),
     loadAvatar(passenger?.avatar_path),
@@ -1812,7 +1845,7 @@ async function tripView(id) {
     : "";
   const tripFooter = `<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}${terminalReport}</div>`;
   shell(
-    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${vehiclePhoto ? `<figure class="assigned-vehicle-photo"><img src="${e(vehiclePhoto)}" alt="Fotografía frontal del vehículo asignado, placa ${e(driver.plate)}"><figcaption>Unidad verificada · confirma que la placa visible coincida con <strong>${e(driver.plate)}</strong></figcaption></figure>` : ""}${chatAction}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${driverNavigation}${tripSafetyControls}${cancellationFeeActions}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" ? tripRatingsMarkup(S.trip.ratings || []) : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}${reportHistory}${tripFooter}</section><div class="stack"><div id="route-monitor">${routeMonitorMarkup()}</div>${mapFrame("ride-map", e(geo))}<details class="panel route-guide" open><summary>${I("signpost")} Ruta sugerida y guía por calles</summary><div id="route-guide-content">${routeGuideMarkup(null)}</div></details><section class="panel trip-chat-panel" id="trip-chat"><div class="row between wrap"><div><h2>Mensajes del viaje</h2><p>Disponible desde que el conductor acepta y mientras el viaje está activo.</p></div>${I("message-circle")}</div><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Confirma una entrada, referencia o indicación…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
+    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${vehiclePhoto ? `<figure class="assigned-vehicle-photo"><img src="${e(vehiclePhoto)}" alt="Fotografía frontal del vehículo asignado, placa ${e(driver.plate)}"><figcaption>Unidad verificada · confirma que la placa visible coincida con <strong>${e(driver.plate)}</strong></figcaption></figure>` : ""}${chatAction}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>` : ""}${paymentRows}${action}${driverNavigation}${tripSafetyControls}${cancellationFeeActions}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" ? tripRatingsMarkup(S.trip.ratings || []) : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}${reportHistory}${tripFooter}</section><div class="stack"><div id="route-monitor">${routeMonitorMarkup()}</div>${mapFrame("ride-map", e(geo), "trip")}<details class="panel route-guide" open><summary>${I("signpost")} Ruta sugerida y guía por calles</summary><div id="route-guide-content">${routeGuideMarkup(null)}</div></details><section class="panel trip-chat-panel" id="trip-chat"><div class="row between wrap"><div><h2>Mensajes del viaje</h2><p>Disponible desde que el conductor acepta y mientras el viaje está activo.</p></div>${I("message-circle")}</div><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Confirma una entrada, referencia o indicación…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
     "Tu viaje Yavoi!",
     "Folio " + e(t.id.slice(0, 8).toUpperCase()) + " · " + date(t.created_at),
   );
@@ -1849,6 +1882,7 @@ async function refreshTrip() {
     return;
   }
   S.trip = next;
+  syncTripSummary(next.trip);
   const chat = $("#chat");
   if (chat) {
     const followLatest = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 80;
@@ -3578,9 +3612,15 @@ async function safeRefresh() {
     S.refreshing = false;
   }
 }
-window.addEventListener("hashchange", () => {
-  if (S.profile) run(renderRoute);
-});
+function requestRouteRender() {
+  clearTimeout(S.routeRenderTimer);
+  S.routeRenderTimer = setTimeout(() => {
+    if (!S.profile) return;
+    if (S.busy) return requestRouteRender();
+    run(renderRoute);
+  }, 25);
+}
+window.addEventListener("hashchange", requestRouteRender);
 window.addEventListener("online", () => {
   S.connected = true;
   notify("Conexión recuperada. Actualiza para consultar los últimos datos.");
