@@ -161,7 +161,10 @@ export const driverDossierStatus = (profile = {}, driver = {}) => {
     missing: requirements.filter(([, value]) => !isComplete(value)).map(([label]) => label),
   };
 };
-export const allowedView = (role, view) => navs[role]?.some(([v]) => v === view) || view === "trip";
+export const allowedView = (role, view) =>
+  navs[role]?.some(([v]) => v === view) ||
+  view === "trip" ||
+  (role === "passenger" && view === "schedule-confirmation");
 export const normalizeHeading = (value) => {
   if (value === null || value === undefined || value === "") return null;
   const heading = Number(value);

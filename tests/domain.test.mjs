@@ -32,6 +32,9 @@ test("role navigation never grants passenger or driver admin views", () => {
   assert.equal(allowedView("admin", "fleet"), true);
   assert.equal(allowedView("admin", "marketing"), true);
   assert.equal(allowedView("passenger", "profile"), true);
+  assert.equal(allowedView("passenger", "schedule-confirmation"), true);
+  assert.equal(allowedView("driver", "schedule-confirmation"), false);
+  assert.equal(allowedView("admin", "schedule-confirmation"), false);
   assert.deepEqual(
     navs.driver.map(([view]) => view),
     ["home", "trips", "wallet", "rewards", "profile"],

@@ -113,6 +113,7 @@ const S = {
   auditFilters: { report: "overview", period: "month", driver_id: "", from: "", to: "" },
   scheduleMonth: new Date().toISOString().slice(0, 7),
   scheduleData: null,
+  scheduleConfirmation: null,
   routeRenderTimer: null,
 };
 const modal = $("#modal");
@@ -411,6 +412,7 @@ function clearSession() {
   S.selectedUnit = null;
   S.auditReport = null;
   S.scheduleData = null;
+  S.scheduleConfirmation = null;
   S.avatarUrls = {};
   S.vehiclePhotoUrls = {};
   S.knownOfferIds = new Set();
@@ -1158,7 +1160,9 @@ function openSavedDestinationEditor() {
   }));
 }
 function riderHome() {
-  const current = S.data.trips.find((trip) => active(trip) && trip.status !== "scheduled");
+  const current = S.data.trips.find(
+    (trip) => active(trip) && !(trip.scheduled_at && ["scheduled", "payment_pending"].includes(trip.status)),
+  );
   if (current) {
     location.hash = "trip/" + current.id;
     return;
@@ -1420,11 +1424,20 @@ function paymentModal() {
       recurrence_count: q.recurrence_count || 1,
     });
     closeModal();
+    const scheduled = Boolean(t.scheduled_at || q.scheduled_at);
+    S.scheduleConfirmation = scheduled
+      ? {
+          trip_id: t.id,
+          recurrence: t.recurrence || q.recurrence || "once",
+          scheduled_count: Number(t.scheduled_count || q.recurrence_count || 1),
+        }
+      : null;
     S.quote = null;
     S.data.ride_draft = null;
-    if (t.payment_method === "card" && t.total_cents > 0) return cardCheckout(t.payment_id, t.id, t.total_cents);
+    if (t.payment_method === "card" && t.total_cents > 0)
+      return cardCheckout(t.payment_id, t.id, t.total_cents, scheduled ? "schedule-confirmation" : "trip");
     S.data = await rpc("dashboard");
-    location.hash = "trip/" + t.id;
+    location.hash = `${scheduled ? "schedule-confirmation" : "trip"}/${t.id}`;
   });
 }
 async function loadMercadoPago() {
@@ -1437,7 +1450,7 @@ async function loadMercadoPago() {
     document.head.append(script);
   });
 }
-async function cardCheckout(paymentId, tripId, amountCents) {
+async function cardCheckout(paymentId, tripId, amountCents, approvedView = "trip") {
   openModal("Pago seguro con tarjeta", `<div class="secure-payment">${I("shield-check")} Mercado Pago procesa los datos de tu tarjeta.</div><div id="card-payment-brick"><div class="hint">Cargando formulario seguro…</div></div>`);
   try {
     await loadMercadoPago();
@@ -1453,8 +1466,8 @@ async function cardCheckout(paymentId, tripId, amountCents) {
           if (error || data?.error) throw new Error(data?.error || error.message);
           closeModal();
           S.data = await rpc("dashboard");
-          location.hash = "trip/" + tripId;
-          notify(data.status === "approved" ? "Pago aprobado. Buscamos tu unidad." : "Mercado Pago está confirmando el pago.");
+          location.hash = `${approvedView}/${tripId}`;
+          notify(data.status === "approved" ? (approvedView === "schedule-confirmation" ? "Pago aprobado. Tu programación quedó registrada." : "Pago aprobado. Buscamos tu unidad.") : "Mercado Pago está confirmando el pago.");
         },
       },
     });
@@ -1564,7 +1577,46 @@ async function driverHome() {
 function scheduledTripsMarkup() {
   const scheduled = S.data.scheduling?.upcoming || [];
   if (!scheduled.length) return "";
-  return `<section class="panel scheduled-trips"><div class="row between wrap"><div><div class="eyebrow">VIAJES PROGRAMADOS</div><h2>${S.profile.role === "admin" ? "Aparta una unidad con anticipación" : "Próximos viajes programados"}</h2><p>${S.profile.role === "admin" ? "Asigna o libera conductores antes de la hora de salida." : "Tus fechas permanecen guardadas y se activarán cerca de su horario."}</p></div>${I("calendar-clock")}</div><div class="scheduled-list">${scheduled.map((trip) => `<article class="scheduled-card"><div><strong>${e(trip.origin)}</strong><span>${I("arrow-down")} ${e(trip.destination)}</span><small>${date(trip.scheduled_at)} · Yavoi! ${e(S.categories.find((category) => category.id === trip.category)?.name || trip.category)} · ${money(trip.total_cents || 0)}</small>${trip.schedule_total > 1 ? `<small>Serie ${trip.schedule_sequence}/${trip.schedule_total}</small>` : ""}</div><div class="scheduled-actions">${S.profile.role === "admin" ? `<small>${trip.driver_name ? `Reservado: ${e(trip.driver_name)}` : "Sin conductor reservado"}</small><button class="btn secondary" type="button" data-action="assign-scheduled" data-trip-id="${e(trip.id)}">${trip.driver_id ? "Cambiar unidad" : "Asignar unidad"} ${I("user-round-check")}</button>` : `<span class="badge ${trip.payment_status === "paid" || trip.payment_method === "cash" ? "" : "pending"}">${trip.payment_method === "card" && trip.payment_status !== "paid" ? "Pago pendiente" : trip.driver_id ? "Unidad reservada" : "Por asignar"}</span><a class="link" href="#trip/${e(trip.id)}">Ver viaje</a>`}</div></article>`).join("")}</div></section>`;
+  return `<section class="panel scheduled-trips"><div class="row between wrap"><div><div class="eyebrow">VIAJES PROGRAMADOS</div><h2>${S.profile.role === "admin" ? "Aparta una unidad con anticipación" : "Próximos viajes programados"}</h2><p>${S.profile.role === "admin" ? "Asigna o libera conductores antes de la hora de salida." : "Tus fechas permanecen guardadas. Abre Ver viaje desde 15 minutos antes para seguir la unidad y usar el flujo normal."}</p></div>${I("calendar-clock")}</div><div class="scheduled-list">${scheduled.map((trip) => `<article class="scheduled-card"><div><strong>${e(trip.origin)}</strong><span>${I("arrow-down")} ${e(trip.destination)}</span><small>${date(trip.scheduled_at)} · Yavoi! ${e(S.categories.find((category) => category.id === trip.category)?.name || trip.category)} · ${money(trip.total_cents || 0)}</small>${trip.schedule_total > 1 ? `<small>Serie ${trip.schedule_sequence}/${trip.schedule_total}</small>` : ""}</div><div class="scheduled-actions">${S.profile.role === "admin" ? `<small>${trip.driver_name ? `Reservado: ${e(trip.driver_name)}` : "Sin conductor reservado"}</small><button class="btn secondary" type="button" data-action="assign-scheduled" data-trip-id="${e(trip.id)}">${trip.driver_id ? "Cambiar unidad" : "Asignar unidad"} ${I("user-round-check")}</button>` : `<span class="badge ${trip.payment_status === "paid" || trip.payment_method === "cash" ? "" : "pending"}">${trip.payment_method === "card" && trip.payment_status !== "paid" ? "Pago pendiente" : trip.driver_id ? "Unidad reservada" : "Por asignar"}</span><a class="link" href="#trip/${e(trip.id)}">Ver viaje</a>`}</div></article>`).join("")}</div></section>`;
+}
+
+function scheduleCadence(trip, related) {
+  const saved = S.scheduleConfirmation?.trip_id === trip.id ? S.scheduleConfirmation.recurrence : "";
+  if (["once", "daily", "weekly", "monthly"].includes(saved)) return saved;
+  if (related.length < 2) return "once";
+  const days = Math.round((Date.parse(related[1].scheduled_at) - Date.parse(related[0].scheduled_at)) / 86400000);
+  if (days <= 2) return "daily";
+  if (days <= 10) return "weekly";
+  return "monthly";
+}
+
+async function scheduledConfirmationView(id) {
+  S.trip = await rpc("trip", { trip_id: id });
+  const t = S.trip.trip;
+  if (S.profile.role !== "passenger" || t.passenger_id !== S.user.id || !t.scheduled_at) {
+    location.hash = "trips";
+    return;
+  }
+  syncTripSummary(t);
+  const upcoming = S.data.scheduling?.upcoming || [];
+  const related = (t.schedule_series_id
+    ? upcoming.filter((item) => item.schedule_series_id === t.schedule_series_id)
+    : upcoming.filter((item) => item.id === t.id))
+    .sort((a, b) => Number(a.schedule_sequence || 1) - Number(b.schedule_sequence || 1));
+  const cadence = scheduleCadence(t, related);
+  const cadenceNames = { once: "Una sola vez", daily: "Cada día", weekly: "Cada semana", monthly: "Cada mes" };
+  const count = Number(S.scheduleConfirmation?.trip_id === t.id
+    ? S.scheduleConfirmation.scheduled_count
+    : t.schedule_total || related.length || 1);
+  const knownTotal = related.reduce((sum, item) => sum + Number(item.total_cents || 0), 0);
+  const seriesTotal = knownTotal || Number(t.total_cents || 0) * count;
+  const category = S.categories.find((item) => item.id === t.category)?.name || t.category;
+  const paymentLabel = t.payment_method === "card" ? "Tarjeta con Mercado Pago" : "Efectivo al finalizar cada viaje";
+  shell(
+    `<section class="panel schedule-success"><div class="schedule-success-icon">${I("calendar-check")}</div><div class="eyebrow">PROGRAMACIÓN REGISTRADA</div><h2>Tu viaje quedó apartado</h2><p>Guardamos ${count === 1 ? "la salida" : `las ${count} salidas`} y su importe estimado. No buscaremos una unidad en esta pantalla.</p><div class="schedule-route"><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div></div><div class="schedule-summary-grid"><div><small>PRIMERA SALIDA</small><strong>${date(t.scheduled_at)}</strong></div><div><small>FRECUENCIA</small><strong>${e(cadenceNames[cadence])}</strong></div><div><small>POR VIAJE</small><strong>${money(t.total_cents || 0)}</strong></div><div><small>${count === 1 ? "TOTAL ESTIMADO" : "SERIE COMPLETA"}</small><strong>${money(seriesTotal)}</strong></div></div><div class="schedule-meta"><span>${I("car-front")} Yavoi! ${e(category)}</span><span>${I("wallet")} ${e(paymentLabel)}</span><span>${I("hash")} Folio ${e(t.id.slice(0, 8).toUpperCase())}</span></div><p class="hint schedule-charge-note">${count > 1 ? `El cargo aproximado es ${money(t.total_cents || 0)} por ${cadence === "daily" ? "día" : cadence === "weekly" ? "semana" : cadence === "monthly" ? "mes" : "salida"}; cada fecha se cobra por separado y la serie suma aproximadamente ${money(seriesTotal)}.` : `El cobro aproximado para esta salida es ${money(t.total_cents || 0)}.`} La tarifa confirmada de cada registro permanece visible en Mis viajes.</p><section class="schedule-recommendations"><h3>${I("bell-ring")} Antes de tu salida</h3><ul><li>Revisa WhatsApp: Operaciones puede enviarte un mensaje para confirmar los datos y la unidad.</li><li>Abre Yavoi! al menos 15 minutos antes. En Mis viajes, pulsa Ver viaje para seguir la unidad en vivo, ver al conductor y enviar mensajes.</li><li>Confirma que la fotografía, el vehículo y las placas coincidan antes de abordar.</li><li>Puedes cancelar antes de la activación sin cargo. Cuando la unidad se active, se aplican el periodo de gracia y las cuotas normales de cancelación.</li></ul></section><div class="schedule-success-actions"><a class="btn wide" href="#home">Salir y volver a Pedir un viaje ${I("arrow-right")}</a><a class="btn secondary wide" href="#trips">Ver mis viajes programados ${I("calendar-days")}</a></div></section>`,
+    "Programación confirmada",
+    "Tu reservación está guardada. El seguimiento en vivo comenzará cerca de la hora indicada.",
+  );
 }
 const scheduleDateKey = (value) => {
   const item = new Date(value);
@@ -3332,7 +3384,8 @@ async function handleAction(action, b) {
   }
   if (action === "retry-card") {
     const payment = S.trip.payments?.find((item) => item.kind === "ride");
-    if (payment) return cardCheckout(payment.id, t.id, payment.amount_cents);
+    if (payment)
+      return cardCheckout(payment.id, t.id, payment.amount_cents, t.scheduled_at ? "schedule-confirmation" : "trip");
   }
   if (action === "arrive")
     return run(async () => {
@@ -3494,6 +3547,12 @@ async function renderRoute() {
       return;
     }
     await tripView(hash[1]);
+  } else if (S.view === "schedule-confirmation") {
+    if (!/^[0-9a-f-]{36}$/i.test(hash[1] || "")) {
+      location.hash = "trips";
+      return;
+    }
+    await scheduledConfirmationView(hash[1]);
   } else if (S.view === "home") {
     if (S.profile.role === "passenger") riderHome();
     else if (S.profile.role === "driver") await driverHome();

@@ -14,6 +14,7 @@ const bookingHardeningMigration = await readFile(new URL("../supabase/migrations
 const scheduleCalendarMigration = await readFile(new URL("../supabase/migrations/20260914043000_saved_places_schedule_calendar_and_reports.sql", import.meta.url), "utf8");
 const routeRecoveryMigration = await readFile(new URL("../supabase/migrations/20260914123000_trip_route_recovery.sql", import.meta.url), "utf8");
 const actualTripTraceMigration = await readFile(new URL("../supabase/migrations/20260914124500_actual_trip_trace.sql", import.meta.url), "utf8");
+const scheduledConfirmationMigration = await readFile(new URL("../supabase/migrations/20260914201233_scheduled_confirmation_and_cancellation.sql", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -236,6 +237,23 @@ test("scheduled rides persist the planned route and present reminders, assignmen
   assert.match(portal, /color: "#fff"/);
   assert.match(mapsFunction, /time_distance_balanced/);
   assert.match(mapsFunction, /0\.65 \* \(Number\(item\.duration\) \/ fastest\)/);
+});
+
+test("scheduled requests finish on a dedicated confirmation and keep normal live follow-up in My Trips", () => {
+  assert.match(portal, /async function scheduledConfirmationView\(id\)/);
+  assert.match(portal, /schedule-confirmation.*trip\/.*t\.id/s);
+  assert.match(portal, /No buscaremos una unidad en esta pantalla/);
+  assert.match(portal, /trip\.scheduled_at && \["scheduled", "payment_pending"\]\.includes\(trip\.status\)/);
+  assert.match(portal, /t\.scheduled_at \? "schedule-confirmation" : "trip"/);
+  assert.match(portal, /El cargo aproximado es/);
+  assert.match(portal, /Revisa WhatsApp/);
+  assert.match(portal, /Abre Yavoi! al menos 15 minutos antes/);
+  assert.match(portal, /Salir y volver a Pedir un viaje/);
+  assert.match(portal, /href="#trip\/\$\{e\(trip\.id\)\}">Ver viaje/);
+  assert.match(portal, /se activarán cerca de su horario|desde 15 minutos antes/);
+  assert.match(css, /\.schedule-success/);
+  assert.match(scheduledConfirmationMigration, /activation_at:=t\.scheduled_at-interval '15 minutes'/);
+  assert.match(scheduledConfirmationMigration, /periodo gratuito previo a la activación/);
 });
 
 test("drivers receive an audible, visible and recoverable offer alert", () => {

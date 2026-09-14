@@ -1073,6 +1073,23 @@ test("Postgres security and complete ride lifecycle", async () => {
     assert.equal(amount.total_cents, amount.quote_fare_cents);
     assert.equal(amount.payment_cents, amount.total_cents);
   }
+  await db.exec("reset role");
+  await db.query(
+    "update public.trips set driver_id=$2,scheduled_at=now()+interval '1 hour' where id=$1",
+    [singleScheduled.id, ids.driver],
+  );
+  await as(ids.rider);
+  const advanceScheduledCancellation = await rpc("cancellation_quote", { trip_id: singleScheduled.id });
+  assert.equal(advanceScheduledCancellation.fee_cents, 0);
+  assert.match(advanceScheduledCancellation.explanation, /periodo gratuito previo a la activación/);
+  await db.exec("reset role");
+  await db.query("update public.trips set scheduled_at=now()+interval '10 minutes' where id=$1", [singleScheduled.id]);
+  await as(ids.rider);
+  const activeScheduledCancellation = await rpc("cancellation_quote", { trip_id: singleScheduled.id });
+  assert.equal(activeScheduledCancellation.fee_cents, 2500);
+  assert.ok(activeScheduledCancellation.activation_at);
+  await db.exec("reset role");
+  await db.query("update public.trips set driver_id=null,scheduled_at=$2 where id=$1", [singleScheduled.id, scheduledAt]);
   await as(ids.admin, "aal2");
   const calendar = await rpc("scheduled_operations", { month: scheduledAt.slice(0, 7) });
   assert.ok(calendar.trips.some((item) => item.id === recurringTrip.id));
