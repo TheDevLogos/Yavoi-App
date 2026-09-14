@@ -329,6 +329,8 @@ test("terminal trips release navigation and every trip renders both route layers
   assert.match(css, /\.map-route-legend/);
   assert.match(css, /border-top:5px solid #153e63/);
   assert.match(css, /border-top:5px solid #ff6a0a/);
+  assert.match(css, /svg:not\(\.leaflet-zoom-animated\)\{width:20px;height:20px/);
+  assert.doesNotMatch(css, /(?:^|})svg\{width:20px;height:20px/);
 });
 
 test("service vehicles receive enough vertical room to remain fully visible", () => {
