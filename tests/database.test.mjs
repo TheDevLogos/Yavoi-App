@@ -1075,6 +1075,31 @@ test("Postgres security and complete ride lifecycle", async () => {
   }
   await db.exec("reset role");
   await db.query(
+    "update public.drivers set category='large',online=false,account_active=false where id=$1",
+    [ids.driver],
+  );
+  await as(ids.admin, "aal2");
+  const offlineDriverCalendar = await rpc("scheduled_operations", { month: scheduledAt.slice(0, 7) });
+  const offlineDriver = offlineDriverCalendar.drivers.find((driver) => driver.id === ids.driver);
+  assert.equal(offlineDriver.category, "large");
+  assert.equal(offlineDriver.connected, false);
+  assert.equal(offlineDriver.account_active, false);
+  const offlineAssignment = await rpc("assign_scheduled_trip", {
+    trip_id: recurringTrip.id,
+    driver_id: ids.driver,
+  });
+  assert.equal(offlineAssignment.driver_id, ids.driver);
+  assert.equal(offlineAssignment.driver_online, false);
+  await as(ids.driver);
+  const driverScheduled = (await rpc("dashboard")).scheduling.upcoming;
+  assert.ok(driverScheduled.some((trip) => trip.id === recurringTrip.id && trip.driver_id === ids.driver));
+  await db.exec("reset role");
+  await db.query(
+    "update public.drivers set category='basic',online=true,account_active=true where id=$1",
+    [ids.driver],
+  );
+  await db.exec("reset role");
+  await db.query(
     "update public.trips set driver_id=$2,scheduled_at=now()+interval '1 hour' where id=$1",
     [singleScheduled.id, ids.driver],
   );
@@ -1100,6 +1125,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.ok((await db.query("select operations_confirmed_at from public.trips where id=$1", [recurringTrip.id])).rows[0].operations_confirmed_at);
   const reportWithMix = await rpc("operations_report", { report: "overview", period: "year" });
   assert.ok(reportWithMix.service_mix.some((item) => item.id === "basic"));
+  await rpc("assign_scheduled_trip", { trip_id: recurringTrip.id, driver_id: null });
   await as(ids.rider);
 
   const regional = await rpc("quote", {

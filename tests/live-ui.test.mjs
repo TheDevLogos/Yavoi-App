@@ -15,6 +15,7 @@ const scheduleCalendarMigration = await readFile(new URL("../supabase/migrations
 const routeRecoveryMigration = await readFile(new URL("../supabase/migrations/20260914123000_trip_route_recovery.sql", import.meta.url), "utf8");
 const actualTripTraceMigration = await readFile(new URL("../supabase/migrations/20260914124500_actual_trip_trace.sql", import.meta.url), "utf8");
 const scheduledConfirmationMigration = await readFile(new URL("../supabase/migrations/20260914201233_scheduled_confirmation_and_cancellation.sql", import.meta.url), "utf8");
+const offlineScheduleMigration = await readFile(new URL("../supabase/migrations/20260914203656_offline_scheduled_driver_assignment.sql", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -254,6 +255,20 @@ test("scheduled requests finish on a dedicated confirmation and keep normal live
   assert.match(css, /\.schedule-success/);
   assert.match(scheduledConfirmationMigration, /activation_at:=t\.scheduled_at-interval '15 minutes'/);
   assert.match(scheduledConfirmationMigration, /periodo gratuito previo a la activación/);
+});
+
+test("Operations can reserve offline compatible drivers and drivers receive live schedule updates", () => {
+  assert.match(portal, /function scheduleDriverCanCover/);
+  assert.match(portal, /basic: \["basic", "large", "plus"\]/);
+  assert.match(portal, /Fuera de línea/);
+  assert.match(portal, /cuenta por reactivar/);
+  assert.match(portal, /S\.profile\.role === "driver" && trip\.driver_id === S\.user\.id \? "Asignado a ti"/);
+  assert.match(portal, /S\.view === "trips"\) await refreshPage\(\)/);
+  assert.match(offlineScheduleMigration, /private\.driver_can_cover_category_v1/);
+  assert.match(offlineScheduleMigration, /status in \('accepted','arrived','in_progress'\)/);
+  assert.match(offlineScheduleMigration, /not d\.account_active and t\.scheduled_at<=now\(\)\+interval '15 minutes'/);
+  assert.match(offlineScheduleMigration, /p\.role='driver' and d\.approved and not p\.suspended/);
+  assert.doesNotMatch(offlineScheduleMigration, /not d\.online/);
 });
 
 test("drivers receive an audible, visible and recoverable offer alert", () => {
