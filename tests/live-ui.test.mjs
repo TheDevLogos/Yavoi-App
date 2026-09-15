@@ -17,6 +17,7 @@ const actualTripTraceMigration = await readFile(new URL("../supabase/migrations/
 const scheduledConfirmationMigration = await readFile(new URL("../supabase/migrations/20260914201233_scheduled_confirmation_and_cancellation.sql", import.meta.url), "utf8");
 const offlineScheduleMigration = await readFile(new URL("../supabase/migrations/20260914203656_offline_scheduled_driver_assignment.sql", import.meta.url), "utf8");
 const feeReactivationMigration = await readFile(new URL("../supabase/migrations/20260914211500_persist_operations_fee_reactivation.sql", import.meta.url), "utf8");
+const commercialReportingMigration = await readFile(new URL("../supabase/migrations/20260914223000_commercial_reporting_and_scheduled_billing.sql", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -280,6 +281,20 @@ test("Operations fee reactivation persists while overdue records remain auditabl
   assert.match(feeReactivationMigration, /f\.due_at>d\.account_access_authorized_at/);
   assert.match(feeReactivationMigration, /El conductor necesita expediente aprobado y documentos vigentes/);
   assert.match(feeReactivationMigration, /'overdue_fees_preserved',covered/);
+});
+
+test("rates explain fare inputs and reports reconcile each driver billing scheme", () => {
+  assert.match(portal, /Cómo se calcula y cómo gana Yavoi!/);
+  assert.match(portal, /data-rate-preview/);
+  assert.match(portal, /EJEMPLO SOBRE UNA TARIFA DE \$100/);
+  assert.match(portal, /Conciliación de ingresos Yavoi!/);
+  assert.match(portal, /Transferencias pendientes/);
+  assert.match(css, /\.rate-field-grid/);
+  assert.match(operationsReport, /Conciliación comercial de Yavoi!/);
+  assert.match(operationsReport, /Cobro y transferencias por conductor/);
+  assert.match(commercialReportingMigration, /commission_bps_applied=waiting\.commission_bps/);
+  assert.match(commercialReportingMigration, /private\.operations_report_v3/);
+  assert.match(commercialReportingMigration, /platform_revenue_collected_cents/);
 });
 
 test("drivers receive an audible, visible and recoverable offer alert", () => {

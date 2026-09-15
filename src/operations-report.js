@@ -122,6 +122,7 @@ export const reportPeriodLabel = (meta = {}) => {
 
 export function reportSections(report = {}, type = "overview") {
   const summary = report.summary || {};
+  const commercial = report.commercial_summary || {};
   if (type === "overview") return [
     {
       title: "Indicadores por periodo",
@@ -130,6 +131,18 @@ export function reportSections(report = {}, type = "overview") {
         const item = report.periods?.[key] || {};
         return [periodNames[key], num(item.trips), num(item.completed), money(item.gross_cents), money(item.platform_commission_cents)];
       }),
+    },
+    {
+      title: "Conciliación comercial de Yavoi!",
+      head: ["Concepto", "Importe", "Interpretación"],
+      body: [
+        ["Comisiones generadas", money(commercial.trip_commission_accrued_cents), "Comisiones calculadas al aceptar y completar viajes"],
+        ["Comisión electrónica retenida", money(commercial.electronic_commission_retained_cents), "Ingreso retenido al conciliar pagos electrónicos"],
+        ["Aportaciones semanales cobradas", money(commercial.weekly_fees_collected_cents), "Cuotas verificadas por Operaciones"],
+        ["Transferencias de efectivo cobradas", money(commercial.cash_transfers_collected_cents), "Comisiones en efectivo ya transferidas"],
+        ["Transferencias pendientes", money(commercial.cash_transfers_pending_cents), "Comisiones por recibir o revisar"],
+        ["Ingreso Yavoi! cobrado", money(commercial.platform_revenue_collected_cents), "Electrónico + aportaciones + transferencias recibidas"],
+      ],
     },
     {
       title: "Servicios por categoría",
@@ -146,6 +159,10 @@ export function reportSections(report = {}, type = "overview") {
     title: "Rendimiento individual",
     head: ["Conductor / unidad", "Viajes", "Bruto", "Ingreso conductor", "Comisión", "Rating", "Incidentes"],
     body: (report.drivers || []).map((item) => [`${item.full_name}\n${item.vehicle || "Sin unidad"} · ${item.plate || "Sin placas"}`, num(item.completed), money(item.gross_cents), money(item.driver_earnings_cents), money(item.platform_commission_cents), item.rating ? `${item.rating}/5 (${item.ratings_count})` : "Sin datos", num(item.incidents)]),
+  }, {
+    title: "Cobro y transferencias por conductor",
+    head: ["Conductor", "Esquema", "Comisión efectivo", "Comisión electrónica", "Aportaciones", "Transferido", "Pendiente", "Ingreso Yavoi! cobrado"],
+    body: (report.billing_drivers || []).map((item) => [item.full_name, item.billing_mode === "weekly_fee" ? "Aportación semanal" : "Comisión por viaje", `${Number(item.cash_commission_bps || 0) / 100}%`, `${Number(item.card_commission_bps || 0) / 100}%`, money(item.weekly_fees_collected_cents), money(item.cash_transfers_collected_cents), money(item.cash_transfers_pending_cents), money(item.platform_revenue_collected_cents)]),
   }];
   if (type === "incidents") return [{
     title: "Incidentes registrados",
@@ -198,10 +215,11 @@ export async function buildOperationsPdf(report, { type = "overview", logoDataUr
   }
 
   const summary = report.summary || {};
+  const commercial = report.commercial_summary || {};
   const kpis = [
     ["Viajes completados", num(summary.completed)],
     ["Ingresos registrados", money(summary.gross_cents)],
-    ["Comisión Yavoi!", money(summary.platform_commission_cents)],
+    ["Ingreso Yavoi! cobrado", money(commercial.platform_revenue_collected_cents ?? summary.platform_commission_cents)],
     ["Ticket promedio", money(summary.average_ticket_cents)],
     ["Incidentes", num(summary.incidents)],
     ["Rating promedio", summary.average_rating ? `${summary.average_rating}/5` : "Sin datos"],
@@ -264,6 +282,7 @@ export async function imageUrlToDataUrl(url) {
 export function reportPrintHtml(report, type = "overview") {
   const sections = reportSections(report, type);
   const summary = report.summary || {};
-  const cards = [["Viajes completados", num(summary.completed)], ["Ingresos registrados", money(summary.gross_cents)], ["Comisión Yavoi!", money(summary.platform_commission_cents)], ["Ticket promedio", money(summary.average_ticket_cents)], ["Incidentes", num(summary.incidents)], ["Rating promedio", summary.average_rating ? `${summary.average_rating}/5` : "Sin datos"]];
+  const commercial = report.commercial_summary || {};
+  const cards = [["Viajes completados", num(summary.completed)], ["Ingresos registrados", money(summary.gross_cents)], ["Ingreso Yavoi! cobrado", money(commercial.platform_revenue_collected_cents ?? summary.platform_commission_cents)], ["Ticket promedio", money(summary.average_ticket_cents)], ["Incidentes", num(summary.incidents)], ["Rating promedio", summary.average_rating ? `${summary.average_rating}/5` : "Sin datos"]];
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${e(reportNames[type])}</title><style>@page{size:letter;margin:14mm}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#071d33}header{background:#071d33;color:#fff;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;border-radius:10px}header img{width:115px;background:#fff;border-radius:8px;padding:5px}h1{font-size:22px;margin:0 0 6px}p{margin:0;color:#607185}.period{color:#d9e2e9;font-size:12px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:18px 0}.card{border:1px solid #dfe6ed;border-radius:8px;padding:11px}.card small,.card strong{display:block}.card small{color:#718095}.card strong{font-size:17px;margin-top:6px}h2{font-size:16px;margin:22px 0 8px}table{width:100%;border-collapse:collapse;font-size:10px}th{background:#071d33;color:#fff;text-align:left;padding:8px}td{padding:8px;border-bottom:1px solid #e4eaf0;vertical-align:top;white-space:pre-line}tr:nth-child(even){background:#f7f9fc}footer{margin-top:20px;color:#718095;font-size:9px;text-align:center}@media print{button{display:none}header{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body><header><div><h1>Yavoi! Centro de Operaciones</h1><div>${e(reportNames[type])}</div><div class="period">${e(reportPeriodLabel(report.meta))}</div></div><img src="/assets/yavoi-logo.png" alt="Yavoi!"></header><div class="cards">${cards.map(([label, value]) => `<div class="card"><small>${e(label)}</small><strong>${e(value)}</strong></div>`).join("")}</div>${sections.map((section) => `<section><h2>${e(section.title)}</h2><table><thead><tr>${section.head.map((cell) => `<th>${e(cell)}</th>`).join("")}</tr></thead><tbody>${section.body.length ? section.body.map((row) => `<tr>${row.map((cell) => `<td>${e(cell)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${section.head.length}">Sin registros para este periodo.</td></tr>`}</tbody></table></section>`).join("")}<footer>Informe interno de Yavoi! · Generado ${e(new Intl.DateTimeFormat("es-MX", { dateStyle: "full", timeStyle: "short" }).format(new Date(report.meta?.generated_at || Date.now())))}</footer><script>addEventListener('load',()=>setTimeout(()=>print(),300))<\/script></body></html>`;
 }

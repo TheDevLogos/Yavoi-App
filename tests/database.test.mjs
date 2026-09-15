@@ -1123,6 +1123,26 @@ test("Postgres security and complete ride lifecycle", async () => {
     "update public.drivers set category='basic',online=true,account_active=true where id=$1",
     [ids.driver],
   );
+  const activationTrip = (await db.query(
+    "select id from public.trips where schedule_series_id=$1 and id<>$2 order by schedule_sequence limit 1",
+    [recurringTrip.schedule_series_id, recurringTrip.id],
+  )).rows[0];
+  await as(ids.admin, "aal2");
+  await rpc("assign_scheduled_trip", { trip_id: activationTrip.id, driver_id: ids.driver });
+  await db.exec("reset role");
+  await db.query("update public.trips set scheduled_at=now()+interval '10 minutes' where id=$1", [activationTrip.id]);
+  await as(ids.admin, "aal2");
+  await rpc("dashboard");
+  const activatedScheduled = (await db.query(
+    "select status,billing_mode,commission_bps_applied,commission_cents from public.trips where id=$1",
+    [activationTrip.id],
+  )).rows[0];
+  assert.equal(activatedScheduled.status, "accepted");
+  assert.equal(activatedScheduled.billing_mode, "weekly_fee");
+  assert.equal(activatedScheduled.commission_bps_applied, 0);
+  assert.equal(activatedScheduled.commission_cents, 0);
+  await db.exec("reset role");
+  await db.query("update public.trips set status='cancelled',cancel_reason='Fin de prueba',updated_at=now() where id=$1", [activationTrip.id]);
   await db.exec("reset role");
   await db.query(
     "update public.trips set driver_id=$2,scheduled_at=now()+interval '1 hour' where id=$1",
@@ -1249,6 +1269,15 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.ok(operationsReport.summary.gross_cents > 0);
   assert.ok(operationsReport.periods.day.completed >= 2);
   assert.ok(operationsReport.drivers.some((driver) => driver.id === ids.driver2));
+  assert.ok(operationsReport.commercial_summary.weekly_fees_collected_cents >= 50000);
+  assert.ok(operationsReport.commercial_summary.cash_transfers_collected_cents > 0);
+  assert.equal(
+    operationsReport.commercial_summary.platform_revenue_collected_cents,
+    operationsReport.commercial_summary.electronic_commission_retained_cents +
+      operationsReport.commercial_summary.weekly_fees_collected_cents +
+      operationsReport.commercial_summary.cash_transfers_collected_cents,
+  );
+  assert.ok(operationsReport.billing_drivers.some((driver) => driver.id === ids.driver2 && driver.billing_mode === "commission"));
   assert.ok(operationsReport.audit.some((entry) => entry.actor_email === "admin.yavoi@gmail.com"));
   assert.ok(operationsReport.audit.some((entry) => entry.action === "operations_report_exported"));
   assert.equal(
