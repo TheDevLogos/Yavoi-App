@@ -45,6 +45,10 @@ const auditActions = Object.freeze({
   operations_report_exported: ["Informe generado", "Informes"],
   scheduled_trip_confirmed: ["Viaje programado confirmado", "Viajes"],
   scheduled_trip_assigned: ["Conductor reservado para viaje programado", "Viajes"],
+  transport_compliance_settings_updated: ["Control regulatorio actualizado", "Cumplimiento"],
+  trip_receipt_sent: ["Recibo de viaje enviado", "Cumplimiento"],
+  authority_incident_queued: ["Posible delito enviado a seguimiento", "Cumplimiento"],
+  authority_incident_reported: ["Aviso a la autoridad registrado", "Cumplimiento"],
   saved_place_updated: ["Destino frecuente guardado", "Perfil"],
   saved_place_deleted: ["Destino frecuente eliminado", "Perfil"],
 });
@@ -83,6 +87,10 @@ const detailLabels = Object.freeze({
   scheduled_at: "Fecha programada",
   slot: "Destino frecuente",
   traffic_law_version: "Versión de obligaciones viales",
+  enforcement_mode: "Aplicación de controles",
+  authorization_expires: "Vencimiento de autorización",
+  company_policy_expires_at: "Vencimiento de póliza empresarial",
+  reference: "Referencia",
 });
 
 export const auditActionInfo = (action = "") =>
@@ -123,6 +131,7 @@ export const reportPeriodLabel = (meta = {}) => {
 export function reportSections(report = {}, type = "overview") {
   const summary = report.summary || {};
   const commercial = report.commercial_summary || {};
+  const regulatory = report.regulatory || {};
   if (type === "overview") return [
     {
       title: "Indicadores por periodo",
@@ -142,6 +151,17 @@ export function reportSections(report = {}, type = "overview") {
         ["Transferencias de efectivo cobradas", money(commercial.cash_transfers_collected_cents), "Comisiones en efectivo ya transferidas"],
         ["Transferencias pendientes", money(commercial.cash_transfers_pending_cents), "Comisiones por recibir o revisar"],
         ["Ingreso Yavoi! cobrado", money(commercial.platform_revenue_collected_cents), "Electrónico + aportaciones + transferencias recibidas"],
+      ],
+    },
+    {
+      title: "Cumplimiento de transporte",
+      head: ["Control", "Resultado", "Seguimiento"],
+      body: [
+        ["Autorización y póliza empresarial", regulatory.company_ready ? "Vigentes" : "Pendientes", regulatory.settings?.enforcement_mode === "enforce" ? "Control obligatorio activo" : "Observación y regularización"],
+        ["Expedientes de conductores", `${(regulatory.drivers || []).filter((item) => item.legal_ready).length}/${(regulatory.drivers || []).length} vigentes`, "Licencia, tarjetón, circulación, seguro, revisión y equipo"],
+        ["Recibos por correo", `${regulatory.receipts?.sent || 0} enviados`, `${regulatory.receipts?.pending || 0} pendientes · ${regulatory.receipts?.failed || 0} con error`],
+        ["Avisos por posibles delitos", `${regulatory.incidents?.reported || 0} reportados`, `${regulatory.incidents?.pending_authority || 0} pendientes`],
+        ["Aportación al Fondo de Movilidad", money(regulatory.trips?.mobility_fund_contribution_cents || 0), "Estimación del periodo con la tasa configurada"],
       ],
     },
     {

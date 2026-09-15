@@ -18,6 +18,11 @@ async function as(user, aal = "aal1") {
   await db.exec("set role authenticated");
 }
 async function rpc(command, payload = {}) {
+  if (command === "request_trip") payload = {
+    confirm_transport_terms: true,
+    regulatory_terms_version: "YV-TRANSPORTE-2026.09.15",
+    ...payload,
+  };
   return (
     await db.query("select public.yavoi($1,$2::jsonb) as result", [
       command,
@@ -236,14 +241,20 @@ test("Postgres security and complete ride lifecycle", async () => {
   await as(ids.admin, "aal2");
   await expectError(
     () => rpc("review_driver", { driver_id: ids.driver, approved: true, note: "Expediente revisado" }),
-    /expediente requiere/,
+    /Faltan requisitos/,
   );
   for (const [index, id] of [ids.driver, ids.driver2].entries()) {
     const avatarPath = `${id}/avatar.png`;
     const vehicleFrontPath = `${id}/vehicle-front.jpg`;
     const documents = {
+      government_id_path: `${id}/government-id.pdf`,
       license_path: `${id}/license.pdf`,
+      transport_card_path: `${id}/transport-card.pdf`,
       insurance_path: `${id}/insurance.pdf`,
+      vehicle_registration_path: `${id}/registration.pdf`,
+      vehicle_verification_path: `${id}/verification.pdf`,
+      mechanical_inspection_path: `${id}/mechanical.pdf`,
+      tax_compliance_path: `${id}/tax.pdf`,
       criminal_record_path: `${id}/criminal-record.pdf`,
       policy_commitment_path: `${id}/policy-commitment.pdf`,
       traffic_law_commitment_path: `${id}/traffic-law-commitment.pdf`,
@@ -266,9 +277,28 @@ test("Postgres security and complete ride lifecycle", async () => {
       vehicle_color: "Gris",
       plate: `YAV${index + 1}01`,
       category: "basic",
+      birth_date: "1990-01-01",
       license_number: `LIC-${index + 1}`,
       license_expires: "2099-12-31",
       insurance_expires: "2099-12-31",
+      transport_card_number: `TAR-${index + 1}`,
+      transport_card_expires: "2099-12-31",
+      vehicle_registration_expires: "2099-12-31",
+      vin: `3N1CN7AP${String(index + 1).padStart(9, "0")}`,
+      hologram_number: `HOL-${index + 1}`,
+      hologram_expires: "2099-12-31",
+      vehicle_verification_expires: "2099-12-31",
+      mechanical_inspection_expires: "2099-12-31",
+      tax_compliance_expires: "2099-12-31",
+      seatbelts_all: true,
+      front_airbags: true,
+      abs_brakes: true,
+      first_service_tools: true,
+      extinguisher_abc: true,
+      four_doors: true,
+      tint_percent: 20,
+      air_conditioning: true,
+      reflective_markings: true,
       vehicle_front_path: vehicleFrontPath,
       ...documents,
     });
@@ -429,6 +459,10 @@ test("Postgres security and complete ride lifecycle", async () => {
     /efectivo válido/,
   );
   const key = crypto.randomUUID();
+  await expectError(
+    () => db.query("select public.yavoi($1,$2::jsonb)", ["request_trip", JSON.stringify({ quote_id: q.id, request_key: crypto.randomUUID(), payment_method: "cash", cash_tender_cents: 10000 })]),
+    /acepta la información legal/,
+  );
   const t = await rpc("request_trip", {
     quote_id: q.id,
     request_key: key,
@@ -444,6 +478,14 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(t.driver_id, null);
   assert.equal(t.party_size, 4);
   assert.equal(t.service_notes, "Requiero espacio para dos maletas.");
+  assert.equal(
+    (await db.query("select regulatory_terms_version from public.trips where id=$1", [t.id])).rows[0].regulatory_terms_version,
+    "YV-TRANSPORTE-2026.09.15",
+  );
+  assert.equal(
+    (await rpc("trip", { trip_id: t.id })).regulatory_record.request_snapshot.regulatory_terms_version,
+    "YV-TRANSPORTE-2026.09.15",
+  );
   const persistedRoute = await rpc("capture_trip_route", {
     trip_id: t.id,
     planned_route: {
@@ -499,6 +541,11 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(detail.driver.vehicle_color, "Gris");
   assert.equal(detail.driver.plate, "YAV101");
   assert.equal(detail.driver.vehicle_front_path, `${ids.driver}/vehicle-front.jpg`);
+  assert.match(detail.regulatory_record.assignment_snapshot.driver.affiliation_number, /^YV-[A-F0-9]{12}$/);
+  assert.equal(detail.regulatory_record.assignment_snapshot.driver.license_number, undefined);
+  assert.equal(detail.regulatory_record.assignment_snapshot.vehicle.vin, undefined);
+  await expectError(() => db.query("select * from public.trip_regulatory_records"), /permission denied/);
+  assert.equal(detail.company_insurance.available, false);
   assert.match(detail.pin, /^\d{4}$/);
   assert.deepEqual(detail.messages.map((message) => message.body), [
     "Estoy en la entrada principal.",
@@ -507,6 +554,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   const pin = detail.pin;
   await as(ids.other);
   assert.equal((await db.query("select * from public.trips")).rows.length, 0);
+  await expectError(() => db.query("select * from public.trip_regulatory_records"), /permission denied/);
   await expectError(() => rpc("trip", { trip_id: t.id }), /acceso/);
   await expectError(() => db.query("select * from private.trip_secrets"), /permission denied/);
   await as(ids.driver);
@@ -558,6 +606,14 @@ test("Postgres security and complete ride lifecycle", async () => {
   await expectError(() => rpc("transition", { trip_id: t.id, status: "completed" }), /efectivo/);
   const done = await rpc("transition", { trip_id: t.id, status: "completed", cash_received: true });
   assert.equal(done.payment_status, "paid");
+  await db.exec("reset role");
+  const regulatoryRecord = (await db.query("select * from public.trip_regulatory_records where trip_id=$1", [t.id])).rows[0];
+  assert.equal(regulatoryRecord.receipt_status, "pending");
+  assert.equal(regulatoryRecord.completion_snapshot.status, "completed");
+  assert.ok(new Date(regulatoryRecord.retention_until) > new Date("2031-01-01"));
+  await expectError(() => db.query("delete from public.trips where id=$1", [t.id]), /cinco años/);
+  await as(ids.driver);
+  await expectError(() => db.query("select * from private.trip_receipt_outbox"), /permission denied/);
   await expectError(
     () => rpc("transition", { trip_id: t.id, status: "completed", cash_received: true }),
     /estado/,
@@ -593,6 +649,7 @@ test("Postgres security and complete ride lifecycle", async () => {
     report_issue: true,
     report_subject: "Objeto olvidado",
     report_body: "Olvidé una mochila pequeña en el asiento trasero.",
+    suspected_crime: true,
   });
   assert.match(passengerRating.report.id, /^[0-9a-f-]{36}$/);
   await rpc("rating", { trip_id: t.id, stars: 1 });
@@ -603,6 +660,51 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.ok(ratedTrip.ratings.some((rating) => rating.comment === "Buen servicio"));
   assert.equal(ratedTrip.reports.length, 1);
   assert.equal(ratedTrip.reports[0].subject, "Objeto olvidado");
+  assert.equal(
+    (await db.query("select authority_report_status from public.complaints where id=$1", [passengerRating.report.id])).rows[0].authority_report_status,
+    "pending",
+  );
+  await as(ids.admin, "aal2");
+  const companyPolicyPath = `${ids.admin}/company-policy.pdf`;
+  await db.exec("reset role");
+  await db.query("insert into storage.objects(bucket_id,name) values('yavoi-documents',$1)", [companyPolicyPath]);
+  await as(ids.admin, "aal2");
+  await expectError(() => rpc("transport_compliance", { action: "save", enforcement_mode: "enforce" }), /Completa y verifica/);
+  const compliance = await rpc("transport_compliance", {
+    action: "save",
+    legal_name: "Yavoi Movilidad de Chihuahua SA de CV",
+    rfc: "YMC260915ABC",
+    state_authorization_number: "AUT-CHIH-001",
+    authorization_issued_at: "2026-09-15",
+    authorization_expires: "2099-12-31",
+    collaboration_agreement_at: "2026-09-15",
+    company_policy_number: "POL-YAVOI-001",
+    company_insurer: "Aseguradora de Prueba",
+    company_policy_path: companyPolicyPath,
+    company_policy_starts_at: "2026-09-15",
+    company_policy_expires_at: "2099-12-31",
+    company_policy_coverage_cents: 50000000,
+    company_policy_coverage_uma: 32,
+    mobility_fund_bps: 150,
+    authority_reporting_channel: "Canal formal de prueba",
+    receipt_email_enabled: false,
+    enforcement_mode: "enforce",
+  });
+  assert.equal(compliance.company_ready, true);
+  assert.equal(compliance.settings.enforcement_mode, "enforce");
+  assert.equal(compliance.receipts[0].status, "pending");
+  assert.equal(compliance.authority_incidents[0].authority_report_status, "pending");
+  await rpc("transport_compliance", { action: "receipt_sent", trip_id: t.id, reference: "Correo transaccional TEST-001" });
+  await rpc("transport_compliance", { action: "incident_reported", complaint_id: passengerRating.report.id, reference: "Fiscalía · folio TEST-002" });
+  const complianceAfter = await rpc("transport_compliance", { action: "read" });
+  assert.equal(complianceAfter.receipts[0].status, "sent");
+  assert.equal(complianceAfter.authority_incidents[0].authority_report_status, "reported");
+  const legalReport = await rpc("operations_report", { report: "overview", period: "year" });
+  assert.equal(legalReport.regulatory.company_ready, true);
+  assert.equal(legalReport.regulatory.settings.mobility_fund_bps, 150);
+  assert.ok(Number(legalReport.regulatory.trips.mobility_fund_contribution_cents) >= 0);
+  await as(ids.rider);
+  await expectError(() => rpc("transport_compliance", { action: "read" }), /Operaciones/);
   await db.exec("reset role");
   await db.query("update public.reward_catalog set min_trips=1 where id='passenger_discount_20'");
   await db.query(

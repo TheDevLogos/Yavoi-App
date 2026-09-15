@@ -88,6 +88,7 @@ export const rewardDiscountCents = (reward = {}, quote = {}) => {
 export const PASSENGER_POLICY_VERSION = "2026-09-11-cancelaciones";
 export const PRIVACY_POLICY_VERSION = "2026-09-11";
 export const TERMS_VERSION = "2026-09-11";
+export const TRANSPORT_TERMS_VERSION = "YV-TRANSPORTE-2026.09.15";
 export const profileEditState = (profile = {}, now = Date.now()) => {
   const locked = Boolean(profile.profile_locked_at);
   const authorizedUntil = Date.parse(profile.profile_edit_allowed_until || "");
@@ -132,15 +133,21 @@ export const passengerProfileStatus = (profile = {}) => {
 };
 export const driverDossierStatus = (profile = {}, driver = {}) => {
   const today = new Date().toISOString().slice(0, 10);
+  const adultCutoff = new Date();
+  adultCutoff.setFullYear(adultCutoff.getFullYear() - 18);
+  const adultDate = adultCutoff.toISOString().slice(0, 10);
+  const currentYear = new Date().getFullYear();
   const isComplete = (value) =>
     typeof value === "boolean" ? value : String(value ?? "").trim().length > 0;
   const requirements = [
     ["Nombre completo", profile.full_name],
     ["Teléfono", profile.phone],
     ["Fotografía", profile.avatar_path || driver.avatar_path],
+    ["Mayoría de edad", driver.birth_date && driver.birth_date <= adultDate],
+    ["Identificación oficial", driver.government_id_path],
     ["Marca", driver.vehicle_make],
     ["Modelo", driver.vehicle_model],
-    ["Año", driver.vehicle_year],
+    ["Antigüedad máxima de siete años", Number(driver.vehicle_year) >= currentYear - 7 && Number(driver.vehicle_year) <= currentYear + 1],
     ["Color", driver.vehicle_color],
     ["Placas", driver.plate],
     ["Fotografía frontal del vehículo y placa", driver.vehicle_front_path],
@@ -149,7 +156,22 @@ export const driverDossierStatus = (profile = {}, driver = {}) => {
     ["Vigencia de seguro", driver.insurance_expires && driver.insurance_expires >= today],
     ["Licencia", driver.license_path],
     ["Póliza de seguro", driver.insurance_path],
-    ["Carta de no antecedentes penales", driver.criminal_record_path],
+    ["Tarjetón anual vigente", driver.transport_card_path && driver.transport_card_number && driver.transport_card_expires >= today],
+    ["Tarjeta de circulación vigente", driver.vehicle_registration_path && driver.vehicle_registration_expires >= today],
+    ["NIV de 17 caracteres", /^[A-HJ-NPR-Z0-9]{17}$/.test(String(driver.vin || "").toUpperCase())],
+    ["Holograma vigente", driver.hologram_number && driver.hologram_expires >= today],
+    ["Verificación vehicular", driver.vehicle_verification_not_applicable || (driver.vehicle_verification_path && driver.vehicle_verification_expires >= today)],
+    ["Revisión mecánica vigente", driver.mechanical_inspection_path && driver.mechanical_inspection_expires >= today],
+    ["Cumplimiento fiscal vigente", driver.tax_compliance_path && driver.tax_compliance_expires >= today],
+    ["Cinturones para todas las plazas", driver.seatbelts_all],
+    ["Bolsas de aire frontales", driver.front_airbags],
+    ["Frenos ABS", driver.abs_brakes],
+    ["Herramientas de primer servicio", driver.first_service_tools],
+    ["Extinguidor ABC", driver.extinguisher_abc],
+    ["Unidad de al menos cuatro puertas", driver.four_doors],
+    ["Entintado máximo permitido", driver.tint_percent !== null && driver.tint_percent !== undefined && Number(driver.tint_percent) <= 20],
+    ["Aire acondicionado", driver.air_conditioning],
+    ["Señalamientos reflejantes", driver.reflective_markings],
     ["Carta de políticas Yavoi! firmada", driver.policy_commitment_path],
     ["Carta de obligaciones viales firmada", driver.traffic_law_commitment_path],
   ];

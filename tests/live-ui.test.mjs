@@ -18,6 +18,7 @@ const scheduledConfirmationMigration = await readFile(new URL("../supabase/migra
 const offlineScheduleMigration = await readFile(new URL("../supabase/migrations/20260914203656_offline_scheduled_driver_assignment.sql", import.meta.url), "utf8");
 const feeReactivationMigration = await readFile(new URL("../supabase/migrations/20260914211500_persist_operations_fee_reactivation.sql", import.meta.url), "utf8");
 const commercialReportingMigration = await readFile(new URL("../supabase/migrations/20260914223000_commercial_reporting_and_scheduled_billing.sql", import.meta.url), "utf8");
+const transportComplianceMigration = await readFile(new URL("../supabase/migrations/20260915200412_chihuahua_transport_compliance.sql", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -396,4 +397,58 @@ test("service vehicles receive enough vertical room to remain fully visible", ()
   assert.match(css, /\.category-option \.car\{width:102px;height:76px/);
   assert.match(css, /overflow:visible/);
   assert.match(css, /grid-template-columns:92px minmax\(0,1fr\) auto/);
+});
+
+test("every ride captures the current transport terms and exposes its protected legal record", () => {
+  assert.match(domain, /TRANSPORT_TERMS_VERSION = "YV-TRANSPORTE-2026\.09\.15"/);
+  assert.match(portal, /name="confirm_transport_terms" type="checkbox" required/);
+  assert.match(portal, /confirm_transport_terms: v\.confirm_transport_terms === "on"/);
+  assert.match(portal, /regulatory_terms_version: TRANSPORT_TERMS_VERSION/);
+  assert.match(portal, /durante al menos cinco años/i);
+  assert.match(portal, /PÓLIZA DE YAVOI!/);
+  assert.match(portal, /receipt_status/);
+  assert.match(transportComplianceMigration, /create table public\.trip_regulatory_records/);
+  assert.match(transportComplianceMigration, /retention_until timestamptz not null/);
+  assert.match(transportComplianceMigration, /create trigger protect_trip_retention/);
+  assert.match(transportComplianceMigration, /private\.trip_v10/);
+  assert.match(transportComplianceMigration, /never[\s\S]{0,100}exposed directly/);
+  assert.doesNotMatch(transportComplianceMigration, /grant select on public\.trip_regulatory_records/);
+  assert.match(transportComplianceMigration, /-'license_number'-'license_expires'/);
+  assert.match(transportComplianceMigration, /-'vin'-'transport_card_number'/);
+});
+
+test("Operations manages legal readiness, receipts and authority notices with MFA", () => {
+  assert.match(portal, /Cumplimiento de transporte/);
+  assert.match(portal, /Observación y regularización/);
+  assert.match(portal, /Obligatorio para nuevas asignaciones/);
+  assert.match(portal, /guardar el expediente por etapas/i);
+  assert.match(portal, /data-receipt-sent/);
+  assert.match(portal, /data-authority-reported/);
+  assert.match(portal, /proveedor de correo/i);
+  assert.match(transportComplianceMigration, /coalesce\(auth\.jwt\(\)->>'aal','aal1'\)<>'aal2'/);
+  assert.match(transportComplianceMigration, /private\.company_transport_ready_v1/);
+  assert.match(transportComplianceMigration, /company_policy_coverage_uma>=32/);
+  assert.match(transportComplianceMigration, /mobility_fund_bps integer not null default 150/);
+  assert.match(operationsReport, /Cumplimiento de transporte/);
+  assert.match(operationsReport, /Aportación al Fondo de Movilidad/);
+});
+
+test("driver authorization checks the current legal vehicle and affiliation dossier", () => {
+  for (const label of [
+    "Identificación oficial del propietario", "Tarjetón anual", "Tarjeta de circulación vigente",
+    "Número de identificación vehicular", "Revisión mecánica y de seguridad", "Extinguidor ABC",
+    "Entintado o polarizado permitido", "Cumplimiento fiscal",
+  ]) assert.match(transportComplianceMigration, new RegExp(label));
+  assert.match(transportComplianceMigration, /affiliation_number/);
+  assert.match(transportComplianceMigration, /d\.vehicle_year between extract\(year from current_date\)::integer-7/);
+  assert.match(portal, /Carta de no antecedentes penales \(voluntaria\)/);
+  assert.doesNotMatch(transportComplianceMigration, /criminal_record_path is not null/);
+});
+
+test("possible crimes are separated from ordinary complaints and queued for formal follow-up", () => {
+  assert.match(portal, /Puede tratarse de un delito/);
+  assert.match(portal, /suspected_crime: v\.suspected_crime === "on"/);
+  assert.match(transportComplianceMigration, /authority_report_status='pending'/);
+  assert.match(transportComplianceMigration, /authority_incident_queued/);
+  assert.match(transportComplianceMigration, /authority_incident_reported/);
 });

@@ -7,7 +7,7 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 - Acceso único con correo verificado, recuperación de contraseña, sesión persistente y botón oficial de Google preparado con Google Identity Services.
 - Alta de pasajero o conductor; el rol de Operaciones no puede elegirse durante el registro.
 - Paneles y rutas separados por rol, con validación adicional en PostgreSQL.
-- Perfil de pasajero, expediente privado de conductor con avance de 16 requisitos y revisión reforzada por Operaciones.
+- Perfil de pasajero y expediente privado del conductor con identidad, autorización, vehículo, vigencias y equipo de seguridad; revisión reforzada por Operaciones.
 - PWA instalable en Android y iOS, con iconos Yavoi!, modo independiente y recuperación de la interfaz sin conexión.
 - Cotización en servidor por categoría, kilómetros estimados, duración y zona.
 - Unidades compatibles en mapa, selección opcional y oferta automática a la unidad más cercana; el conductor acepta o rechaza después de revisar la solicitud.
@@ -27,6 +27,8 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 - Auditoría simplificada con responsable, persona o viaje afectado, filtros por área y búsqueda, además de detalle colapsable en lenguaje claro.
 - Informes operativos por día, semana, mes, año o rango personalizado: viajes, ingresos, comisión, pagos, incidentes, valoraciones, rendimiento individual de conductores y vigencia de seguros; disponibles para imprimir o exportar a PDF con identidad Yavoi!.
 - Pólizas de seguro resguardadas como PDF privado, con fecha de caducidad, semáforo de vigencia y alertas anticipadas para Operaciones.
+- Centro de cumplimiento para autorización estatal, póliza empresarial, expedientes vigentes, aportación estimada al Fondo de Movilidad, recibos por correo y avisos a la autoridad.
+- Expediente regulatorio de cada viaje con aceptación, cotización, asignación, conductor, unidad, ruta propuesta, recorrido real, cobro y cierre, protegido durante al menos cinco años.
 - Cuota semanal dentro del perfil del conductor y expediente de unidad colapsado automáticamente al llegar al 100%.
 - Perfiles completos protegidos contra cambios; Operaciones con MFA puede abrir o revocar una autorización temporal de 24 horas con motivo y registro de auditoría.
 - Recuperación del viaje y del plan de solicitud desde Supabase después de recargar, cerrar o volver a abrir el navegador.
@@ -65,8 +67,9 @@ Las migraciones versionadas están en `supabase/migrations`. La integración con
 2. Configurar la URL pública en Supabase Auth y permitir `/portal.html` como URL de confirmación y recuperación.
 3. Publicar el resultado de `npm run build` con HTTPS.
 4. Registrar y verificar `admin.yavoi@gmail.com`, y después activar MFA.
-5. Aprobar conductores únicamente después de completar los 16 requisitos, incluidos los cinco documentos privados y sus vigencias.
+5. Completar el control regulatorio de la empresa y aprobar conductores sólo después de verificar todos los requisitos y documentos vigentes de su expediente.
 6. Completar la guía [Activar Mercado Pago](docs/mercado-pago.md). La tarjeta permanece bloqueada hasta terminar esos pasos.
 7. Completar la guía [Activar Google](docs/oauth-providers.md). El Client ID público ya está integrado; falta guardar el Client Secret sólo en Supabase y habilitar el proveedor.
+8. Seguir la [matriz de cumplimiento de transporte](docs/cumplimiento-ley-transporte-chihuahua-2026-09-15.md) y formalizar con la autoridad los canales de reportes mensuales e incidentes.
 
 Diseño y desarrollo: **TheDevLogos Creación Inteligente**.

@@ -38,6 +38,14 @@ const report = {
   ratings: [],
   insurance: [{ full_name: "Conductor Prueba", vehicle: "Nissan Versa", plate: "ABC123A", insurance_expires: "2026-10-01", days_remaining: 20, status: "critical", insurance_path: "policy.pdf" }],
   audit: [{ created_at: "2026-09-11T11:00:00Z", action: "driver_insurance_renewed", actor_name: "Operaciones", target_name: "Conductor Prueba", detail: { insurance_expires: "2026-10-01", note: "Validada" } }],
+  regulatory: {
+    company_ready: true,
+    settings: { enforcement_mode: "enforce", mobility_fund_bps: 150 },
+    drivers: [{ id: "driver-1", full_name: "Conductor Prueba", legal_ready: true }],
+    trips: { requested: 26, completed: 24, mobility_fund_contribution_cents: 2340 },
+    receipts: { sent: 23, pending: 1, failed: 0 },
+    incidents: { reported: 1, pending_authority: 0 },
+  },
 };
 
 test("audit terms identify the action, area and readable details", () => {
@@ -62,5 +70,8 @@ test("each report builds a useful table and a valid PDF", async () => {
   assert.ok(bytes.length > 5000);
   assert.equal(new TextDecoder().decode(bytes.slice(0, 4)), "%PDF");
   assert.equal(reportSections(report, "overview")[1].title, "Conciliación comercial de Yavoi!");
+  assert.equal(reportSections(report, "overview")[2].title, "Cumplimiento de transporte");
+  assert.deepEqual(reportSections(report, "overview")[2].body[2], ["Recibos por correo", "23 enviados", "1 pendientes · 0 con error"]);
+  assert.deepEqual(reportSections(report, "overview")[2].body[4], ["Aportación al Fondo de Movilidad", "$23.40", "Estimación del periodo con la tasa configurada"]);
   assert.equal(reportSections(report, "drivers")[1].title, "Cobro y transferencias por conductor");
 });
