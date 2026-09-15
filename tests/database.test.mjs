@@ -899,11 +899,36 @@ test("Postgres security and complete ride lifecycle", async () => {
   await rpc("submit_weekly_fee", { fee_id: weekly.id, proof_path: proofPath });
   await as(ids.admin, "aal2");
   await rpc("review_weekly_fee", { fee_id: weekly.id, approved: true, note: "Pago comprobado." });
+  await db.exec("reset role");
+  await db.query(
+    `insert into public.weekly_fees(driver_id,week_start,due_at,amount_cents,status,note)
+     values($1,current_date-7,now()-interval '1 day',50000,'overdue','Cuota vencida de prueba')`,
+    [ids.driver2],
+  );
+  await as(ids.admin, "aal2");
   await rpc("set_driver_access", { driver_id: ids.driver2, active: false, note: "Prueba de bloqueo" });
   await as(ids.driver2);
   await expectError(() => rpc("availability", { online: true }), /acceso semanal/);
   await as(ids.admin, "aal2");
-  await rpc("set_driver_access", { driver_id: ids.driver2, active: true, note: "Prueba finalizada" });
+  const reactivation = await rpc("set_driver_access", { driver_id: ids.driver2, active: true, note: "Convenio de pago autorizado" });
+  assert.equal(reactivation.active, true);
+  assert.equal(reactivation.overdue_fees_preserved, 1);
+  await rpc("dashboard");
+  const reactivatedDriver = (await db.query(
+    "select account_active,account_access_authorized_at,account_access_authorized_by from public.drivers where id=$1",
+    [ids.driver2],
+  )).rows[0];
+  assert.equal(reactivatedDriver.account_active, true);
+  assert.ok(reactivatedDriver.account_access_authorized_at);
+  assert.equal(reactivatedDriver.account_access_authorized_by, ids.admin);
+  assert.equal((await db.query(
+    "select count(*)::integer as count from public.weekly_fees where driver_id=$1 and status='overdue'",
+    [ids.driver2],
+  )).rows[0].count, 1);
+  await as(ids.driver2);
+  await rpc("availability", { online: true });
+  await rpc("availability", { online: false });
+  await as(ids.admin, "aal2");
   await rpc("set_driver_billing", {
     driver_id: ids.driver2,
     billing_mode: "commission",

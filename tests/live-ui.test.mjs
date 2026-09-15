@@ -16,6 +16,7 @@ const routeRecoveryMigration = await readFile(new URL("../supabase/migrations/20
 const actualTripTraceMigration = await readFile(new URL("../supabase/migrations/20260914124500_actual_trip_trace.sql", import.meta.url), "utf8");
 const scheduledConfirmationMigration = await readFile(new URL("../supabase/migrations/20260914201233_scheduled_confirmation_and_cancellation.sql", import.meta.url), "utf8");
 const offlineScheduleMigration = await readFile(new URL("../supabase/migrations/20260914203656_offline_scheduled_driver_assignment.sql", import.meta.url), "utf8");
+const feeReactivationMigration = await readFile(new URL("../supabase/migrations/20260914211500_persist_operations_fee_reactivation.sql", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -269,6 +270,16 @@ test("Operations can reserve offline compatible drivers and drivers receive live
   assert.match(offlineScheduleMigration, /not d\.account_active and t\.scheduled_at<=now\(\)\+interval '15 minutes'/);
   assert.match(offlineScheduleMigration, /p\.role='driver' and d\.approved and not p\.suspended/);
   assert.doesNotMatch(offlineScheduleMigration, /not d\.online/);
+});
+
+test("Operations fee reactivation persists while overdue records remain auditable", () => {
+  assert.match(portal, /Reactivar cuenta del conductor/);
+  assert.match(portal, /Una nueva cuota vencida posterior volverá a suspender el acceso/);
+  assert.match(portal, /overdue_fees_preserved/);
+  assert.match(feeReactivationMigration, /account_access_authorized_at/);
+  assert.match(feeReactivationMigration, /f\.due_at>d\.account_access_authorized_at/);
+  assert.match(feeReactivationMigration, /El conductor necesita expediente aprobado y documentos vigentes/);
+  assert.match(feeReactivationMigration, /'overdue_fees_preserved',covered/);
 });
 
 test("drivers receive an audible, visible and recoverable offer alert", () => {
