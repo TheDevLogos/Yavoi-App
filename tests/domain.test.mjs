@@ -165,6 +165,13 @@ test("driver dossier progress requires every current document and expiration", (
   assert.equal(expired.percent, 97);
   assert.ok(expired.missing.includes("Vigencia de licencia"));
   assert.ok(!expired.missing.includes("Carta de no antecedentes penales"));
+  const legacy = driverDossierStatus(profile, complete, false);
+  assert.deepEqual(legacy, {
+    completed: 17,
+    total: 17,
+    percent: 100,
+    missing: [],
+  });
 });
 test("passenger profile progress requires safety policy and emergency data", () => {
   const partial = passengerProfileStatus({ full_name: "Ana Pérez", phone: "6391234567" });

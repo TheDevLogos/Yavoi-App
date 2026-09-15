@@ -131,7 +131,7 @@ export const passengerProfileStatus = (profile = {}) => {
     missing: requirements.filter(([, value]) => !isComplete(value)).map(([label]) => label),
   };
 };
-export const driverDossierStatus = (profile = {}, driver = {}) => {
+export const driverDossierStatus = (profile = {}, driver = {}, transportCompliance = true) => {
   const today = new Date().toISOString().slice(0, 10);
   const adultCutoff = new Date();
   adultCutoff.setFullYear(adultCutoff.getFullYear() - 18);
@@ -139,7 +139,26 @@ export const driverDossierStatus = (profile = {}, driver = {}) => {
   const currentYear = new Date().getFullYear();
   const isComplete = (value) =>
     typeof value === "boolean" ? value : String(value ?? "").trim().length > 0;
-  const requirements = [
+  const legacyRequirements = [
+    ["Nombre completo", profile.full_name],
+    ["Teléfono", profile.phone],
+    ["Fotografía", profile.avatar_path || driver.avatar_path],
+    ["Marca", driver.vehicle_make],
+    ["Modelo", driver.vehicle_model],
+    ["Año", driver.vehicle_year],
+    ["Color", driver.vehicle_color],
+    ["Placas", driver.plate],
+    ["Fotografía frontal del vehículo y placa", driver.vehicle_front_path],
+    ["Número de licencia", driver.license_number],
+    ["Vigencia de licencia", driver.license_expires && driver.license_expires >= today],
+    ["Vigencia de seguro", driver.insurance_expires && driver.insurance_expires >= today],
+    ["Licencia", driver.license_path],
+    ["Póliza de seguro", driver.insurance_path],
+    ["Carta de no antecedentes penales", driver.criminal_record_path],
+    ["Carta de políticas Yavoi! firmada", driver.policy_commitment_path],
+    ["Carta de obligaciones viales firmada", driver.traffic_law_commitment_path],
+  ];
+  const complianceRequirements = [
     ["Nombre completo", profile.full_name],
     ["Teléfono", profile.phone],
     ["Fotografía", profile.avatar_path || driver.avatar_path],
@@ -175,6 +194,7 @@ export const driverDossierStatus = (profile = {}, driver = {}) => {
     ["Carta de políticas Yavoi! firmada", driver.policy_commitment_path],
     ["Carta de obligaciones viales firmada", driver.traffic_law_commitment_path],
   ];
+  const requirements = transportCompliance ? complianceRequirements : legacyRequirements;
   const completed = requirements.filter(([, value]) => isComplete(value)).length;
   return {
     completed,

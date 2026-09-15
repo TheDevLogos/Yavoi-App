@@ -415,6 +415,11 @@ test("every ride captures the current transport terms and exposes its protected 
   assert.doesNotMatch(transportComplianceMigration, /grant select on public\.trip_regulatory_records/);
   assert.match(transportComplianceMigration, /-'license_number'-'license_expires'/);
   assert.match(transportComplianceMigration, /-'vin'-'transport_card_number'/);
+  assert.match(transportComplianceMigration, /transport_compliance_version','2026-09-15'/);
+  assert.match(transportComplianceMigration, /when 'bootstrap' then private\.bootstrap_v4\(payload\)/);
+  assert.match(portal, /b\.transport_compliance_version === "2026-09-15"/);
+  assert.match(portal, /S\.transportComplianceAvailable \? transportCompliancePanel/);
+  assert.match(portal, /applyLegacyDriverFormCompatibility/);
 });
 
 test("Operations manages legal readiness, receipts and authority notices with MFA", () => {

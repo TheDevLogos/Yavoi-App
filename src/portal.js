@@ -112,6 +112,7 @@ const S = {
   draftTimer: null,
   auditReport: null,
   transportCompliance: null,
+  transportComplianceAvailable: false,
   auditFilters: { report: "overview", period: "month", driver_id: "", from: "", to: "" },
   scheduleMonth: new Date().toISOString().slice(0, 7),
   scheduleData: null,
@@ -413,6 +414,8 @@ function clearSession() {
   S.units = [];
   S.selectedUnit = null;
   S.auditReport = null;
+  S.transportCompliance = null;
+  S.transportComplianceAvailable = false;
   S.scheduleData = null;
   S.scheduleConfirmation = null;
   S.avatarUrls = {};
@@ -563,6 +566,8 @@ async function loadSession() {
   const b = await rpc("bootstrap");
   S.profile = b.profile;
   S.driver = b.driver;
+  S.transportComplianceAvailable = b.transport_compliance_version === "2026-09-15";
+  if (!S.transportComplianceAvailable) S.transportCompliance = null;
   S.categories = b.categories || [];
   S.cardEnabled = !!b.card_enabled;
   S.mercadoPagoPublicKey = b.mercado_pago_public_key || "";
@@ -1365,7 +1370,7 @@ function paymentModal() {
     : `<p class="hint">Aún no tienes recompensas disponibles para aplicar a este viaje. Puedes conseguirlas en Puntos Viajeros.</p>`;
   openModal(
     "Tu viaje, con todo claro",
-    `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.distance_km)} km · ${q.trip_eta_minutes} min</strong><span>${zoneLabel(q.service_zone)}</span></div></div>${q.scheduled_at ? `<div class="scheduled-confirmation">${I("calendar-check")}<div><strong>${q.recurrence === "once" ? "Viaje programado" : `${q.recurrence_count} viajes programados`}</strong><small>${date(q.scheduled_at)}${q.recurrence !== "once" ? ` · ${e({ daily: "diarios", weekly: "semanales", monthly: "mensuales" }[q.recurrence])}` : ""}</small></div></div>` : ""}<p class="hint">El precio usa la distancia y duración estimadas por el servidor. Puede variar en una nueva cotización por tráfico, cierre de calles o disponibilidad.</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Distancia · ${decimal(q.distance_km)} km</span><span>${money(q.distance_charge_cents)}</span></div><div class="receipt-row"><span>Tiempo estimado · ${q.trip_eta_minutes} min</span><span>${money(q.time_charge_cents)}</span></div>${q.minimum_adjustment_cents ? `<div class="receipt-row"><span>Ajuste a tarifa mínima</span><span>${money(q.minimum_adjustment_cents)}</span></div>` : ""}${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Unidad elegida a más de 7 km · sólo excedente</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Servicio para personas con alguna discapacidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}<div class="receipt-row reward-discount-row hidden"><span id="reward-preview-name">Recompensa</span><strong id="reward-preview-value">-$0.00</strong></div><div class="receipt-row"><span>Propina voluntaria</span><strong id="tip-preview">$0.00</strong></div><div class="receipt-row total"><span>Total</span><strong id="total-preview">${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>Tu recompensa</h3>${rewardOptions}<h3>Agrega una propina (opcional)</h3><div class="tip-options"><label><input type="radio" name="tip" value="0" checked>Sin propina</label><label><input type="radio" name="tip" value="10">10%</label><label><input type="radio" name="tip" value="15">15%</label><label><input type="radio" name="tip" value="custom">Otro</label></div><label id="custom-tip-label" class="hidden">Propina (MXN)<input name="custom_tip" type="number" min="1" max="1000" step="0.01"></label><h3>¿Cómo quieres pagar?</h3><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo al finalizar el viaje</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input id="card-payment-choice" type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago ${S.cardEnabled ? "" : "· lista para activar"}</label><p class="hint">Los datos de tarjeta se capturan en el formulario seguro de Mercado Pago y Yavoi! no recibe ni almacena el número o CVV.</p><div id="cash-options"><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="3000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p></div><label class="check payment-consent"><input name="confirm_terms" type="checkbox" required><span>Confirmo la tarifa, el método de pago y las condiciones de cancelación.</span></label><label class="check payment-consent"><input name="confirm_transport_terms" type="checkbox" required><span>Autorizo el registro de identidad, ruta GPS, comunicaciones, pago y eventos de este servicio durante al menos cinco años. Antes y durante el viaje podré consultar conductor, fotografía, unidad, placas, tarifa, ubicación y tiempo estimado.</span></label><button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`,
+    `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.distance_km)} km · ${q.trip_eta_minutes} min</strong><span>${zoneLabel(q.service_zone)}</span></div></div>${q.scheduled_at ? `<div class="scheduled-confirmation">${I("calendar-check")}<div><strong>${q.recurrence === "once" ? "Viaje programado" : `${q.recurrence_count} viajes programados`}</strong><small>${date(q.scheduled_at)}${q.recurrence !== "once" ? ` · ${e({ daily: "diarios", weekly: "semanales", monthly: "mensuales" }[q.recurrence])}` : ""}</small></div></div>` : ""}<p class="hint">El precio usa la distancia y duración estimadas por el servidor. Puede variar en una nueva cotización por tráfico, cierre de calles o disponibilidad.</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Distancia · ${decimal(q.distance_km)} km</span><span>${money(q.distance_charge_cents)}</span></div><div class="receipt-row"><span>Tiempo estimado · ${q.trip_eta_minutes} min</span><span>${money(q.time_charge_cents)}</span></div>${q.minimum_adjustment_cents ? `<div class="receipt-row"><span>Ajuste a tarifa mínima</span><span>${money(q.minimum_adjustment_cents)}</span></div>` : ""}${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Unidad elegida a más de 7 km · sólo excedente</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Servicio para personas con alguna discapacidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}<div class="receipt-row reward-discount-row hidden"><span id="reward-preview-name">Recompensa</span><strong id="reward-preview-value">-$0.00</strong></div><div class="receipt-row"><span>Propina voluntaria</span><strong id="tip-preview">$0.00</strong></div><div class="receipt-row total"><span>Total</span><strong id="total-preview">${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>Tu recompensa</h3>${rewardOptions}<h3>Agrega una propina (opcional)</h3><div class="tip-options"><label><input type="radio" name="tip" value="0" checked>Sin propina</label><label><input type="radio" name="tip" value="10">10%</label><label><input type="radio" name="tip" value="15">15%</label><label><input type="radio" name="tip" value="custom">Otro</label></div><label id="custom-tip-label" class="hidden">Propina (MXN)<input name="custom_tip" type="number" min="1" max="1000" step="0.01"></label><h3>¿Cómo quieres pagar?</h3><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo al finalizar el viaje</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input id="card-payment-choice" type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago ${S.cardEnabled ? "" : "· lista para activar"}</label><p class="hint">Los datos de tarjeta se capturan en el formulario seguro de Mercado Pago y Yavoi! no recibe ni almacena el número o CVV.</p><div id="cash-options"><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="3000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p></div><label class="check payment-consent"><input name="confirm_terms" type="checkbox" required><span>Confirmo la tarifa, el método de pago y las condiciones de cancelación.</span></label>${S.transportComplianceAvailable ? `<label class="check payment-consent"><input name="confirm_transport_terms" type="checkbox" required><span>Autorizo el registro de identidad, ruta GPS, comunicaciones, pago y eventos de este servicio durante al menos cinco años. Antes y durante el viaje podré consultar conductor, fotografía, unidad, placas, tarifa, ubicación y tiempo estimado.</span></label>` : ""}<button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`,
   );
   const tipCents = () => {
     const choice = $('[name=tip]:checked').value;
@@ -1424,8 +1429,10 @@ function paymentModal() {
       planned_route: q.planned_route,
       recurrence: q.recurrence || "once",
       recurrence_count: q.recurrence_count || 1,
-      confirm_transport_terms: v.confirm_transport_terms === "on",
-      regulatory_terms_version: TRANSPORT_TERMS_VERSION,
+      ...(S.transportComplianceAvailable ? {
+        confirm_transport_terms: v.confirm_transport_terms === "on",
+        regulatory_terms_version: TRANSPORT_TERMS_VERSION,
+      } : {}),
     });
     closeModal();
     const scheduled = Boolean(t.scheduled_at || q.scheduled_at);
@@ -1872,7 +1879,7 @@ async function tripView(id) {
   const regulatoryRecord = S.trip.regulatory_record || {};
   const companyInsurance = S.trip.company_insurance || {};
   const affiliation = regulatoryRecord.assignment_snapshot?.driver?.affiliation_number;
-  const legalTripMarkup = t.driver_id
+  const legalTripMarkup = S.transportComplianceAvailable && t.driver_id
     ? `<details class="trip-legal-info"><summary>${I("shield-check")} Protección y expediente del servicio ${I("chevron-down")}</summary><div><div class="audit-detail-grid"><span><small>AFILIACIÓN DEL CONDUCTOR</small><strong>${e(affiliation || "En validación por Operaciones")}</strong></span><span><small>PÓLIZA DE YAVOI!</small><strong>${e(companyInsurance.available ? `${companyInsurance.insurer} · ${companyInsurance.policy_number}` : "Pendiente de formalización")}</strong></span><span><small>VIGENCIA Y COBERTURA</small><strong>${companyInsurance.available ? `${date(companyInsurance.starts_at)} a ${date(companyInsurance.expires_at)} · ${decimal(companyInsurance.coverage_uma)} UMA por incidente · ${money(companyInsurance.coverage_cents)}` : "Pendiente de validación"}</strong></span><span><small>RESGUARDO DEL VIAJE</small><strong>Hasta ${regulatoryRecord.retention_until ? date(regulatoryRecord.retention_until) : "cinco años después de finalizar"}</strong></span><span><small>RECIBO POR CORREO</small><strong>${e({ not_due: "Disponible al terminar", pending: "Pendiente de envío", sent: "Enviado", failed: "Requiere atención" }[regulatoryRecord.receipt_status] || "En preparación")}</strong></span></div><p class="hint">La póliza empresarial es independiente de la póliza de la unidad. Operaciones debe completar y validar su vigencia antes de activar el control obligatorio.</p></div></details>`
     : "";
   const rewardPaymentRow = t.reward_discount_cents
@@ -2344,7 +2351,7 @@ async function upload(file, bucket) {
   return path;
 }
 function driverProgressMarkup(profile, driver) {
-  const status = driverDossierStatus(profile, driver);
+  const status = driverDossierStatus(profile, driver, S.transportComplianceAvailable);
   const missing = status.missing.length
     ? `Faltan ${status.missing.length}: ${status.missing.slice(0, 3).join(", ")}${status.missing.length > 3 ? " y otros requisitos" : ""}.`
     : "Expediente completo. Guarda el avance para enviarlo a Operaciones.";
@@ -2381,12 +2388,42 @@ function profileLockNotice(editState) {
     return `<div class="profile-lock-notice authorized">${I("lock-open")}<div><strong>Edición autorizada por Operaciones</strong><p>Puedes actualizar tus datos hasta ${date(S.profile.profile_edit_allowed_until)}. Cada cambio queda registrado.</p></div></div>`;
   return `<div class="profile-lock-notice">${I("lock-keyhole")}<div><strong>Perfil protegido</strong><p>El expediente completo está disponible sólo para consulta. Operaciones debe autorizar cualquier modificación.</p></div></div>`;
 }
+function applyLegacyDriverFormCompatibility(form) {
+  if (!form || S.transportComplianceAvailable) return;
+  const regulatoryFields = [
+    "birth_date", "transport_card_number", "transport_card_expires", "vin",
+    "hologram_number", "hologram_expires", "vehicle_registration_expires",
+    "mechanical_inspection_expires", "tax_compliance_expires", "tint_percent",
+    "vehicle_verification_expires", "vehicle_verification_not_applicable",
+    "seatbelts_all", "front_airbags", "abs_brakes", "first_service_tools",
+    "extinguisher_abc", "four_doors", "air_conditioning", "reflective_markings",
+    "government_id_file", "transport_card_file", "vehicle_registration_file",
+    "vehicle_verification_file", "mechanical_inspection_file", "tax_compliance_file",
+  ];
+  regulatoryFields.forEach((name) => {
+    const input = form.elements[name];
+    if (!input) return;
+    input.disabled = true;
+    input.closest("label")?.classList.add("hidden");
+  });
+  const safety = form.querySelector(".driver-safety-checks");
+  safety?.classList.add("hidden");
+  safety?.previousElementSibling?.classList.add("hidden");
+  form.elements.vehicle_year.min = "1990";
+  const criminalRecord = form.elements.criminal_record_file?.closest("label");
+  if (criminalRecord) {
+    criminalRecord.querySelector("span").textContent = "Carta de no antecedentes penales";
+    criminalRecord.querySelector("small").textContent = form.elements.criminal_record_file.files?.[0]
+      ? "Documento seleccionado"
+      : "Requerida por el expediente vigente";
+  }
+}
 function profile() {
   const p = S.profile;
   const d = S.driver || {};
   const driver = p.role === "driver";
   const passenger = p.role === "passenger";
-  const dossier = driver ? driverDossierStatus(p, d) : null;
+  const dossier = driver ? driverDossierStatus(p, d, S.transportComplianceAvailable) : null;
   const editState = profileEditState(p);
   const formDisabled = editState.editable ? "" : "disabled";
   const lockNotice = profileLockNotice(editState);
@@ -2399,6 +2436,7 @@ function profile() {
     "Mi perfil",
     "Tu información, tu unidad y las opciones de tu cuenta.",
   );
+  if (driver) applyLegacyDriverFormCompatibility($("#vehicle-form"));
   if (editState.editable) {
     bindForm("#profile-form", async (v, f) => {
       const path = await upload(f.elements.avatar.files[0], "yavoi-avatars");
@@ -2529,9 +2567,11 @@ function profile() {
         snapshot[name] = form.elements[name]?.checked || false;
       });
       const verificationExpiry = form.elements.vehicle_verification_expires;
-      verificationExpiry.disabled = snapshot.vehicle_verification_not_applicable;
-      verificationExpiry.required = !snapshot.vehicle_verification_not_applicable;
-      const status = driverDossierStatus(p, snapshot);
+      if (S.transportComplianceAvailable) {
+        verificationExpiry.disabled = snapshot.vehicle_verification_not_applicable;
+        verificationExpiry.required = !snapshot.vehicle_verification_not_applicable;
+      }
+      const status = driverDossierStatus(p, snapshot, S.transportComplianceAvailable);
       $("#dossier-progress").value = status.percent;
       $("#dossier-progress-label").textContent = `${status.percent}% completo`;
       $("#dossier-progress-count").textContent = `${status.completed} de ${status.total}`;
@@ -2874,7 +2914,7 @@ function fleet() {
     (rewardOperations.drivers || []).map((item) => [item.id, item.rewards || {}]),
   );
   const cards = S.data.drivers.map((d) => {
-    const progress = driverDossierStatus(d, d);
+    const progress = driverDossierStatus(d, d, S.transportComplianceAvailable);
     const reward = driverRewards.get(d.id) || {};
     const weeklyBilling = d.billing_mode !== "commission";
     const doc = (path, label) => path ? `<button class="btn secondary" data-document="${e(path)}">${I("file-check")} ${label}</button>` : "";
@@ -2940,7 +2980,7 @@ function fleet() {
     (b) =>
       (b.onclick = () => {
         const d = S.data.drivers.find((d) => d.id === b.dataset.review);
-        const progress = driverDossierStatus(d, d);
+        const progress = driverDossierStatus(d, d, S.transportComplianceAvailable);
         openModal(
           "Revisión de " + d.full_name,
           `<div class="review-readiness ${progress.percent === 100 ? "ready" : ""}"><strong>${progress.percent === 100 ? "Expediente completo" : `Expediente al ${progress.percent}%`}</strong><p>${progress.missing.length ? `Faltan: ${e(progress.missing.join(", "))}.` : "Confirma la legibilidad, autenticidad y vigencia de cada documento antes de aprobar."}</p></div><form id="review"><label>Resultado<select name="approved"><option value="false">Pendiente / no autorizado</option><option value="true" ${d.approved ? "selected" : ""} ${progress.percent < 100 ? "disabled" : ""}>Aprobar conductor</option></select></label><label class="check"><input name="female_verified" type="checkbox" ${d.female_verified ? "checked" : ""}>Identidad de conductora verificada</label><label class="check"><input name="accessible_verified" type="checkbox" ${d.accessible_verified ? "checked" : ""}>Unidad y asistencia de accesibilidad verificadas</label><label>Resultado de la revisión<textarea name="note" required minlength="5" maxlength="1000">${e(d.review_note)}</textarea></label><p class="hint">Confirma documentos, fotografía, vigencias y capacidades. Esta acción queda registrada con tu identidad.</p><button class="btn wide" type="submit">Guardar autorización</button></form>`,
@@ -3136,7 +3176,7 @@ function renderAuditReport() {
   const custom = filters.period === "custom";
   const reportContent = ({ overview: overviewReport, drivers: driversReport, incidents: incidentsReport, ratings: ratingsReport, insurance: insuranceReport, audit: auditLogReport })[filters.report](report);
   shell(
-    `<form id="operations-report-filter" class="panel report-toolbar"><label>Informe<select name="report">${Object.entries(reportNames).map(([id, label]) => `<option value="${id}" ${filters.report === id ? "selected" : ""}>${e(label)}</option>`).join("")}</select></label><label>Periodo<select name="period">${Object.entries(periodNames).map(([id, label]) => `<option value="${id}" ${filters.period === id ? "selected" : ""}>${e(label)}</option>`).join("")}</select></label><label>Conductor<select name="driver_id"><option value="">Toda la flotilla</option>${(S.data.drivers || []).map((item) => `<option value="${e(item.id)}" ${filters.driver_id === item.id ? "selected" : ""}>${e(item.full_name)}</option>`).join("")}</select></label><label class="${custom ? "" : "hidden"}">Desde<input name="from" type="date" value="${e(filters.from)}"></label><label class="${custom ? "" : "hidden"}">Hasta<input name="to" type="date" value="${e(filters.to)}"></label><button class="btn" type="submit">Actualizar informe ${I("refresh-cw")}</button><div class="report-export-actions"><button class="btn navy" type="button" id="download-report">Descargar PDF ${I("file-down")}</button><button class="btn secondary" type="button" id="print-report">Imprimir ${I("printer")}</button></div></form>${transportCompliancePanel(S.transportCompliance || {})}<div class="report-period-label">${I("calendar-range")} ${e(reportPeriodLabel(report.meta))}${filters.driver_id ? ` · ${e(S.data.drivers.find((item) => item.id === filters.driver_id)?.full_name || "Conductor")}` : " · Toda la flotilla"}</div>${auditKpis(report)}<div class="section-gap">${reportContent}</div>`,
+    `<form id="operations-report-filter" class="panel report-toolbar"><label>Informe<select name="report">${Object.entries(reportNames).map(([id, label]) => `<option value="${id}" ${filters.report === id ? "selected" : ""}>${e(label)}</option>`).join("")}</select></label><label>Periodo<select name="period">${Object.entries(periodNames).map(([id, label]) => `<option value="${id}" ${filters.period === id ? "selected" : ""}>${e(label)}</option>`).join("")}</select></label><label>Conductor<select name="driver_id"><option value="">Toda la flotilla</option>${(S.data.drivers || []).map((item) => `<option value="${e(item.id)}" ${filters.driver_id === item.id ? "selected" : ""}>${e(item.full_name)}</option>`).join("")}</select></label><label class="${custom ? "" : "hidden"}">Desde<input name="from" type="date" value="${e(filters.from)}"></label><label class="${custom ? "" : "hidden"}">Hasta<input name="to" type="date" value="${e(filters.to)}"></label><button class="btn" type="submit">Actualizar informe ${I("refresh-cw")}</button><div class="report-export-actions"><button class="btn navy" type="button" id="download-report">Descargar PDF ${I("file-down")}</button><button class="btn secondary" type="button" id="print-report">Imprimir ${I("printer")}</button></div></form>${S.transportComplianceAvailable ? transportCompliancePanel(S.transportCompliance || {}) : ""}<div class="report-period-label">${I("calendar-range")} ${e(reportPeriodLabel(report.meta))}${filters.driver_id ? ` · ${e(S.data.drivers.find((item) => item.id === filters.driver_id)?.full_name || "Conductor")}` : " · Toda la flotilla"}</div>${auditKpis(report)}<div class="section-gap">${reportContent}</div>`,
     "Informes y auditoría",
     "Resultados claros de viajes, ingresos, conductores, seguridad, valoraciones, documentos y cambios administrativos.",
   );
@@ -3146,16 +3186,16 @@ async function loadOperationsReport() {
   const payload = { ...S.auditFilters };
   if (payload.period !== "custom") { delete payload.from; delete payload.to; }
   S.auditReport = await rpc("operations_report", payload);
-  if (!S.transportCompliance) S.transportCompliance = await rpc("transport_compliance", { action: "read" });
+  if (S.transportComplianceAvailable && !S.transportCompliance) S.transportCompliance = await rpc("transport_compliance", { action: "read" });
 }
 async function audit() {
-  if (S.auditReport && S.transportCompliance) return renderAuditReport();
+  if (S.auditReport && (!S.transportComplianceAvailable || S.transportCompliance)) return renderAuditReport();
   shell('<section class="panel report-loading"><span></span><h2>Preparando tus indicadores</h2><p>Calculamos viajes, ingresos, valoraciones, incidentes y vigencias.</p></section>', "Informes y auditoría", "Información operativa protegida para la toma de decisiones.");
   await loadOperationsReport();
   renderAuditReport();
 }
 function bindOperationsReportActions() {
-  bindForm("#transport-compliance-form", async (values, form) => {
+  if (S.transportComplianceAvailable) bindForm("#transport-compliance-form", async (values, form) => {
     const policyPath = await upload(form.elements.company_policy_file.files[0], "yavoi-documents");
     await rpc("transport_compliance", {
       action: "save",

@@ -469,10 +469,17 @@ end $$;
 revoke all on function private.operations_report_v4(jsonb) from public,anon;
 grant execute on function private.operations_report_v4(jsonb) to authenticated;
 
+create function private.bootstrap_v4(payload jsonb) returns jsonb
+language sql stable security definer set search_path='' as $$
+ select private.bootstrap_v3(payload)||jsonb_build_object('transport_compliance_version','2026-09-15')
+$$;
+revoke all on function private.bootstrap_v4(jsonb) from public,anon;
+grant execute on function private.bootstrap_v4(jsonb) to authenticated;
+
 create or replace function public.yavoi(command text,payload jsonb default '{}') returns jsonb
 language sql security invoker set search_path='' as $$
  select case command
-   when 'bootstrap' then private.bootstrap_v3(payload)
+   when 'bootstrap' then private.bootstrap_v4(payload)
    when 'dashboard' then private.dashboard_v11(payload)
    when 'profile' then private.profile_v5(payload)
    when 'quote' then private.quote_v4(payload)
