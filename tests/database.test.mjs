@@ -687,14 +687,25 @@ test("Postgres security and complete ride lifecycle", async () => {
     company_policy_coverage_uma: 32,
     mobility_fund_bps: 150,
     authority_reporting_channel: "Canal formal de prueba",
-    receipt_email_enabled: false,
+    receipt_email_enabled: true,
     enforcement_mode: "enforce",
   });
   assert.equal(compliance.company_ready, true);
   assert.equal(compliance.settings.enforcement_mode, "enforce");
   assert.equal(compliance.receipts[0].status, "pending");
   assert.equal(compliance.authority_incidents[0].authority_report_status, "pending");
-  await rpc("transport_compliance", { action: "receipt_sent", trip_id: t.id, reference: "Correo transaccional TEST-001" });
+  await db.exec("reset role");
+  await db.query("select set_config('request.jwt.claims',$1,false)", [JSON.stringify({ role: "service_role" })]);
+  await db.exec("set role service_role");
+  const receiptBatch = (await db.query("select public.yavoi_receipt_claim($1::jsonb) as result", [JSON.stringify({ trip_id: t.id, caller_id: ids.admin })])).rows[0].result;
+  assert.equal(receiptBatch.length, 1);
+  assert.equal(receiptBatch[0].trip.total_cents, done.total_cents);
+  assert.equal(receiptBatch[0].trip.origin, done.origin);
+  assert.equal(receiptBatch[0].trip.destination, done.destination);
+  assert.equal(receiptBatch[0].driver.name, "Conductor Prueba 1");
+  assert.equal(receiptBatch[0].driver.photo_path, `${ids.driver}/avatar.png`);
+  await db.query("select public.yavoi_receipt_complete($1::jsonb)", [JSON.stringify({ trip_id: t.id, lease_token: receiptBatch[0].lease_token, success: true, provider_message_id: "gmail-test-001", caller_id: ids.admin })]);
+  await as(ids.admin, "aal2");
   await rpc("transport_compliance", { action: "incident_reported", complaint_id: passengerRating.report.id, reference: "Fiscalía · folio TEST-002" });
   const complianceAfter = await rpc("transport_compliance", { action: "read" });
   assert.equal(complianceAfter.receipts[0].status, "sent");

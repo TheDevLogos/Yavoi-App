@@ -353,6 +353,13 @@ async function run(fn) {
     S.busy = false;
   }
 }
+async function deliverTripReceipt(tripId, announce = false) {
+  const { data, error } = await db.functions.invoke("send-trip-receipts", { body: { trip_id: tripId } });
+  if (error || data?.error) throw Error(data?.error || error?.message || "No se pudo enviar el recibo.");
+  const sent = data?.results?.find((item) => item.trip_id === tripId && item.status === "sent");
+  if (announce) notify(sent ? `Recibo ${sent.receipt_number} enviado por correo.` : "El recibo ya fue enviado o todavía no está habilitado.");
+  return sent || null;
+}
 function date(value) {
   return value
     ? new Date(value).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })
@@ -3222,14 +3229,12 @@ function bindOperationsReportActions() {
     renderAuditReport();
     notify("Control regulatorio actualizado y registrado en Auditoría.");
   });
-  $$('[data-receipt-sent]').forEach((item) => item.onclick = () => {
-    openModal("Confirmar envío del recibo", `<form id="receipt-sent"><p>Registra la evidencia del envío al correo del pasajero.</p><label>Referencia<textarea name="reference" minlength="3" maxlength="500" required placeholder="Proveedor, identificador o fecha y hora del envío"></textarea></label><button class="btn wide" type="submit">Confirmar envío ${I("mail-check")}</button></form>`);
-    bindForm("#receipt-sent", async (values) => {
-      await rpc("transport_compliance", { action: "receipt_sent", trip_id: item.dataset.receiptSent, reference: values.reference });
-      closeModal();
+  $$('[data-receipt-sent]').forEach((item) => {
+    item.textContent = "Enviar por correo";
+    item.onclick = () => run(async () => {
+      await deliverTripReceipt(item.dataset.receiptSent, true);
       S.transportCompliance = await rpc("transport_compliance", { action: "read" });
       renderAuditReport();
-      notify("Recibo marcado como enviado.");
     });
   });
   $$('[data-authority-reported]').forEach((item) => item.onclick = () => {
@@ -3615,6 +3620,7 @@ async function handleAction(action, b) {
       await rpc("transition", { trip_id: t.id, status: "completed", cash_received: t.payment_method === "cash" });
       closeModal();
       await tripView(t.id);
+      deliverTripReceipt(t.id).catch(() => {});
     });
     return;
   }

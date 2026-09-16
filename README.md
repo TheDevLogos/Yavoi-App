@@ -22,7 +22,7 @@ Aplicación web responsiva para pasajeros, conductores y el equipo de Operacione
 - Viaje local Básico gratis acumulable cada 15 viajes; descuentos y amenidades se eligen antes de confirmar y quedan visibles en precio, viaje y recibo.
 - Operaciones consulta puntos, nivel, viajes, ingresos, rating e incidentes por conductor, y registra la entrega o cancelación de beneficios físicos con auditoría y devolución automática de puntos.
 - Solicitud y cobro idempotentes, PIN de inicio, ubicación, trayectoria, chat y estados del viaje.
-- Cierre con confirmación de efectivo, recibo, valoración mutua, propina, recompensas y quejas.
+- Cierre con confirmación de efectivo, recibo legal enviado por correo mediante Gmail, valoración mutua, propina, recompensas y quejas.
 - Centro de Operaciones con mapa de flotilla en vivo, trayectorias GPS, expedientes, viajes, conciliación de efectivo o tarjeta, reembolsos, cuotas semanales, reportes, tarifas y auditoría.
 - Auditoría simplificada con responsable, persona o viaje afectado, filtros por área y búsqueda, además de detalle colapsable en lenguaje claro.
 - Informes operativos por día, semana, mes, año o rango personalizado: viajes, ingresos, comisión, pagos, incidentes, valoraciones, rendimiento individual de conductores y vigencia de seguros; disponibles para imprimir o exportar a PDF con identidad Yavoi!.
@@ -71,5 +71,6 @@ Las migraciones versionadas están en `supabase/migrations`. La integración con
 6. Completar la guía [Activar Mercado Pago](docs/mercado-pago.md). La tarjeta permanece bloqueada hasta terminar esos pasos.
 7. Completar la guía [Activar Google](docs/oauth-providers.md). El Client ID público ya está integrado; falta guardar el Client Secret sólo en Supabase y habilitar el proveedor.
 8. Seguir la [matriz de cumplimiento de transporte](docs/cumplimiento-ley-transporte-chihuahua-2026-09-15.md) y formalizar con la autoridad los canales de reportes mensuales e incidentes.
+9. Completar la guía [Activar recibos de viaje por Gmail](docs/gmail-trip-receipts.md) antes de habilitar el envío automático en Operaciones.
 
 Diseño y desarrollo: **TheDevLogos Creación Inteligente**.
