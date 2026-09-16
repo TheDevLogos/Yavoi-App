@@ -2,10 +2,25 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { buildReceiptContent } from "./template.js";
 
-const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+const response = (body: unknown, status = 200, origin = "") => new Response(JSON.stringify(body), {
   status,
-  headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  headers: {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "access-control-allow-origin": origin,
+    "access-control-allow-headers": "authorization, apikey, content-type, x-client-info, x-yavoi-receipt-token",
+    "access-control-allow-methods": "POST, OPTIONS",
+    vary: "Origin",
+  },
 });
+
+function allowedOrigin(req: Request) {
+  const origin = req.headers.get("origin") || "";
+  const configured = (Deno.env.get("APP_ORIGINS") || "https://yavoi-delicias.alonsovl-logos88.chatgpt.site,https://yavoi-app.vercel.app")
+    .split(",")
+    .map((value) => value.trim());
+  return configured.includes(origin) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ? origin : "";
+}
 
 const bytesToBase64 = (bytes: Uint8Array) => {
   let binary = "";
@@ -64,13 +79,16 @@ async function receiptMime(item: Record<string, unknown>, supabase: ReturnType<t
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method !== "POST") return response({ error: "Método no permitido." }, 405);
+  const origin = allowedOrigin(req);
+  if (!origin) return response({ error: "Origen no permitido." }, 403, "null");
+  if (req.method === "OPTIONS") return response({ ok: true }, 200, origin);
+  if (req.method !== "POST") return response({ error: "Método no permitido." }, 405, origin);
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   const service = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
   let body: Record<string, unknown> = {};
-  try { body = await req.json(); } catch { return response({ error: "Solicitud inválida." }, 400); }
+  try { body = await req.json(); } catch { return response({ error: "Solicitud inválida." }, 400, origin); }
   let callerId: string | null = null;
   const cronToken = Deno.env.get("RECEIPT_CRON_TOKEN") || "";
   const suppliedCronToken = req.headers.get("x-yavoi-receipt-token") || "";
@@ -78,9 +96,9 @@ Deno.serve(async (req: Request) => {
     const authorization = req.headers.get("authorization") || "";
     const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authorization } } });
     const { data, error } = await userClient.auth.getUser();
-    if (error || !data.user) return response({ error: "Sesión no válida." }, 401);
+    if (error || !data.user) return response({ error: "Sesión no válida." }, 401, origin);
     callerId = data.user.id;
-    if (!body.trip_id) return response({ error: "El viaje es obligatorio para un envío manual." }, 400);
+    if (!body.trip_id) return response({ error: "El viaje es obligatorio para un envío manual." }, 400, origin);
   }
   try {
     const accessToken = await gmailAccessToken();
@@ -107,12 +125,12 @@ Deno.serve(async (req: Request) => {
         results.push({ trip_id: item.trip_id, status: "sent", receipt_number: content.folio });
       } catch (error) {
         const { error: completeError } = await service.rpc("yavoi_receipt_complete", { payload: { trip_id: item.trip_id, lease_token: item.lease_token, success: false, error: error instanceof Error ? error.message : "Fallo temporal", caller_id: callerId } });
-        if (completeError) return response({ error: "No se pudo conservar el resultado del envío.", processed: results.length }, 503);
+        if (completeError) return response({ error: "No se pudo conservar el resultado del envío.", processed: results.length }, 503, origin);
         results.push({ trip_id: item.trip_id, status: "failed" });
       }
     }
-    return response({ ok: results.every((item) => item.status === "sent"), processed: results.length, results });
+    return response({ ok: results.every((item) => item.status === "sent"), processed: results.length, results }, 200, origin);
   } catch (error) {
-    return response({ error: error instanceof Error ? error.message : "No se pudo procesar la entrega." }, 503);
+    return response({ error: error instanceof Error ? error.message : "No se pudo procesar la entrega." }, 503, origin);
   }
 });

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { buildReceiptContent } from "../supabase/functions/send-trip-receipts/template.js";
 
 test("emailed trip receipt contains every required transport datum", () => {
@@ -36,4 +37,12 @@ test("receipt template rejects missing identity and escapes untrusted addresses"
   assert.doesNotMatch(receipt.html, /<script>/);
   assert.match(receipt.html, /&lt;script&gt;/);
   assert.match(receipt.html, /&lt;b&gt;Origen&lt;\/b&gt;/);
+});
+
+test("receipt sender accepts the Yavoi web origin and preflight headers", async () => {
+  const sender = await readFile(new URL("../supabase/functions/send-trip-receipts/index.ts", import.meta.url), "utf8");
+  assert.match(sender, /access-control-allow-origin/);
+  assert.match(sender, /access-control-allow-methods.*POST, OPTIONS/);
+  assert.match(sender, /if \(req\.method === "OPTIONS"\)/);
+  assert.match(sender, /https:\/\/yavoi-app\.vercel\.app/);
 });
