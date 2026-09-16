@@ -428,6 +428,10 @@ test("Operations manages legal readiness, receipts and authority notices with MF
   assert.match(portal, /Obligatorio para nuevas asignaciones/);
   assert.match(portal, /guardar el expediente por etapas/i);
   assert.match(portal, /data-receipt-sent/);
+  assert.match(portal, /data-receipt-status role="status" aria-live="polite"/);
+  assert.match(portal, /item\.textContent = "Enviando…"/);
+  assert.match(portal, /Enviados recientemente/);
+  assert.match(portal, /item\.textContent = "Reintentar envío"/);
   assert.match(portal, /data-authority-reported/);
   assert.match(portal, /proveedor de correo/i);
   assert.match(transportComplianceMigration, /coalesce\(auth\.jwt\(\)->>'aal','aal1'\)<>'aal2'/);
