@@ -434,6 +434,8 @@ test("Operations manages legal readiness, receipts and authority notices with MF
   assert.match(portal, /item\.textContent = "Reintentar envío"/);
   assert.match(portal, /edgeFunctionErrorMessage/);
   assert.match(portal, /context\.clone/);
+  assert.match(portal, /db\.auth\.refreshSession/);
+  assert.match(portal, /Authorization: `Bearer \$\{accessToken\}`/);
   assert.match(portal, /data-authority-reported/);
   assert.match(portal, /proveedor de correo/i);
   assert.match(transportComplianceMigration, /coalesce\(auth\.jwt\(\)->>'aal','aal1'\)<>'aal2'/);

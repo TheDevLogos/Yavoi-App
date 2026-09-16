@@ -370,7 +370,13 @@ async function edgeFunctionErrorMessage(error, data) {
   return error?.message || "No se pudo enviar el recibo.";
 }
 async function deliverTripReceipt(tripId, announce = false) {
-  const { data, error } = await db.functions.invoke("send-trip-receipts", { body: { trip_id: tripId } });
+  const { data: refreshed, error: sessionError } = await db.auth.refreshSession();
+  const accessToken = refreshed?.session?.access_token;
+  if (sessionError || !accessToken) throw Error("Tu sesión de Operaciones venció. Ingresa nuevamente antes de enviar el recibo.");
+  const { data, error } = await db.functions.invoke("send-trip-receipts", {
+    body: { trip_id: tripId },
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
   if (error || data?.error) throw Error(await edgeFunctionErrorMessage(error, data));
   const sent = data?.results?.find((item) => item.trip_id === tripId && item.status === "sent");
   if (announce) {
