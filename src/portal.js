@@ -353,9 +353,25 @@ async function run(fn) {
     S.busy = false;
   }
 }
+async function edgeFunctionErrorMessage(error, data) {
+  if (data?.error) return String(data.error);
+  const context = error?.context;
+  if (context) {
+    try {
+      const payload = await (typeof context.clone === "function" ? context.clone() : context).json();
+      if (payload?.error) return String(payload.error);
+    } catch {
+      try {
+        const detail = await (typeof context.clone === "function" ? context.clone() : context).text();
+        if (detail?.trim()) return detail.trim().slice(0, 500);
+      } catch {}
+    }
+  }
+  return error?.message || "No se pudo enviar el recibo.";
+}
 async function deliverTripReceipt(tripId, announce = false) {
   const { data, error } = await db.functions.invoke("send-trip-receipts", { body: { trip_id: tripId } });
-  if (error || data?.error) throw Error(data?.error || error?.message || "No se pudo enviar el recibo.");
+  if (error || data?.error) throw Error(await edgeFunctionErrorMessage(error, data));
   const sent = data?.results?.find((item) => item.trip_id === tripId && item.status === "sent");
   if (announce) {
     const enabled = S.transportCompliance?.settings?.receipt_email_enabled;

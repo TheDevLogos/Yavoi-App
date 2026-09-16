@@ -32,6 +32,23 @@ const mimeBase64 = (bytes: Uint8Array) => bytesToBase64(bytes).replace(/.{1,76}/
 const base64Url = (bytes: Uint8Array) => bytesToBase64(bytes).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
 const encodedHeader = (value: string) => `=?UTF-8?B?${bytesToBase64(new TextEncoder().encode(value))}?=`;
 
+async function fetchWithTransientRetry(url: string, init: RequestInit, attempts = 3) {
+  let lastResponse: Response | null = null;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const result = await fetch(url, init);
+      lastResponse = result;
+      if (result.status !== 429 && result.status < 500) return result;
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
+  }
+  if (lastResponse) return lastResponse;
+  throw lastError instanceof Error ? lastError : new Error("No fue posible conectar con Google.");
+}
+
 function constantTimeEqual(left: string, right: string) {
   if (!left || left.length !== right.length) return false;
   let different = 0;
@@ -44,13 +61,16 @@ async function gmailAccessToken() {
   const clientSecret = Deno.env.get("GMAIL_CLIENT_SECRET") || "";
   const refreshToken = Deno.env.get("GMAIL_REFRESH_TOKEN") || "";
   if (!clientId || !clientSecret || !refreshToken) throw new Error("Gmail todavía no está configurado en los secretos de Supabase.");
-  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+  const tokenResponse = await fetchWithTransientRetry("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }),
   });
   const token = await tokenResponse.json();
-  if (!tokenResponse.ok || !token.access_token) throw new Error("Google rechazó la autorización para enviar correos.");
+  if (!tokenResponse.ok || !token.access_token) {
+    const detail = String(token?.error_description || token?.error || "autorización no disponible").slice(0, 240);
+    throw new Error(`Google rechazó la autorización para enviar correos: ${detail}.`);
+  }
   return String(token.access_token);
 }
 
@@ -110,13 +130,16 @@ Deno.serve(async (req: Request) => {
     for (const item of claimed || []) {
       try {
         const { raw, content } = await receiptMime(item, service);
-        const sentResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+        const sentResponse = await fetchWithTransientRetry("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
           method: "POST",
           headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
           body: JSON.stringify({ raw }),
         });
         const sent = await sentResponse.json();
-        if (!sentResponse.ok || !sent.id) throw new Error("Gmail no confirmó el envío del recibo.");
+        if (!sentResponse.ok || !sent.id) {
+          const detail = String(sent?.error?.message || sent?.error || "respuesta sin identificador").slice(0, 240);
+          throw new Error(`Gmail no confirmó el envío del recibo: ${detail}.`);
+        }
         const { error: completeError } = await service.rpc("yavoi_receipt_complete", { payload: { trip_id: item.trip_id, lease_token: item.lease_token, success: true, provider_message_id: sent.id, caller_id: callerId } });
         if (completeError) {
           results.push({ trip_id: item.trip_id, status: "sent_unconfirmed", receipt_number: content.folio });

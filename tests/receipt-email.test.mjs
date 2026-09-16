@@ -45,4 +45,6 @@ test("receipt sender accepts the Yavoi web origin and preflight headers", async 
   assert.match(sender, /access-control-allow-methods.*POST, OPTIONS/);
   assert.match(sender, /if \(req\.method === "OPTIONS"\)/);
   assert.match(sender, /https:\/\/yavoi-app\.vercel\.app/);
+  assert.match(sender, /fetchWithTransientRetry/);
+  assert.match(sender, /error_description/);
 });
