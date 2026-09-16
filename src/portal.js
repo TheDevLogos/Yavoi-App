@@ -357,7 +357,14 @@ async function deliverTripReceipt(tripId, announce = false) {
   const { data, error } = await db.functions.invoke("send-trip-receipts", { body: { trip_id: tripId } });
   if (error || data?.error) throw Error(data?.error || error?.message || "No se pudo enviar el recibo.");
   const sent = data?.results?.find((item) => item.trip_id === tripId && item.status === "sent");
-  if (announce) notify(sent ? `Recibo ${sent.receipt_number} enviado por correo.` : "El recibo ya fue enviado o todavía no está habilitado.");
+  if (announce) {
+    const enabled = S.transportCompliance?.settings?.receipt_email_enabled;
+    notify(sent
+      ? `Recibo ${sent.receipt_number} enviado por correo.`
+      : enabled
+        ? "El recibo ya fue enviado o no está disponible para reintento todavía."
+        : "Activa el envío de recibos y guarda el control regulatorio antes de reintentar.");
+  }
   return sent || null;
 }
 function date(value) {

@@ -124,12 +124,19 @@ Deno.serve(async (req: Request) => {
         }
         results.push({ trip_id: item.trip_id, status: "sent", receipt_number: content.folio });
       } catch (error) {
-        const { error: completeError } = await service.rpc("yavoi_receipt_complete", { payload: { trip_id: item.trip_id, lease_token: item.lease_token, success: false, error: error instanceof Error ? error.message : "Fallo temporal", caller_id: callerId } });
+        const failureMessage = error instanceof Error ? error.message : "Fallo temporal";
+        const { error: completeError } = await service.rpc("yavoi_receipt_complete", { payload: { trip_id: item.trip_id, lease_token: item.lease_token, success: false, error: failureMessage, caller_id: callerId } });
         if (completeError) return response({ error: "No se pudo conservar el resultado del envío.", processed: results.length }, 503, origin);
-        results.push({ trip_id: item.trip_id, status: "failed" });
+        results.push({ trip_id: item.trip_id, status: "failed", error: failureMessage });
       }
     }
-    return response({ ok: results.every((item) => item.status === "sent"), processed: results.length, results }, 200, origin);
+    const failed = results.find((item) => item.status === "failed");
+    return response({
+      ok: results.length > 0 && !failed && results.every((item) => item.status === "sent"),
+      processed: results.length,
+      results,
+      error: failed?.error || undefined,
+    }, 200, origin);
   } catch (error) {
     return response({ error: error instanceof Error ? error.message : "No se pudo procesar la entrega." }, 503, origin);
   }
