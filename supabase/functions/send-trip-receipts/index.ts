@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { buildReceiptContent } from "./template.js";
+import { YAVOI_EMAIL_LOGO_BASE64 } from "./logo.js";
 
 const response = (body: unknown, status = 200, origin = "") => new Response(JSON.stringify(body), {
   status,
@@ -28,6 +29,7 @@ const bytesToBase64 = (bytes: Uint8Array) => {
     binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
   return btoa(binary);
 };
+const base64ToBytes = (value: string) => Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
 const mimeBase64 = (bytes: Uint8Array) => bytesToBase64(bytes).replace(/.{1,76}/g, "$&\r\n").trim();
 const base64Url = (bytes: Uint8Array) => bytesToBase64(bytes).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
 const encodedHeader = (value: string) => `=?UTF-8?B?${bytesToBase64(new TextEncoder().encode(value))}?=`;
@@ -83,6 +85,7 @@ async function receiptMime(item: Record<string, unknown>, supabase: ReturnType<t
   const sender = Deno.env.get("GMAIL_SENDER_EMAIL") || "admin.yavoi@gmail.com";
   if (/[\r\n]/.test(sender)) throw new Error("Remitente inválido.");
   const photoBytes = new Uint8Array(await photo.arrayBuffer());
+  const logoBytes = base64ToBytes(YAVOI_EMAIL_LOGO_BASE64);
   const lines = [
     `From: Yavoi! <${sender}>`, `To: ${content.email}`, `Subject: ${encodedHeader(content.subject)}`,
     "MIME-Version: 1.0", `Content-Type: multipart/related; boundary="${boundary}"`, "",
@@ -91,6 +94,9 @@ async function receiptMime(item: Record<string, unknown>, supabase: ReturnType<t
     mimeBase64(new TextEncoder().encode(content.text)), "",
     `--${alternative}`, "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "",
     mimeBase64(new TextEncoder().encode(content.html)), "", `--${alternative}--`, "",
+    `--${boundary}`, "Content-Type: image/png", "Content-Transfer-Encoding: base64",
+    "Content-ID: <yavoi-logo>", 'Content-Disposition: inline; filename="yavoi-logo.png"', "",
+    mimeBase64(logoBytes), "",
     `--${boundary}`, `Content-Type: ${photo.type}`, "Content-Transfer-Encoding: base64",
     "Content-ID: <driver-photo>", `Content-Disposition: inline; filename="conductor-${content.folio}.jpg"`, "",
     mimeBase64(photoBytes), "", `--${boundary}--`, "",

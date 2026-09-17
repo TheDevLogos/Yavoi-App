@@ -22,6 +22,8 @@ test("emailed trip receipt contains every required transport datum", () => {
   });
   assert.equal(receipt.email, "pasajero@example.test");
   assert.match(receipt.subject, /YV-TEST00000999/);
+  assert.match(receipt.html, /src="cid:yavoi-logo"/);
+  assert.doesNotMatch(receipt.html, /<div style="font-size:30px;font-weight:800">Yav/);
   for (const value of ["16 de septiembre de 2026", "$65.00", "18 min", "5.25 km", "Calle 11 1/2 #1108", "Hotel Baeza", "Conductor Yavoi", "cid:driver-photo"])
     assert.match(receipt.html, new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
@@ -47,4 +49,6 @@ test("receipt sender accepts the Yavoi web origin and preflight headers", async 
   assert.match(sender, /https:\/\/yavoi-app\.vercel\.app/);
   assert.match(sender, /fetchWithTransientRetry/);
   assert.match(sender, /error_description/);
+  assert.match(sender, /Content-ID: <yavoi-logo>/);
+  assert.match(sender, /YAVOI_EMAIL_LOGO_BASE64/);
 });
