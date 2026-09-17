@@ -372,7 +372,7 @@ async function edgeFunctionErrorMessage(error, data) {
 async function deliverTripReceipt(tripId, announce = false) {
   const { data: refreshed, error: sessionError } = await db.auth.refreshSession();
   const accessToken = refreshed?.session?.access_token;
-  if (sessionError || !accessToken) throw Error("Tu sesión de Operaciones venció. Ingresa nuevamente antes de enviar el recibo.");
+  if (sessionError || !accessToken) throw Error("Tu sesión venció. Ingresa nuevamente antes de enviar el recibo.");
   const { data, error } = await db.functions.invoke("send-trip-receipts", {
     body: { trip_id: tripId },
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -3682,7 +3682,15 @@ async function handleAction(action, b) {
       await rpc("transition", { trip_id: t.id, status: "completed", cash_received: t.payment_method === "cash" });
       closeModal();
       await tripView(t.id);
-      deliverTripReceipt(t.id).catch(() => {});
+      try {
+        const sent = await deliverTripReceipt(t.id);
+        notify(sent
+          ? `Viaje completado. El recibo ${sent.receipt_number} fue enviado al correo del pasajero.`
+          : "Viaje completado. El recibo ya fue enviado o permanece registrado para seguimiento.");
+      } catch (error) {
+        console.error("Automatic trip receipt delivery failed", error);
+        notify("Viaje completado. El recibo quedó en cola y Operaciones puede reintentar el envío sin perder sus datos.");
+      }
     });
     return;
   }

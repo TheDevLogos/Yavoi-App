@@ -436,6 +436,9 @@ test("Operations manages legal readiness, receipts and authority notices with MF
   assert.match(portal, /context\.clone/);
   assert.match(portal, /db\.auth\.refreshSession/);
   assert.match(portal, /Authorization: `Bearer \$\{accessToken\}`/);
+  assert.match(portal, /status: "completed", cash_received:/);
+  assert.match(portal, /const sent = await deliverTripReceipt\(t\.id\)/);
+  assert.match(portal, /El recibo quedó en cola y Operaciones puede reintentar/);
   assert.match(portal, /data-authority-reported/);
   assert.match(portal, /proveedor de correo/i);
   assert.match(transportComplianceMigration, /coalesce\(auth\.jwt\(\)->>'aal','aal1'\)<>'aal2'/);
