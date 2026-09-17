@@ -20,11 +20,12 @@ También se necesita definir en Google Auth Platform:
 - Correo de soporte y contacto: `admin.yavoi@gmail.com` mientras se habilita el dominio oficial.
 - Audiencia externa. Durante pruebas, agregar las cuentas Gmail que probarán el acceso.
 - Página principal: `https://yavoi-app.vercel.app`.
-- Aviso de privacidad y términos públicos antes de solicitar publicación general o verificación de marca.
+- Política de Privacidad pública: `https://yavoi-app.vercel.app/privacidad`.
+- Condiciones del Servicio públicas: `https://yavoi-app.vercel.app/terminos`.
 
 ## Configuración exacta de Google
 
-1. Entrar a Google Cloud con `admin.yavoi@gmail.com`, crear o seleccionar el proyecto de Yavoi! y abrir **Google Auth Platform**.
+1. Entrar a Google Cloud con la cuenta propietaria del proyecto y abrir **Google Auth Platform**. La propiedad puede permanecer en `alonsovl.logos@gmail.com`; usar `admin.yavoi@gmail.com` como soporte, contacto de desarrollador y usuario de prueba no transfiere la propiedad ni afecta OAuth.
 2. Completar **Branding**, **Audience** y **Data Access**. Para el acceso básico bastan los alcances `openid`, `email` y `profile` que incluye Google Identity Services.
 3. En **Clients**, crear un cliente **Web application**.
 4. Agregar estos **Authorized JavaScript origins**, sin ruta ni diagonal final:

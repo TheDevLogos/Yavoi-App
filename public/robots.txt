@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://yavoi-app.vercel.app/sitemap.xml

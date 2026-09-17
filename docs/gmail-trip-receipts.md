@@ -42,3 +42,17 @@ Nunca pegues el secreto del cliente ni el `refresh_token` en el repositorio, una
 4. Verifica que el recibo cambie de **Pendiente** a **Enviado**. Operaciones también puede pulsar **Enviar por correo** para reintentar un recibo.
 
 La cola es idempotente: un viaje conserva un solo recibo, usa arrendamientos para impedir envíos simultáneos y guarda el identificador devuelto por Gmail. Los fallos temporales aplican reintentos con espera creciente y no bloquean la finalización del viaje.
+
+## Renovar un `refresh_token` vencido o revocado
+
+Antes de generar el reemplazo, abre **Google Auth Platform > Público** y cambia el estado de **Pruebas** a **En producción**. En una aplicación externa en pruebas, Google emite autorizaciones que vencen a los siete días. La cuenta propietaria del proyecto puede ser `alonsovl.logos@gmail.com`; `admin.yavoi@gmail.com` debe permanecer como usuario autorizado, correo de soporte y contacto de desarrollador.
+
+1. En **Clientes > Yavoi Recibos**, confirma que el cliente sea de tipo aplicación web y que su URI de redirección sea exactamente `https://developers.google.com/oauthplayground`.
+2. Desde la cuenta `admin.yavoi@gmail.com`, abre las conexiones de la cuenta de Google y elimina el acceso anterior de **Yavoi Recibos** para forzar un consentimiento nuevo.
+3. En OAuth Playground abre la configuración y selecciona **Server-side**, **Offline**, **Consent Screen** y **Use your own OAuth credentials**.
+4. Escribe el ID y secreto del mismo cliente **Yavoi Recibos**, autoriza únicamente `https://www.googleapis.com/auth/gmail.send` e intercambia el código.
+5. Pulsa **Refresh access token** antes de guardar nada. Sólo si la prueba funciona, copia el nuevo `refresh_token`.
+6. En **Supabase > Edge Functions > Secrets**, sustituye `GMAIL_REFRESH_TOKEN`. Confirma también que `GMAIL_CLIENT_ID` y `GMAIL_CLIENT_SECRET` pertenecen al mismo cliente que emitió el token.
+7. No es necesario desplegar nuevamente la función; los secretos actualizados se aplican directamente. Regresa a Operaciones y reintenta el recibo pendiente.
+
+Nunca guardes estos valores en Git, documentos compartidos, capturas ni conversaciones.
