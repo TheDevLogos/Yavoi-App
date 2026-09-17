@@ -189,6 +189,12 @@ test("Postgres security and complete ride lifecycle", async () => {
     description: "Beneficio individual para validar el catálogo editable.",
     kind: "partner_coupon",
     delivery_mode: "digital_coupon",
+    claim_method: "partner_counter",
+    claim_instructions: "Presenta este ticket en la caja antes de pagar para validar el beneficio una sola vez.",
+    claim_contact: "Negocio de prueba",
+    claim_contact_url: "https://example.test/canje",
+    claim_location: "Sucursal participante",
+    claim_button_label: "Presentar en caja",
     icon: "ticket",
     points_cost: 0,
     min_trips: 0,
@@ -204,6 +210,8 @@ test("Postgres security and complete ride lifecycle", async () => {
   });
   assert.match(editableReward.id, /^reward_[a-f0-9]{12}$/);
   assert.equal(editableReward.image_path, campaignImage);
+  assert.equal(editableReward.claim_method, "partner_counter");
+  assert.match(editableReward.claim_instructions, /una sola vez/);
   await rpc("set_reward_active", { reward_id: "passenger_snack", active: false });
   assert.equal(
     (await rpc("dashboard")).marketing.reward_catalog.find((reward) => reward.id === "passenger_snack")
@@ -225,6 +233,24 @@ test("Postgres security and complete ride lifecycle", async () => {
   const couponWallet = (await rpc("dashboard")).reward_wallet;
   assert.equal(couponWallet.redemptions.find((item) => item.id === digitalCoupon.id).image_path, campaignImage);
   assert.equal(couponWallet.redemptions.find((item) => item.id === digitalCoupon.id).terms, "Válido una vez y sujeto a disponibilidad.");
+  assert.equal(couponWallet.redemptions.find((item) => item.id === digitalCoupon.id).claim_location, "Sucursal participante");
+  await expectError(
+    () => rpc("redeem_reward", { reward_id: editableReward.id }),
+    /Ya tienes esta recompensa activa/,
+  );
+  await as(ids.admin, "aal2");
+  const rewardQueue = (await rpc("dashboard")).reward_operations.redemptions;
+  assert.ok(rewardQueue.some((item) => item.id === digitalCoupon.id && item.user_name === "Pasajero Prueba"));
+  await rpc("review_reward_redemption", {
+    redemption_id: digitalCoupon.id,
+    status: "redeemed",
+    reference: "CAJA-TEST-001",
+    note: "Código validado por el negocio de prueba.",
+  });
+  await as(ids.rider);
+  const redeemedCoupon = (await rpc("dashboard")).reward_wallet.redemptions.find((item) => item.id === digitalCoupon.id);
+  assert.equal(redeemedCoupon.status, "redeemed");
+  assert.equal(redeemedCoupon.redemption_reference, "CAJA-TEST-001");
   await rpc("profile", { ...riderProfile, name: "Pasajero Actualizado" });
   assert.equal(
     (await db.query("select full_name from public.profiles where id=$1", [ids.rider])).rows[0].full_name,

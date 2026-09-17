@@ -178,9 +178,16 @@ test("Operations edits and filters rewards while users receive shareable barcode
   assert.match(portal, /function rewardBarcode/);
   assert.match(portal, /data-view-coupon/);
   assert.match(portal, /navigator\.share/);
-  assert.match(portal, /Código individual e irrepetible/);
+  assert.match(portal, /Código individual, irrepetible y de un solo uso/);
+  assert.match(portal, /claim_instructions/);
+  assert.match(portal, /claim_contact_url/);
+  assert.match(portal, /Seguimiento de canjes/);
+  assert.match(portal, /data-ops-reward-ticket/);
+  assert.match(portal, /Registrar canje/);
   assert.match(css, /\.reward-coupon/);
   assert.match(css, /\.coupon-barcode/);
+  assert.match(css, /\.reward-coupon-claim/);
+  assert.match(css, /\.reward-ops-toolbar/);
 });
 
 test("driver commitment letters are branded, current and available in both portals", () => {

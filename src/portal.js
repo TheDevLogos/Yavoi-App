@@ -2161,7 +2161,8 @@ const rewardStatusName = {
   available: "Lista para usar",
   requested: "Solicitada",
   applied: "Aplicada",
-  fulfilled: "Entregada",
+  fulfilled: "Lista para canjear",
+  redeemed: "Canjeada",
   cancelled: "Cancelada",
   expired: "Vencida",
 };
@@ -2198,12 +2199,20 @@ function rewardImageUrl(path) {
 }
 function openRewardCoupon(redemption) {
   const image = rewardImageUrl(redemption.image_path);
-  const usable = redemption.status === "available";
+  const usable = ["available", "fulfilled"].includes(redemption.status);
+  const tripBenefit = redemption.delivery_mode === "trip";
+  const ownerName = redemption.user_name || S.profile.full_name;
+  const claimInstructions = redemption.claim_instructions || redemption.fulfillment_note || (tripBenefit
+    ? "Elige esta recompensa al confirmar un próximo viaje."
+    : "Presenta este ticket antes de recibir el beneficio.");
+  const claimAction = redemption.claim_contact_url && !tripBenefit
+    ? `<a class="btn" href="${e(redemption.claim_contact_url)}" target="_blank" rel="noopener noreferrer">${e(redemption.claim_button_label || "Contactar para canje")} ${I("send")}</a>`
+    : "";
   openModal(
-    usable ? "Tu cupón está listo" : "Detalle de tu recompensa",
-    `<article class="reward-coupon" id="reward-coupon-card">${image ? `<img class="reward-coupon-logo" src="${e(image)}" alt="${e(redemption.partner_name || redemption.name)}">` : `<div class="reward-coupon-brand">Yavoi!</div>`}<div class="reward-coupon-copy"><span class="badge ${usable ? "" : "pending"}">${e(rewardStatusName[redemption.status] || redemption.status)}</span><small>${e(redemption.partner_name || "Yavoi!")}</small><h3>${e(redemption.name)}</h3><p>${e(redemption.description)}</p></div><div class="reward-coupon-code">${rewardBarcode(redemption.code)}<strong>${e(redemption.code)}</strong><small>Código individual e irrepetible</small></div>${redemption.terms || redemption.fulfillment_note ? `<div class="reward-coupon-terms"><strong>Condiciones</strong><p>${e(redemption.terms || redemption.fulfillment_note)}</p></div>` : ""}<div class="reward-coupon-meta"><span>Propietario: ${e(S.profile.full_name)}</span>${redemption.expires_at ? `<span>Válido hasta: ${date(redemption.expires_at)}</span>` : ""}</div></article><div class="coupon-actions"><button class="btn" id="share-reward-coupon">Compartir cupón ${I("share-2")}</button><button class="btn secondary" id="copy-reward-code">Copiar código ${I("copy")}</button></div><p class="hint">Puedes compartirlo desde tu teléfono o guardar una captura de esta pantalla. No publiques el código hasta el momento de utilizarlo.</p>`,
+    usable ? (tripBenefit ? "Recompensa guardada" : "Tu ticket está listo") : "Detalle de tu recompensa",
+    `<article class="reward-coupon" id="reward-coupon-card">${image ? `<img class="reward-coupon-logo" src="${e(image)}" alt="${e(redemption.partner_name || redemption.name)}">` : `<div class="reward-coupon-brand">Yavoi!</div>`}<div class="reward-coupon-copy"><span class="badge ${usable ? "" : "pending"}">${e(rewardStatusName[redemption.status] || redemption.status)}</span><small>${e(redemption.partner_name || "Yavoi!")}</small><h3>${e(redemption.name)}</h3><p>${e(redemption.description)}</p></div>${usable && !tripBenefit ? `<div class="reward-coupon-code">${rewardBarcode(redemption.code)}<strong>${e(redemption.code)}</strong><small>Código individual, irrepetible y de un solo uso</small></div>` : `<div class="reward-coupon-reference"><small>${redemption.status === "requested" ? "FOLIO DE SOLICITUD" : "CÓDIGO DE RECOMPENSA"}</small><strong>${e(redemption.code)}</strong></div>`}<div class="reward-coupon-claim"><strong>Cómo canjearla</strong><p>${e(claimInstructions)}</p>${redemption.claim_location ? `<span>${I("map-pin")} ${e(redemption.claim_location)}</span>` : ""}${redemption.claim_contact ? `<span>${I("headset")} ${e(redemption.claim_contact)}</span>` : ""}${redemption.redemption_reference ? `<span>${I("hash")} Referencia de Operaciones: ${e(redemption.redemption_reference)}</span>` : ""}</div>${redemption.terms ? `<div class="reward-coupon-terms"><strong>Condiciones</strong><p>${e(redemption.terms)}</p></div>` : ""}<div class="reward-coupon-meta"><span>Propietario: ${e(ownerName)}</span>${redemption.expires_at ? `<span>Válido hasta: ${date(redemption.expires_at)}</span>` : ""}</div></article><div class="coupon-actions">${claimAction}${usable && !tripBenefit ? `<button class="btn secondary" id="share-reward-coupon">Compartir ticket ${I("share-2")}</button>` : ""}<button class="btn secondary" id="copy-reward-code">Copiar folio ${I("copy")}</button></div><p class="hint">${tripBenefit ? "Al confirmar un viaje sólo podrás elegir una recompensa disponible; el sistema la bloqueará para evitar usos repetidos." : usable ? "Muestra el código únicamente al momento de canjear. Operaciones registrará su uso para que no pueda repetirse." : "Conserva este folio. El código de barras aparecerá cuando el beneficio esté listo para usar."}</p>`,
   );
-  $("#share-reward-coupon").onclick = () => run(async () => {
+  if ($("#share-reward-coupon")) $("#share-reward-coupon").onclick = () => run(async () => {
     const text = `${redemption.name}\n${redemption.partner_name || "Yavoi!"}\nCódigo: ${redemption.code}${redemption.expires_at ? `\nVálido hasta: ${date(redemption.expires_at)}` : ""}`;
     if (navigator.share) await navigator.share({ title: `Cupón Yavoi! · ${redemption.name}`, text });
     else {
@@ -2232,6 +2241,19 @@ function rewardCard(reward, metrics, systemEnabled = true) {
   const image = rewardImageUrl(reward.image_path);
   return `<article class="reward-card ${eligible ? "eligible" : ""}">${image ? `<img class="reward-card-image" src="${e(image)}" alt="${e(reward.partner_name || reward.name)}">` : `<div class="reward-icon">${I(reward.icon || "gift")}</div>`}<div class="reward-card-copy"><div class="row between wrap"><h3>${e(reward.name)}</h3><strong>${reward.automatic ? "Meta automática" : `${reward.points_cost} pts`}</strong></div><p>${e(reward.description)}</p><small>${e(reason)}${reward.partner_name ? ` · ${e(reward.partner_name)}` : ""}</small></div>${!reward.automatic ? `<button class="btn ${eligible ? "" : "secondary"}" data-redeem="${e(reward.id)}" ${eligible ? "" : "disabled"}>${eligible ? "Canjear" : "Aún no disponible"}</button>` : ""}</article>`;
 }
+function activeRewardCard(item) {
+  const tripBenefit = item.delivery_mode === "trip";
+  const pending = item.status === "requested";
+  const action = tripBenefit ? "Elegir al confirmar viaje" : pending ? "Ver solicitud" : "Ver ticket";
+  const instruction = tripBenefit
+    ? "Disponible para elegir una sola vez en la confirmación de un viaje compatible."
+    : item.claim_instructions || item.fulfillment_note || "Consulta el ticket para ver cómo recibir el beneficio.";
+  return `<article><div><div class="row wrap"><strong>${e(item.name)}</strong><span class="badge neutral">${tripBenefit ? "Para viaje" : "Canje externo"}</span></div><small>${e(item.code)} · ${e(rewardStatusName[item.status] || item.status)}${item.expires_at ? ` · vence ${date(item.expires_at)}` : ""}</small><p>${e(instruction)}</p></div><div class="row wrap"><span class="badge ${pending ? "pending" : ""}">${e(rewardStatusName[item.status] || item.status)}</span><button class="btn secondary" data-view-coupon="${e(item.id)}">${action} ${I(tripBenefit ? "car-front" : "barcode")}</button></div></article>`;
+}
+function rewardHistoryCard(item) {
+  const used = ["applied", "redeemed"].includes(item.status);
+  return `<article><div><strong>${e(item.name)}</strong><small>${e(item.code)} · ${e(rewardStatusName[item.status] || item.status)}${item.redemption_reference ? ` · ref. ${e(item.redemption_reference)}` : ""}</small></div><div class="row wrap"><span class="badge ${used ? "" : "pending"}">${e(rewardStatusName[item.status] || item.status)}</span><button class="btn secondary" data-view-coupon="${e(item.id)}">Ver detalle ${I("file-text")}</button></div></article>`;
+}
 function rewards() {
   const wallet = S.data.reward_wallet || {};
   const driver = S.profile.role === "driver";
@@ -2244,11 +2266,12 @@ function rewards() {
     : 100;
   const catalog = (wallet.catalog || []).filter((reward) => !reward.automatic);
   const redemptions = wallet.redemptions || [];
-  const activeBenefits = redemptions.filter((item) => ["available", "requested", "applied"].includes(item.status));
+  const activeBenefits = redemptions.filter((item) => ["available", "requested", "fulfilled"].includes(item.status));
+  const pastBenefits = redemptions.filter((item) => ["applied", "redeemed", "cancelled", "expired"].includes(item.status));
   const entries = wallet.entries || [];
   const freeRides = redemptions.filter((item) => item.kind === "free_local_trip" && item.status === "available");
   shell(
-    `<div class="rewards reward-hero">${I(driver ? "star" : "gift")}<div><div class="eyebrow">${driver ? "RATING YAVOI!" : "PUNTOS VIAJEROS"}</div><h2>${driver ? `${e(wallet.level || "Activo")} · ${wallet.rating ? `${decimal(wallet.rating)}/5` : "sin rating aún"}` : `${e(wallet.level || "Explorador")} · cada viaje te acerca`}</h2><p>${driver ? "Suma por viajes, ingresos y calificaciones. Un historial limpio habilita mejores beneficios." : "Acumula puntos, canjea amenidades y descuentos, y recibe un viaje local Básico gratis cada 15 viajes."}</p></div><div class="points">${available}<small>PUNTOS DISPONIBLES</small></div></div>${systemEnabled ? "" : `<div class="notice-strip">${I("pause-circle")} Operaciones pausó temporalmente la acumulación y el canje. Tus puntos y recompensas guardadas se conservan.</div>`}<section class="panel reward-progress"><div class="row between wrap"><div><small>NIVEL ACTUAL</small><h2>${e(wallet.level || (driver ? "Activo" : "Explorador"))}</h2></div><div class="reward-metrics"><span><strong>${wallet.trip_count || 0}</strong> viajes</span>${driver ? `<span><strong>${wallet.rating ? decimal(wallet.rating) : "—"}</strong> rating</span><span><strong>${money(wallet.income_cents || 0)}</strong> generados</span><span><strong>${wallet.recent_incidents || 0}</strong> incidentes recientes</span>` : `<span><strong>${freeRides.length}</strong> viajes gratis guardados</span><span><strong>${wallet.trips_to_free_ride || 15}</strong> para el siguiente gratis</span>`}</div></div><progress max="100" value="${levelProgress}">${levelProgress}%</progress><p>${wallet.next_level ? `Faltan ${next} puntos para llegar a ${e(wallet.next_level)}.` : "Alcanzaste el nivel más alto del programa actual."}</p></section>${activeBenefits.length ? `<section class="panel section-gap"><h2>Tus recompensas activas</h2><div class="reward-redemptions">${activeBenefits.map((item) => `<article><div><strong>${e(item.name)}</strong><small>${e(item.code)} · ${e(rewardStatusName[item.status] || item.status)}${item.expires_at ? ` · vence ${date(item.expires_at)}` : ""}</small></div><div class="row wrap"><span class="badge ${item.status === "requested" ? "pending" : ""}">${e(rewardStatusName[item.status] || item.status)}</span><button class="btn secondary" data-view-coupon="${e(item.id)}">${item.status === "requested" ? "Ver solicitud" : "Ver cupón"} ${I("barcode")}</button></div></article>`).join("")}</div></section>` : ""}<section class="section-gap"><div class="row between wrap reward-heading"><div><h2>${driver ? "Beneficios para tu unidad y tu trabajo" : "Elige tu próxima recompensa"}</h2><p>${driver ? "Los requisitos se revisan al canjear: actividad, ingresos, rating e incidentes recientes." : "Tus puntos no vencen. Los cupones de viaje quedan guardados hasta que decidas usarlos."}</p></div><span class="badge neutral">${catalog.filter((reward) => reward.active).length} beneficios activos</span></div><div class="reward-catalog">${catalog.map((reward) => rewardCard(reward, wallet, systemEnabled)).join("") || '<div class="empty"><p>El catálogo está temporalmente pausado.</p></div>'}</div></section><section class="panel section-gap"><h2>Cómo sumas</h2><div class="grid3 reward-rules">${driver ? `<div>${I("route")}<strong>12 puntos base</strong><p>Por cada viaje completado, más un bono gradual según el ingreso del servicio.</p></div><div>${I("star")}<strong>Hasta 8 puntos extra</strong><p>Las calificaciones de cuatro y cinco estrellas reconocen la calidad del servicio.</p></div><div>${I("shield-check")}<strong>Historial confiable</strong><p>Los mejores beneficios requieren rating alto y no presentar incidentes recientes.</p></div>` : `<div>${I("route")}<strong>10 puntos</strong><p>Por cada viaje completado.</p></div><div>${I("star")}<strong>2 puntos</strong><p>Al evaluar el viaje y ayudar a cuidar la comunidad.</p></div><div>${I("car-front")}<strong>Viaje gratis</strong><p>Cada 15 viajes se agrega automáticamente un viaje local Básico que puedes acumular.</p></div>`}</div></section><details class="panel section-gap reward-history"><summary>Ver movimientos de puntos</summary>${entries.length ? entries.map((entry) => `<div class="receipt-row"><div><strong>${e(entry.description || entry.entry_type)}</strong><small>${date(entry.created_at)}</small></div><strong class="${entry.points < 0 ? "negative-points" : "positive-points"}">${entry.points > 0 ? "+" : ""}${entry.points}</strong></div>`).join("") : '<p class="muted">Tus movimientos aparecerán después del primer viaje o canje.</p>'}</details>`,
+    `<div class="rewards reward-hero">${I(driver ? "star" : "gift")}<div><div class="eyebrow">${driver ? "RATING YAVOI!" : "PUNTOS VIAJEROS"}</div><h2>${driver ? `${e(wallet.level || "Activo")} · ${wallet.rating ? `${decimal(wallet.rating)}/5` : "sin rating aún"}` : `${e(wallet.level || "Explorador")} · cada viaje te acerca`}</h2><p>${driver ? "Suma por viajes, ingresos y calificaciones. Un historial limpio habilita mejores beneficios." : "Acumula puntos, canjea amenidades y descuentos, y recibe un viaje local Básico gratis cada 15 viajes."}</p></div><div class="points">${available}<small>PUNTOS DISPONIBLES</small></div></div>${systemEnabled ? "" : `<div class="notice-strip">${I("pause-circle")} Operaciones pausó temporalmente la acumulación y el canje. Tus puntos y recompensas guardadas se conservan.</div>`}<section class="panel reward-progress"><div class="row between wrap"><div><small>NIVEL ACTUAL</small><h2>${e(wallet.level || (driver ? "Activo" : "Explorador"))}</h2></div><div class="reward-metrics"><span><strong>${wallet.trip_count || 0}</strong> viajes</span>${driver ? `<span><strong>${wallet.rating ? decimal(wallet.rating) : "—"}</strong> rating</span><span><strong>${money(wallet.income_cents || 0)}</strong> generados</span><span><strong>${wallet.recent_incidents || 0}</strong> incidentes recientes</span>` : `<span><strong>${freeRides.length}</strong> viajes gratis guardados</span><span><strong>${wallet.trips_to_free_ride || 15}</strong> para el siguiente gratis</span>`}</div></div><progress max="100" value="${levelProgress}">${levelProgress}%</progress><p>${wallet.next_level ? `Faltan ${next} puntos para llegar a ${e(wallet.next_level)}.` : "Alcanzaste el nivel más alto del programa actual."}</p></section>${activeBenefits.length ? `<section class="panel section-gap"><div class="row between wrap"><div><h2>Tus recompensas activas</h2><p>Elige los beneficios para viaje durante la confirmación. Los demás conservan su ticket y folio individual.</p></div><span class="badge neutral">${activeBenefits.length} activas</span></div><div class="reward-redemptions">${activeBenefits.map(activeRewardCard).join("")}</div></section>` : ""}<section class="section-gap"><div class="row between wrap reward-heading"><div><h2>${driver ? "Beneficios para tu unidad y tu trabajo" : "Elige tu próxima recompensa"}</h2><p>${driver ? "Los requisitos se revisan al canjear: actividad, ingresos, rating e incidentes recientes." : "Tus puntos no vencen. Los cupones de viaje quedan guardados hasta que decidas usarlos."}</p></div><span class="badge neutral">${catalog.filter((reward) => reward.active).length} beneficios activos</span></div><div class="reward-catalog">${catalog.map((reward) => rewardCard(reward, wallet, systemEnabled)).join("") || '<div class="empty"><p>El catálogo está temporalmente pausado.</p></div>'}</div></section>${pastBenefits.length ? `<details class="panel section-gap reward-history"><summary>Historial de recompensas (${pastBenefits.length})</summary><div class="reward-redemptions">${pastBenefits.map(rewardHistoryCard).join("")}</div></details>` : ""}<section class="panel section-gap"><h2>Cómo sumas</h2><div class="grid3 reward-rules">${driver ? `<div>${I("route")}<strong>12 puntos base</strong><p>Por cada viaje completado, más un bono gradual según el ingreso del servicio.</p></div><div>${I("star")}<strong>Hasta 8 puntos extra</strong><p>Las calificaciones de cuatro y cinco estrellas reconocen la calidad del servicio.</p></div><div>${I("shield-check")}<strong>Historial confiable</strong><p>Los mejores beneficios requieren rating alto y no presentar incidentes recientes.</p></div>` : `<div>${I("route")}<strong>10 puntos</strong><p>Por cada viaje completado.</p></div><div>${I("star")}<strong>2 puntos</strong><p>Al evaluar el viaje y ayudar a cuidar la comunidad.</p></div><div>${I("car-front")}<strong>Viaje gratis</strong><p>Cada 15 viajes se agrega automáticamente un viaje local Básico que puedes acumular.</p></div>`}</div></section><details class="panel section-gap reward-history"><summary>Ver movimientos de puntos</summary>${entries.length ? entries.map((entry) => `<div class="receipt-row"><div><strong>${e(entry.description || entry.entry_type)}</strong><small>${date(entry.created_at)}</small></div><strong class="${entry.points < 0 ? "negative-points" : "positive-points"}">${entry.points > 0 ? "+" : ""}${entry.points}</strong></div>`).join("") : '<p class="muted">Tus movimientos aparecerán después del primer viaje o canje.</p>'}</details>`,
     driver ? "Tu buen servicio se recompensa." : "Viaja, suma y disfruta.",
     driver ? "Beneficios graduales para cuidar tu unidad y reconocer tu desempeño." : "Puntos Viajeros y recompensas que puedes guardar para cuando las necesites.",
   );
@@ -2282,9 +2305,14 @@ function rewards() {
   });
   $$('[data-redeem]').forEach((item) => item.onclick = () => {
     const reward = catalog.find((entry) => entry.id === item.dataset.redeem);
+    const redemptionHint = reward.delivery_mode === "trip"
+      ? "La recompensa quedará guardada para elegirla al confirmar un próximo viaje. Sólo se permite una por viaje."
+      : reward.delivery_mode === "digital_coupon"
+        ? "Tu ticket individual y código de barras aparecerán inmediatamente después del canje."
+        : "Se generará un folio para Operaciones y recibirás el ticket cuando el beneficio esté preparado.";
     openModal(
       "Confirmar canje",
-      `<div class="reward-confirm">${I(reward.icon || "gift")}<h3>${e(reward.name)}</h3><p>${e(reward.description)}</p><div class="receipt-row total"><span>Costo</span><strong>${reward.points_cost} puntos</strong></div><p class="hint">${["fare_discount_fixed", "fare_discount_percent", "ride_amenity"].includes(reward.kind) ? "La recompensa quedará guardada para elegirla al confirmar un próximo viaje." : "Operaciones revisará el canje y te avisará cuando el beneficio esté listo."}</p><button class="btn wide" id="confirm-reward">Canjear recompensa ${I("arrow-right")}</button></div>`,
+      `<div class="reward-confirm">${I(reward.icon || "gift")}<h3>${e(reward.name)}</h3><p>${e(reward.description)}</p><div class="receipt-row total"><span>Costo</span><strong>${reward.points_cost} puntos</strong></div><p class="hint">${e(redemptionHint)}</p><button class="btn wide" id="confirm-reward">Canjear recompensa ${I("arrow-right")}</button></div>`,
     );
     $("#confirm-reward").onclick = () => run(async () => {
       await rpc("redeem_reward", { reward_id: reward.id });
@@ -2673,12 +2701,30 @@ const rewardDeliveryNames = {
   trip: "Aplicable al confirmar viaje",
   operations: "Entrega coordinada por Operaciones",
 };
+const rewardClaimMethodNames = {
+  trip: "Elegir durante la confirmación del viaje",
+  show_ticket: "Mostrar ticket digital",
+  partner_counter: "Presentar en mostrador o taquilla",
+  contact_operations: "Contactar a Operaciones",
+  operations_delivery: "Entrega registrada por Operaciones",
+};
 function openRewardEditor(reward = null) {
   const categoryOptions = S.categories.map((category) => `<option value="${e(category.id)}" ${reward?.eligible_category === category.id ? "selected" : ""}>Yavoi! ${e(category.name)}</option>`).join("");
+  const defaultDelivery = reward?.delivery_mode || "digital_coupon";
+  const defaultClaimMethod = reward?.claim_method || (defaultDelivery === "trip" ? "trip" : "show_ticket");
   openModal(
     reward ? "Editar recompensa" : "Nueva recompensa",
-    `<form id="reward-editor" class="reward-editor"><div class="grid2"><label>Dirigida a<select name="audience"><option value="passenger" ${reward?.audience !== "driver" ? "selected" : ""}>Pasajeros</option><option value="driver" ${reward?.audience === "driver" ? "selected" : ""}>Conductores</option></select></label><label>Forma de entrega<select name="delivery_mode">${Object.entries(rewardDeliveryNames).map(([value, label]) => `<option value="${value}" ${reward?.delivery_mode === value ? "selected" : ""}>${label}</option>`).join("")}</select></label></div><label>Nombre del beneficio<input name="name" required minlength="3" maxlength="100" value="${e(reward?.name || "")}" placeholder="Ej. 15% en tu próxima compra"></label><label>Empresa o proveedor<input name="partner_name" maxlength="100" value="${e(reward?.partner_name || "")}" placeholder="Yavoi! o nombre del negocio"></label><label>Descripción<textarea name="description" required minlength="5" maxlength="500">${e(reward?.description || "")}</textarea></label><label>Condiciones visibles en el cupón<textarea name="terms" maxlength="1000" placeholder="Vigencia, sucursales, productos participantes y restricciones.">${e(reward?.terms || "")}</textarea></label><label>Imagen o logotipo · JPG, PNG o WebP, hasta 4 MB<input name="image" type="file" accept="image/jpeg,image/png,image/webp"></label>${reward?.image_path ? `<label class="check"><input name="remove_image" type="checkbox">Quitar la imagen actual</label>` : ""}<details class="reward-editor-details" open><summary>Valor, puntos y requisitos</summary><div class="grid2"><label>Tipo<select name="kind">${Object.entries(rewardKindNames).map(([value, label]) => `<option value="${value}" ${reward?.kind === value ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>Costo en puntos<input name="points_cost" type="number" min="0" max="100000" required value="${e(reward?.points_cost ?? 0)}"></label><label>Descuento fijo (MXN)<input name="value_mxn" type="number" min="0" max="10000" step="0.01" value="${reward?.value_cents == null ? "" : Number(reward.value_cents) / 100}"></label><label>Descuento porcentual<input name="value_percent" type="number" min="0" max="100" step="0.01" value="${e(reward?.value_percent ?? "")}"></label><label>Descuento máximo (MXN)<input name="max_discount_mxn" type="number" min="0" max="10000" step="0.01" value="${reward?.max_discount_cents == null ? "" : Number(reward.max_discount_cents) / 100}"></label><label>Categoría requerida<select name="eligible_category"><option value="">Cualquier categoría</option>${categoryOptions}</select></label><label>Viajes mínimos<input name="min_trips" type="number" min="0" value="${e(reward?.min_trips ?? 0)}"></label><label>Rating mínimo<input name="min_rating" type="number" min="1" max="5" step="0.01" value="${e(reward?.min_rating ?? "")}"></label><label>Ingresos mínimos (MXN)<input name="min_income_mxn" type="number" min="0" step="0.01" value="${reward?.min_income_cents ? Number(reward.min_income_cents) / 100 : ""}"></label><label>Incidentes recientes máximos<input name="max_recent_incidents" type="number" min="0" value="${e(reward?.max_recent_incidents ?? "")}"></label><label>Inventario total<input name="total_stock" type="number" min="0" value="${e(reward?.total_stock ?? "")}" placeholder="Vacío = sin límite"></label><label>Vigencia al desbloquear (días)<input name="expires_days" type="number" min="1" max="730" value="${e(reward?.expires_days ?? 180)}"></label><label>Orden de aparición<input name="sort_order" type="number" min="0" max="10000" value="${e(reward?.sort_order ?? 100)}"></label><label>Icono<select name="icon">${["gift","ticket","badge-percent","badge-dollar-sign","car-front","store","cup-soda","sparkles","wrench","crown","snowflake"].map((icon) => `<option value="${icon}" ${reward?.icon === icon ? "selected" : ""}>${icon}</option>`).join("")}</select></label></div><label>Instrucción de entrega<textarea name="fulfillment_note" maxlength="500">${e(reward?.fulfillment_note || "")}</textarea></label><div class="grid2"><label class="check"><input name="automatic" type="checkbox" ${reward?.automatic ? "checked" : ""}>Generación automática por viajes</label><label>Cada cuántos viajes<input name="milestone_every" type="number" min="1" value="${e(reward?.milestone_every ?? "")}"></label></div></details><label class="check"><input name="active" type="checkbox" ${reward?.active === false ? "" : "checked"}>Disponible para desbloquear</label><button class="btn wide" type="submit">Guardar recompensa ${I("check")}</button></form>`,
+    `<form id="reward-editor" class="reward-editor"><div class="grid2"><label>Dirigida a<select name="audience"><option value="passenger" ${reward?.audience !== "driver" ? "selected" : ""}>Pasajeros</option><option value="driver" ${reward?.audience === "driver" ? "selected" : ""}>Conductores</option></select></label><label>Forma de entrega<select name="delivery_mode">${Object.entries(rewardDeliveryNames).map(([value, label]) => `<option value="${value}" ${defaultDelivery === value ? "selected" : ""}>${label}</option>`).join("")}</select></label></div><label>Nombre del beneficio<input name="name" required minlength="3" maxlength="100" value="${e(reward?.name || "")}" placeholder="Ej. 15% en tu próxima compra"></label><label>Empresa o proveedor<input name="partner_name" maxlength="100" value="${e(reward?.partner_name || "")}" placeholder="Yavoi! o nombre del negocio"></label><label>Descripción<textarea name="description" required minlength="5" maxlength="500">${e(reward?.description || "")}</textarea></label><label>Condiciones visibles en el cupón<textarea name="terms" maxlength="1000" placeholder="Vigencia, sucursales, productos participantes y restricciones.">${e(reward?.terms || "")}</textarea></label><label>Imagen o logotipo · JPG, PNG o WebP, hasta 4 MB<input name="image" type="file" accept="image/jpeg,image/png,image/webp"></label>${reward?.image_path ? `<label class="check"><input name="remove_image" type="checkbox">Quitar la imagen actual</label>` : ""}<details class="reward-editor-details" open><summary>Cómo se reclama y canjea</summary><div class="grid2"><label>Método de canje<select name="claim_method">${Object.entries(rewardClaimMethodNames).map(([value, label]) => `<option value="${value}" ${defaultClaimMethod === value ? "selected" : ""}>${label}</option>`).join("")}</select><small class="field-note">Debe coincidir con la forma de entrega elegida.</small></label><label>Texto del botón<input name="claim_button_label" maxlength="60" value="${e(reward?.claim_button_label || "")}" placeholder="Ej. Presentar en taquilla"></label></div><label>Cómo canjearla<textarea name="claim_instructions" required minlength="10" maxlength="1200" placeholder="Explica paso a paso qué debe hacer la persona, dónde presentarse y qué información debe proporcionar.">${e(reward?.claim_instructions || "Presenta el ticket y su código antes de recibir el beneficio.")}</textarea></label><div class="grid2"><label>Contacto visible<input name="claim_contact" maxlength="200" value="${e(reward?.claim_contact || "")}" placeholder="Operaciones Yavoi! o nombre del negocio"></label><label>Enlace de contacto<input name="claim_contact_url" maxlength="500" value="${e(reward?.claim_contact_url || "")}" placeholder="https://, mailto: o tel:"></label><label>Lugar de canje<input name="claim_location" maxlength="300" value="${e(reward?.claim_location || "")}" placeholder="Taquilla, sucursal o atención remota"></label><label>Nota interna de preparación<input name="fulfillment_note" maxlength="500" value="${e(reward?.fulfillment_note || "")}" placeholder="Visible para Operaciones al preparar la entrega"></label></div></details><details class="reward-editor-details" open><summary>Valor, puntos y requisitos</summary><div class="grid2"><label>Tipo<select name="kind">${Object.entries(rewardKindNames).map(([value, label]) => `<option value="${value}" ${reward?.kind === value ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>Costo en puntos<input name="points_cost" type="number" min="0" max="100000" required value="${e(reward?.points_cost ?? 0)}"></label><label>Descuento fijo (MXN)<input name="value_mxn" type="number" min="0" max="10000" step="0.01" value="${reward?.value_cents == null ? "" : Number(reward.value_cents) / 100}"></label><label>Descuento porcentual<input name="value_percent" type="number" min="0" max="100" step="0.01" value="${e(reward?.value_percent ?? "")}"></label><label>Descuento máximo (MXN)<input name="max_discount_mxn" type="number" min="0" max="10000" step="0.01" value="${reward?.max_discount_cents == null ? "" : Number(reward.max_discount_cents) / 100}"></label><label>Categoría requerida<select name="eligible_category"><option value="">Cualquier categoría</option>${categoryOptions}</select></label><label>Viajes mínimos<input name="min_trips" type="number" min="0" value="${e(reward?.min_trips ?? 0)}"></label><label>Rating mínimo<input name="min_rating" type="number" min="1" max="5" step="0.01" value="${e(reward?.min_rating ?? "")}"></label><label>Ingresos mínimos (MXN)<input name="min_income_mxn" type="number" min="0" step="0.01" value="${reward?.min_income_cents ? Number(reward.min_income_cents) / 100 : ""}"></label><label>Incidentes recientes máximos<input name="max_recent_incidents" type="number" min="0" value="${e(reward?.max_recent_incidents ?? "")}"></label><label>Inventario total<input name="total_stock" type="number" min="0" value="${e(reward?.total_stock ?? "")}" placeholder="Vacío = sin límite"></label><label>Vigencia al desbloquear (días)<input name="expires_days" type="number" min="1" max="730" value="${e(reward?.expires_days ?? 180)}"></label><label>Orden de aparición<input name="sort_order" type="number" min="0" max="10000" value="${e(reward?.sort_order ?? 100)}"></label><label>Icono<select name="icon">${["gift","ticket","badge-percent","badge-dollar-sign","car-front","store","cup-soda","sparkles","wrench","crown","snowflake","smartphone"].map((icon) => `<option value="${icon}" ${reward?.icon === icon ? "selected" : ""}>${icon}</option>`).join("")}</select></label></div><div class="grid2"><label class="check"><input name="automatic" type="checkbox" ${reward?.automatic ? "checked" : ""}>Generación automática por viajes</label><label>Cada cuántos viajes<input name="milestone_every" type="number" min="1" value="${e(reward?.milestone_every ?? "")}"></label></div></details><label class="check"><input name="active" type="checkbox" ${reward?.active === false ? "" : "checked"}>Disponible para desbloquear</label><button class="btn wide" type="submit">Guardar recompensa ${I("check")}</button></form>`,
   );
+  const editor = $("#reward-editor");
+  const syncClaimMethod = () => {
+    const delivery = editor.elements.delivery_mode.value;
+    const method = editor.elements.claim_method;
+    if (delivery === "trip") method.value = "trip";
+    else if (method.value === "trip") method.value = delivery === "operations" ? "contact_operations" : "show_ticket";
+  };
+  editor.elements.delivery_mode.onchange = syncClaimMethod;
+  syncClaimMethod();
   bindForm("#reward-editor", async (values, form) => {
     const uploadedImage = await upload(form.elements.image.files[0], "yavoi-marketing");
     const optionalCents = (value) => value === "" || value == null ? null : cents(value);
@@ -2686,6 +2732,12 @@ function openRewardEditor(reward = null) {
       id: reward?.id || null,
       audience: values.audience,
       delivery_mode: values.delivery_mode,
+      claim_method: values.claim_method,
+      claim_instructions: values.claim_instructions,
+      claim_contact: values.claim_contact,
+      claim_contact_url: values.claim_contact_url,
+      claim_location: values.claim_location,
+      claim_button_label: values.claim_button_label,
       name: values.name,
       partner_name: values.partner_name,
       description: values.description,
@@ -2715,10 +2767,53 @@ function openRewardEditor(reward = null) {
     notify("Recompensa guardada y registrada en Auditoría.");
   });
 }
+function rewardOperationCard(redemption) {
+  const external = redemption.delivery_mode !== "trip";
+  const canPrepare = external && redemption.status === "requested";
+  const canRedeem = external && ["available", "fulfilled"].includes(redemption.status);
+  const canCancel = external && ["available", "requested", "fulfilled"].includes(redemption.status);
+  const image = rewardImageUrl(redemption.image_path);
+  return `<article class="reward-operation-card" data-reward-op-audience="${e(redemption.audience)}" data-reward-op-status="${e(redemption.status)}">${image ? `<img class="marketing-reward-image" src="${e(image)}" alt="${e(redemption.partner_name || redemption.name)}">` : `<div class="reward-icon">${I(redemption.icon || "gift")}</div>`}<div><div class="row wrap"><strong>${e(redemption.name)}</strong><span class="badge neutral">${redemption.audience === "driver" ? "Conductor" : "Pasajero"}</span></div><small>${e(redemption.user_name || "Usuario")} · ${e(redemption.phone || "Sin teléfono")} · ${e(redemption.code)}</small><p>${e(redemption.claim_instructions || redemption.description || "Sin instrucciones de canje.")}</p>${redemption.claim_location ? `<small>${I("map-pin")} ${e(redemption.claim_location)}</small>` : ""}${redemption.redemption_reference ? `<small>Referencia: ${e(redemption.redemption_reference)}</small>` : ""}</div><span class="badge ${["requested", "fulfilled"].includes(redemption.status) ? "pending" : ""}">${e(rewardStatusName[redemption.status] || redemption.status)}</span><div class="row wrap reward-operation-actions"><button class="btn secondary" data-ops-reward-ticket="${e(redemption.id)}">Ver ticket ${I("barcode")}</button>${canPrepare ? `<button class="btn" data-reward-review="${e(redemption.id)}" data-result="fulfilled">Marcar lista</button>` : ""}${canRedeem ? `<button class="btn" data-reward-review="${e(redemption.id)}" data-result="redeemed">Registrar canje</button>` : ""}${canCancel ? `<button class="btn danger" data-reward-review="${e(redemption.id)}" data-result="cancelled">Cancelar</button>` : ""}</div></article>`;
+}
+function openRewardOperationReview(redemption, result) {
+  const labels = {
+    fulfilled: ["Preparar recompensa", "Registra la referencia de preparación o entrega parcial. El ticket quedará disponible para la persona.", "Marcar lista"],
+    redeemed: ["Registrar canje", "Confirma que el negocio u Operaciones validó el beneficio. El código quedará inutilizable.", "Confirmar canje"],
+    cancelled: ["Cancelar recompensa", "Los puntos se devolverán automáticamente y el folio quedará cancelado.", "Cancelar y devolver puntos"],
+  };
+  const [title, description, submit] = labels[result];
+  const needsReference = result !== "cancelled";
+  openModal(
+    title,
+    `<form id="reward-review"><p>${e(description)}</p>${needsReference ? `<label>Referencia o comprobación<input name="reference" required minlength="3" maxlength="120" placeholder="Folio del negocio, recarga o entrega"></label>` : ""}<label>Nota de Operaciones<textarea name="note" required minlength="5" maxlength="500" placeholder="Describe la validación realizada y cualquier dato útil."></textarea></label><p class="hint">${e(redemption.user_name || "Usuario")} · ${e(redemption.name)} · ${e(redemption.code)}</p><button class="btn wide ${result === "cancelled" ? "danger" : ""}" type="submit">${e(submit)}</button></form>`,
+  );
+  bindForm("#reward-review", async (values) => {
+    await rpc("review_reward_redemption", {
+      redemption_id: redemption.id,
+      status: result,
+      reference: values.reference || "",
+      note: values.note,
+    });
+    closeModal();
+    await refreshPage();
+    notify(result === "cancelled" ? "Canje cancelado y puntos devueltos." : result === "redeemed" ? "Canje registrado; el código ya no puede reutilizarse." : "Recompensa lista para canjear.");
+  });
+}
+function bindRewardOperationControls(redemptions, root = document) {
+  $$('[data-ops-reward-ticket]', root).forEach((item) => item.onclick = () => {
+    const redemption = redemptions.find((entry) => entry.id === item.dataset.opsRewardTicket);
+    if (redemption) openRewardCoupon(redemption);
+  });
+  $$('[data-reward-review]', root).forEach((item) => item.onclick = () => {
+    const redemption = redemptions.find((entry) => entry.id === item.dataset.rewardReview);
+    if (redemption) openRewardOperationReview(redemption, item.dataset.result);
+  });
+}
 function marketingView() {
   const marketing = S.data.marketing || { rewards_enabled: true, advertising_enabled: true, campaigns: [], reward_catalog: [] };
   const campaigns = marketing.campaigns || [];
   const rewardsCatalog = marketing.reward_catalog || [];
+  const rewardRedemptions = S.data.reward_operations?.redemptions || [];
   const audienceLabel = { all: "Todos", passenger: "Pasajeros", driver: "Conductores" };
   const campaignCards = campaigns.map((campaign) => {
     const [status, kind] = campaignStatus(campaign);
@@ -2726,8 +2821,9 @@ function marketingView() {
     return `<article class="campaign-card">${image ? `<img src="${e(image)}" alt="${e(campaign.title)}">` : `<div class="campaign-card-placeholder">${I("image")}</div>`}<div class="campaign-card-copy"><div class="row between wrap"><span class="badge ${kind}">${e(status)}</span><small>${e(audienceLabel[campaign.audience] || campaign.audience)}</small></div><h3>${e(campaign.title)}</h3><strong>${e(campaign.advertiser_name)}</strong><p>${e(campaign.description)}</p><small>${date(campaign.starts_at)} → ${date(campaign.ends_at)}</small></div><div class="campaign-card-actions"><button class="btn secondary" data-edit-campaign="${e(campaign.id)}">Editar ${I("pencil")}</button><button class="btn ${campaign.active ? "danger" : "secondary"}" data-toggle-campaign="${e(campaign.id)}" data-active="${campaign.active ? "false" : "true"}">${campaign.active ? "Desactivar" : "Activar"}</button></div></article>`;
   }).join("");
   const rewardCards = rewardsCatalog.map((reward) => { const image = rewardImageUrl(reward.image_path); return `<article class="marketing-reward" data-reward-audience="${e(reward.audience)}">${image ? `<img class="marketing-reward-image" src="${e(image)}" alt="${e(reward.partner_name || reward.name)}">` : `<div class="reward-icon">${I(reward.icon || "gift")}</div>`}<div><div class="row wrap"><strong>${e(reward.name)}</strong><span class="badge neutral">${reward.audience === "driver" ? "Conductores" : "Pasajeros"}</span><span class="badge ${reward.active ? "" : "pending"}">${reward.active ? "Activa" : "Pausada"}</span></div><p>${e(reward.description)}</p><small>${reward.points_cost} puntos · ${e(reward.partner_name || "Yavoi!")} · ${e(rewardDeliveryNames[reward.delivery_mode] || "Operaciones")}</small></div><div class="marketing-reward-actions"><button class="btn secondary" data-edit-reward="${e(reward.id)}">Editar ${I("pencil")}</button><button class="btn ${reward.active ? "danger" : "secondary"}" data-toggle-reward="${e(reward.id)}" data-active="${reward.active ? "false" : "true"}">${reward.active ? "Desactivar" : "Activar"}</button></div></article>`; }).join("");
+  const redemptionCards = rewardRedemptions.map(rewardOperationCard).join("");
   shell(
-    `<section class="panel marketing-controls"><div class="row between wrap"><div><h2>Controles generales</h2><p>Pausa o reactiva cada sistema para todos los perfiles. Los puntos y registros existentes siempre se conservan.</p></div><span class="badge neutral">Cambios protegidos con verificación en dos pasos</span></div><form id="marketing-settings" class="marketing-switches"><label class="marketing-switch"><input name="rewards_enabled" type="checkbox" ${marketing.rewards_enabled ? "checked" : ""}><span>${I("gift")}<strong>Sistema de Recompensas</strong><small>Acumulación, metas y canjes.</small></span></label><label class="marketing-switch"><input name="advertising_enabled" type="checkbox" ${marketing.advertising_enabled ? "checked" : ""}><span>${I("megaphone")}<strong>Publicidad y promociones</strong><small>Ventanas vigentes para usuarios y conductores.</small></span></label><button class="btn" type="submit">Guardar controles ${I("shield-check")}</button></form></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Publicidad y descuentos</h2><p>Programa fotografías, vigencia, audiencia y enlace de cada negocio.</p></div><button class="btn" id="new-campaign">Nueva promoción ${I("plus")}</button></div><div class="campaign-grid">${campaignCards || '<div class="empty"><p>No hay promociones creadas. Agrega la primera cuando tengas un convenio vigente.</p></div>'}</div></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Catálogo de recompensas</h2><p>Crea, modifica y publica beneficios con imagen, requisitos, inventario y forma de entrega.</p></div><div class="row wrap"><span class="badge ${marketing.rewards_enabled ? "" : "pending"}">${marketing.rewards_enabled ? "Sistema activo" : "Sistema pausado"}</span><button class="btn" id="new-reward">Nueva recompensa ${I("plus")}</button></div></div><div class="reward-catalog-toolbar"><label>Mostrar catálogo<select id="reward-audience-filter"><option value="all">Todos</option><option value="passenger">Pasajeros</option><option value="driver">Conductores</option></select></label><span id="reward-filter-count">${rewardsCatalog.length} conceptos</span></div><div class="marketing-reward-list">${rewardCards || '<div class="empty"><p>No hay recompensas en este catálogo.</p></div>'}</div></section>`,
+    `<section class="panel marketing-controls"><div class="row between wrap"><div><h2>Controles generales</h2><p>Pausa o reactiva cada sistema para todos los perfiles. Los puntos y registros existentes siempre se conservan.</p></div><span class="badge neutral">Cambios protegidos con verificación en dos pasos</span></div><form id="marketing-settings" class="marketing-switches"><label class="marketing-switch"><input name="rewards_enabled" type="checkbox" ${marketing.rewards_enabled ? "checked" : ""}><span>${I("gift")}<strong>Sistema de Recompensas</strong><small>Acumulación, metas y canjes.</small></span></label><label class="marketing-switch"><input name="advertising_enabled" type="checkbox" ${marketing.advertising_enabled ? "checked" : ""}><span>${I("megaphone")}<strong>Publicidad y promociones</strong><small>Ventanas vigentes para usuarios y conductores.</small></span></label><button class="btn" type="submit">Guardar controles ${I("shield-check")}</button></form></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Publicidad y descuentos</h2><p>Programa fotografías, vigencia, audiencia y enlace de cada negocio.</p></div><button class="btn" id="new-campaign">Nueva promoción ${I("plus")}</button></div><div class="campaign-grid">${campaignCards || '<div class="empty"><p>No hay promociones creadas. Agrega la primera cuando tengas un convenio vigente.</p></div>'}</div></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Catálogo de recompensas</h2><p>Crea, modifica y publica beneficios con imagen, requisitos, inventario y forma de entrega.</p></div><div class="row wrap"><span class="badge ${marketing.rewards_enabled ? "" : "pending"}">${marketing.rewards_enabled ? "Sistema activo" : "Sistema pausado"}</span><button class="btn" id="new-reward">Nueva recompensa ${I("plus")}</button></div></div><div class="reward-catalog-toolbar"><label>Mostrar catálogo<select id="reward-audience-filter"><option value="all">Todos</option><option value="passenger">Pasajeros</option><option value="driver">Conductores</option></select></label><span id="reward-filter-count">${rewardsCatalog.length} conceptos</span></div><div class="marketing-reward-list">${rewardCards || '<div class="empty"><p>No hay recompensas en este catálogo.</p></div>'}</div></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Seguimiento de canjes</h2><p>Consulta tickets, prepara entregas y registra cada uso para impedir que un código se repita.</p></div><span class="badge neutral" id="reward-ops-count">${rewardRedemptions.length} registros</span></div><div class="reward-ops-toolbar"><label>Perfil<select id="reward-ops-audience"><option value="all">Todos</option><option value="passenger">Pasajeros</option><option value="driver">Conductores</option></select></label><label>Estado<select id="reward-ops-status"><option value="all">Todos</option><option value="requested">Solicitadas</option><option value="available">Disponibles</option><option value="fulfilled">Listas</option><option value="applied">Aplicadas a viaje</option><option value="redeemed">Canjeadas</option><option value="cancelled">Canceladas</option><option value="expired">Vencidas</option></select></label></div><div class="reward-operations" id="reward-ops-list">${redemptionCards || '<div class="empty"><p>Aún no existen solicitudes o tickets de recompensas.</p></div>'}</div></section>`,
     "Recompensas y publicidad",
     "Controla beneficios, campañas y promociones desde un solo módulo.",
   );
@@ -2748,6 +2844,21 @@ function marketingView() {
     });
     $("#reward-filter-count").textContent = `${visible} concepto${visible === 1 ? "" : "s"}`;
   };
+  const filterRedemptions = () => {
+    const audience = $("#reward-ops-audience").value;
+    const status = $("#reward-ops-status").value;
+    let visible = 0;
+    $$('[data-reward-op-audience]').forEach((card) => {
+      const show = (audience === "all" || card.dataset.rewardOpAudience === audience)
+        && (status === "all" || card.dataset.rewardOpStatus === status);
+      card.classList.toggle("hidden", !show);
+      if (show) visible += 1;
+    });
+    $("#reward-ops-count").textContent = `${visible} registro${visible === 1 ? "" : "s"}`;
+  };
+  $("#reward-ops-audience").onchange = filterRedemptions;
+  $("#reward-ops-status").onchange = filterRedemptions;
+  bindRewardOperationControls(rewardRedemptions);
   $$('[data-edit-campaign]').forEach((item) => item.onclick = () => openCampaignEditor(campaigns.find((campaign) => campaign.id === item.dataset.editCampaign)));
   $$('[data-edit-reward]').forEach((item) => item.onclick = () => openRewardEditor(rewardsCatalog.find((reward) => reward.id === item.dataset.editReward)));
   $$('[data-toggle-campaign]').forEach((item) => item.onclick = () => run(async () => {
@@ -3107,25 +3218,7 @@ function fleet() {
       });
     };
   });
-  $$("[data-reward-review]").forEach((item) => {
-    item.onclick = () => {
-      const fulfilled = item.dataset.result === "fulfilled";
-      openModal(
-        fulfilled ? "Confirmar entrega" : "Cancelar recompensa",
-        `<form id="reward-review"><p>${fulfilled ? "Confirma que el conductor recibió el beneficio." : "Los puntos se devolverán al conductor y el canje quedará cancelado."}</p><label>Nota de Operaciones<textarea name="note" required minlength="5" maxlength="500" placeholder="Folio, proveedor o motivo de la decisión."></textarea></label><button class="btn wide" type="submit">${fulfilled ? "Registrar entrega" : "Cancelar y devolver puntos"}</button></form>`,
-      );
-      bindForm("#reward-review", async (values) => {
-        await rpc("review_reward_redemption", {
-          redemption_id: item.dataset.rewardReview,
-          status: item.dataset.result,
-          note: values.note,
-        });
-        closeModal();
-        await refreshPage();
-        notify(fulfilled ? "Entrega registrada." : "Canje cancelado y puntos devueltos.");
-      });
-    };
-  });
+  bindRewardOperationControls(rewardOperations.pending || []);
 }
 function rates() {
   const exampleFare = (category) => Math.max(
