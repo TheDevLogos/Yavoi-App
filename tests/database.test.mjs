@@ -90,6 +90,10 @@ test("Postgres security and complete ride lifecycle", async () => {
   );
   await as(ids.rider);
   await rpc("onboard", { role: "passenger", name: "Pasajero Prueba", phone: "6391234567" });
+  const referralWallet = (await rpc("dashboard")).reward_wallet;
+  assert.match(referralWallet.referral_code, /^YV[A-F0-9]{8}$/);
+  assert.equal(referralWallet.referral_registered_count, 0);
+  assert.ok(referralWallet.catalog.some((reward) => reward.program_type === "referral"));
   const riderAvatar = `${ids.rider}/avatar.png`;
   await db.exec("reset role");
   await db.query("insert into storage.objects(bucket_id,name) values('yavoi-avatars',$1)", [riderAvatar]);
@@ -155,6 +159,10 @@ test("Postgres security and complete ride lifecycle", async () => {
   for (const id of [ids.driver, ids.driver2]) {
     await as(id);
     await rpc("onboard", { role: "driver", name: "Conductor Prueba", phone: "6391234569" });
+    if (id === ids.driver) {
+      await rpc("save_driver_profile_draft", { draft: { version: 1, values: { vehicle_make: "Nissan", seatbelts_all: true }, uploaded_paths: {}, saved_at: new Date().toISOString() } });
+      assert.equal((await rpc("dashboard")).driver_profile_draft.draft.values.vehicle_make, "Nissan");
+    }
     await expectError(() => rpc("availability", { online: true }), /aprobado/);
   }
   await db.exec("reset role");

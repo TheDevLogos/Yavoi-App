@@ -20,6 +20,39 @@ const feeReactivationMigration = await readFile(new URL("../supabase/migrations/
 const commercialReportingMigration = await readFile(new URL("../supabase/migrations/20260914223000_commercial_reporting_and_scheduled_billing.sql", import.meta.url), "utf8");
 const transportComplianceMigration = await readFile(new URL("../supabase/migrations/20260915200412_chihuahua_transport_compliance.sql", import.meta.url), "utf8");
 const dispatchShiftMigration = await readFile(new URL("../supabase/migrations/20260918051732_expand_dispatch_shifts_profiles.sql", import.meta.url), "utf8");
+const referralMigration = await readFile(new URL("../supabase/migrations/20260918140500_referrals_and_driver_drafts.sql", import.meta.url), "utf8");
+
+test("verified referrals unlock distinct rewards and remain auditable", () => {
+  assert.match(portal, /function referralShareUrl\(code\)/);
+  assert.match(portal, /url\.searchParams\.set\("signup", "1"\)/);
+  assert.match(portal, /https:\/\/wa\.me\/\?text=/);
+  assert.match(portal, /100 puntos por cada invitado efectivo/);
+  assert.match(portal, /program_type === "referral"/);
+  assert.match(portal, /referral_first_trip_count/);
+  assert.match(portal, /Referencias efectivas/);
+  assert.match(css, /\.referral-reward/);
+  assert.match(css, /\.badge\.referral/);
+  assert.match(referralMigration, /create table public\.referral_codes/);
+  assert.match(referralMigration, /invitee_id uuid not null unique/);
+  assert.match(referralMigration, /'referral:registered:'\|\|uid::text/);
+  assert.match(referralMigration, /'referral:first_trip:'\|\|ref\.invitee_id::text/);
+  assert.match(referralMigration, /when 'transition' then private\.transition_v8/);
+  assert.match(referralMigration, /when 'redeem_reward' then private\.redeem_reward_v5/);
+});
+
+test("driver dossier drafts preserve fields, checks and successful uploads", () => {
+  assert.match(portal, /function driverDraftSnapshot\(form\)/);
+  assert.match(portal, /localStorage\.setItem\(driverDraftKey\(\), JSON\.stringify\(draft\)\)/);
+  assert.match(portal, /rpc\("save_driver_profile_draft"/);
+  assert.match(portal, /async function uploadDriverDraftFiles\(form\)/);
+  assert.match(portal, /uploaded\[pathName\] = await upload\(file, bucket\)/);
+  assert.match(portal, /restoreDriverDraft\(\$\("#vehicle-form"\)\)/);
+  assert.match(portal, /Borrador recuperado/);
+  assert.match(referralMigration, /create table public\.driver_profile_drafts/);
+  assert.match(referralMigration, /private\.save_driver_profile_draft_v1/);
+  assert.match(referralMigration, /delete from public\.driver_profile_drafts where driver_id=auth\.uid\(\)/);
+  assert.match(referralMigration, /when 'driver_profile' then private\.driver_profile_v9/);
+});
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
