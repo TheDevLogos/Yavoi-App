@@ -1620,23 +1620,6 @@ function driverSafetyMarkup() {
   const reports = (S.data.complaints || []).slice(0, 3);
   return `<section class="panel section-gap driver-safety"><div><div class="eyebrow">AYUDA Y SEGURIDAD</div><h2>Asistencia desde Conducir</h2><p>Registra un incidente para seguimiento de Operaciones. Si existe peligro inmediato, llama directamente a emergencias.</p></div><div class="driver-safety-buttons">${button("Crear reporte", "complaint", "secondary", "message-square-warning")}<a class="btn danger" href="tel:911">${I("phone-call")} Emergencias 911</a></div>${reports.length ? `<details><summary>Mis reportes recientes</summary>${reports.map((report) => `<article class="audit-item"><div class="row between"><strong>${e(report.subject)}</strong><span class="badge ${report.status === "resolved" ? "" : "pending"}">${e({ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[report.status] || report.status)}</span></div><small>${date(report.created_at)} · ${e(report.id.slice(0, 8))}</small>${report.response ? `<p class="hint">Respuesta: ${e(report.response)}</p>` : ""}</article>`).join("")}</details>` : ""}</section>`;
 }
-function shiftMinutes(value) {
-  const [hours, minutes] = String(value || "00:00").split(":").map(Number);
-  return hours * 60 + minutes;
-}
-function chihuahuaMinutesNow() {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chihuahua", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-    .formatToParts(new Date());
-  return Number(parts.find((part) => part.type === "hour")?.value || 0) * 60
-    + Number(parts.find((part) => part.type === "minute")?.value || 0);
-}
-function shiftIsCurrent(shift) {
-  if (!shift?.active) return false;
-  const now = chihuahuaMinutesNow();
-  const start = shiftMinutes(shift.start_time);
-  const end = shiftMinutes(shift.end_time);
-  return start < end ? now >= start && now < end : now >= start || now < end;
-}
 function shiftTimeLabel(shift) {
   const display = (value) => new Date(`2000-01-01T${String(value).slice(0, 5)}:00`).toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" });
   return `${display(shift.start_time)} a ${display(shift.end_time)}`;
@@ -1665,21 +1648,13 @@ async function driverHome() {
     return;
   }
   const offers = await syncDriverOffers({ present: false });
-  const notificationButton =
-    "Notification" in window && Notification.permission !== "granted"
-      ? button("Activar avisos", "notifications", "secondary", "bell-ring")
-      : "";
-  const soundButton = driver.online
-    ? button(S.offerAudioArmed ? "Probar alerta" : "Activar sonido", "offer-sound", "secondary", "volume-2")
-    : "";
+  const soundButton = button("Probar alarma", "offer-sound", "secondary", "volume-2");
   const shifts = (S.data.service_shifts || []).filter((shift) => shift.active);
-  const currentShift = shifts.find(shiftIsCurrent);
-  const selectedShift = driver.service_shift_code || currentShift?.code || shifts[0]?.code || "";
-  const selectedShiftData = shifts.find((shift) => shift.code === selectedShift);
-  const shiftControl = driver.online
-    ? `<div class="driver-shift active">${I("clock-3")}<span><small>TURNO ACTIVO</small><strong>${e(selectedShiftData?.name || "Turno de servicio")}</strong><small>${selectedShiftData ? e(shiftTimeLabel(selectedShiftData)) : "Horario administrado por Operaciones"}</small></span></div>`
-    : `<label class="driver-shift">${I("clock-3")}<span><small>ELIGE TU TURNO</small><select id="service-shift" required>${shifts.map((shift) => `<option value="${e(shift.code)}" ${shift.code === selectedShift ? "selected" : ""}>${e(shift.name)} · ${e(shiftTimeLabel(shift))}${shiftIsCurrent(shift) ? " · vigente" : ""}</option>`).join("")}</select></span></label>`;
-  const availabilityActions = `<div class="driver-actions">${shiftControl}${button(driver.online ? "Desconectarme" : "Conectarme en este turno", "availability", driver.online ? "secondary" : "", "power")}${driver.online ? button("Actualizar ubicación", "presence", "secondary", "locate-fixed") : ""}${soundButton}${notificationButton}</div>`;
+  const assignedShift = shifts.find((shift) => shift.code === driver.service_shift_code);
+  const shiftCommitment = assignedShift
+    ? `Turno asignado por Operaciones: ${assignedShift.name}, ${shiftTimeLabel(assignedShift)}. Al conectarte confirmas que permanecerás disponible durante este horario.`
+    : "Operaciones todavía no te asigna un turno. Solicita la asignación antes de conectarte.";
+  const availabilityActions = `<div class="driver-actions">${button(driver.online ? "Desconectarme" : "Conectarme", "availability", driver.online ? "secondary" : "", "power")}${driver.online ? button("Actualizar ubicación", "presence", "secondary", "locate-fixed") : ""}${soundButton}</div>`;
   const offerCards = offers.length
     ? offers
         .map(
@@ -1689,7 +1664,7 @@ async function driverHome() {
         .join("")
     : `<div class="empty">${I("navigation")}<h3>${driver.online ? "Esperando una solicitud compatible" : "Estás desconectado"}</h3><p>${driver.online ? "Tu presencia se renueva automáticamente. Cuando una solicitud llegue, verás sus datos aquí y recibirás un aviso si autorizaste las notificaciones." : "Conéctate para que el sistema pueda enviarte una solicitud por cercanía y disponibilidad."}</p></div>`;
   shell(
-    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Tú eliges cuándo comenzar"}</h2><p>${driver.online ? "Yavoi! actualiza tu presencia y ubicación mientras esta página permanece abierta y tu turno siga vigente." : "Elige el turno vigente y conéctate para recibir solicitudes por cercanía y disponibilidad."}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">Tienes 60 segundos para revisar al pasajero, sus necesidades, el recorrido y el pago. La alerta sonará hasta 7 veces.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>${driverSafetyMarkup()}`,
+    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Conéctate en tu turno asignado"}</h2><p>${e(shiftCommitment)}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">Tienes 60 segundos para revisar al pasajero, sus necesidades, el recorrido y el pago. La alerta sonará hasta 7 veces.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>${driverSafetyMarkup()}`,
     "Un buen día para conducir.",
     "Tu tiempo, tus viajes y tus ganancias en un mismo lugar.",
   );
@@ -2156,12 +2131,16 @@ const settlementStatusName = { pending: "Pendiente", submitted: "En revisión", 
 function driverBillingCard() {
   const d = S.driver || {};
   const weekly = d.billing_mode !== "commission";
-  return `<section class="panel billing-summary"><div class="row between wrap"><div><div class="eyebrow">TU MODALIDAD ACTUAL</div><h2>${weekly ? "Aportación semanal" : "Comisión por viaje"}</h2></div><span class="badge">${weekly ? money(d.weekly_fee_cents || 50000) + " por semana" : "Sin aportación semanal"}</span></div><div class="grid2 billing-rules"><div>${I("banknote")}<span><small>VIAJES EN EFECTIVO</small><strong>${weekly ? "100% para ti" : `${100 - Number(d.cash_commission_bps || 2000) / 100}% para ti`}</strong><p>${weekly ? "No generan comisión adicional." : `${Number(d.cash_commission_bps || 2000) / 100}% se liquida semanalmente a Yavoi!.`}</p></span></div><div>${I("credit-card")}<span><small>PAGO ELECTRÓNICO</small><strong>${100 - Number(d.card_commission_bps || (weekly ? 1000 : 2000)) / 100}% para ti</strong><p>La comisión de ${Number(d.card_commission_bps || (weekly ? 1000 : 2000)) / 100}% se retiene al conciliar el pago.</p></span></div></div><p class="hint">Operaciones administra esta modalidad. Cada viaje conserva el porcentaje vigente cuando lo aceptaste.</p></section>`;
+  return `<details class="panel profile-section billing-summary"><summary><span>${I("circle-dollar-sign")}<strong>Tu modalidad actual</strong></span><span class="badge">${weekly ? money(d.weekly_fee_cents || 50000) + " por semana" : "Comisión por viaje"}</span>${I("chevron-down")}</summary><div class="profile-section-body"><h2>${weekly ? "Aportación semanal" : "Comisión por viaje"}</h2><div class="grid2 billing-rules"><div>${I("banknote")}<span><small>VIAJES EN EFECTIVO</small><strong>${weekly ? "100% para ti" : `${100 - Number(d.cash_commission_bps || 2000) / 100}% para ti`}</strong><p>${weekly ? "No generan comisión adicional." : `${Number(d.cash_commission_bps || 2000) / 100}% se liquida semanalmente a Yavoi!.`}</p></span></div><div>${I("credit-card")}<span><small>PAGO ELECTRÓNICO</small><strong>${100 - Number(d.card_commission_bps || (weekly ? 1000 : 2000)) / 100}% para ti</strong><p>La comisión de ${Number(d.card_commission_bps || (weekly ? 1000 : 2000)) / 100}% se retiene al conciliar el pago.</p></span></div></div><p class="hint">Operaciones administra esta modalidad. Cada viaje conserva el porcentaje vigente cuando lo aceptaste.</p></div></details>`;
 }
 function driverSettlementsMarkup() {
   const settlements = S.data.commission_settlements || [];
   if (S.driver?.billing_mode !== "commission") return "";
-  return `<section class="panel section-gap"><div class="row between wrap"><div><h2>Liquidación semanal de efectivo</h2><p>Transfiere únicamente la comisión Yavoi! de los viajes que cobraste en efectivo.</p></div><span class="badge ${settlements.some((item) => ["pending", "overdue"].includes(item.status)) ? "pending" : ""}">${settlements.filter((item) => ["pending", "overdue", "submitted"].includes(item.status)).length} por conciliar</span></div><div class="settlement-list">${settlements.length ? settlements.map((item) => `<article class="settlement-card"><div><strong>Semana del ${new Date(item.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "medium" })}</strong><small>Vence ${date(item.due_at)} · Efectivo cobrado ${money(item.gross_cash_cents)}</small></div><div><small>COMISIÓN A TRANSFERIR</small><strong>${money(item.commission_due_cents)}</strong></div><span class="badge ${["pending", "overdue", "submitted"].includes(item.status) ? "pending" : ""}">${e(settlementStatusName[item.status] || item.status)}</span>${["pending", "overdue"].includes(item.status) ? `<form class="settlement-proof" data-settlement-form="${e(item.id)}"><label>Comprobante · PDF, JPG o PNG<input name="proof" type="file" accept="application/pdf,image/jpeg,image/png" required></label><button class="btn" type="submit">Enviar transferencia ${I("upload")}</button></form>` : item.proof_path ? '<small>Comprobante enviado a Operaciones.</small>' : ""}</article>`).join("") : '<div class="empty"><p>La primera liquidación aparecerá al completar un viaje en efectivo.</p></div>'}</div></section>`;
+  const pending = settlements.filter((item) => ["pending", "overdue", "submitted"].includes(item.status)).length;
+  return `<details class="panel profile-section section-gap income-section"><summary><span>${I("calendar-check")}<strong>Liquidación semanal de efectivo</strong></span><span class="badge ${pending ? "pending" : ""}">${pending} por conciliar</span>${I("chevron-down")}</summary><div class="profile-section-body"><p>Transfiere únicamente la comisión Yavoi! de los viajes que cobraste en efectivo.</p><div class="settlement-list">${settlements.length ? settlements.map((item) => `<article class="settlement-card"><div><strong>Semana del ${new Date(item.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "medium" })}</strong><small>Vence ${date(item.due_at)} · Efectivo cobrado ${money(item.gross_cash_cents)}</small></div><div><small>COMISIÓN A TRANSFERIR</small><strong>${money(item.commission_due_cents)}</strong></div><span class="badge ${["pending", "overdue", "submitted"].includes(item.status) ? "pending" : ""}">${e(settlementStatusName[item.status] || item.status)}</span>${["pending", "overdue"].includes(item.status) ? `<form class="settlement-proof" data-settlement-form="${e(item.id)}"><label>Comprobante · PDF, JPG o PNG<input name="proof" type="file" accept="application/pdf,image/jpeg,image/png" required></label><button class="btn" type="submit">Enviar transferencia ${I("upload")}</button></form>` : item.proof_path ? '<small>Comprobante enviado a Operaciones.</small>' : ""}</article>`).join("") : '<div class="empty"><p>La primera liquidación aparecerá al completar un viaje en efectivo.</p></div>'}</div></div></details>`;
+}
+function driverLedgerRows(entries, ledgerNames) {
+  return entries.map((item) => `<div class="receipt-row" data-ledger-row><div>${e(ledgerNames[item.kind] || item.kind)}<small>${date(item.created_at)}</small></div><strong>${money(item.amount_cents)}</strong></div>`).join("");
 }
 function wallet() {
   const driver = S.profile.role !== "passenger";
@@ -2171,7 +2150,7 @@ function wallet() {
     : completed.reduce((n, t) => n + (t.total_cents ?? t.fare_cents), 0);
   const ledgerNames = { fare: "Tarifa cobrada", commission: "Comisión Yavoi!", cash_tip: "Propina en efectivo", card_tip: "Propina electrónica" };
   shell(
-    `${driver ? driverBillingCard() : ""}<div class="balance ${driver ? "section-gap" : ""}"><small>${driver ? "INGRESO NETO REGISTRADO" : "TOTAL DE VIAJES COMPLETADOS"}</small><h2>${money(total)}</h2><p>${driver ? "Tarifas, menos la comisión aplicable a cada viaje, más todas tus propinas." : "Pagos registrados por viajes completados."}</p></div><div class="grid2"><section class="panel"><h2>${driver ? "Tus movimientos" : "Métodos de pago"}</h2>${driver ? (S.data.ledger.length ? S.data.ledger.map((l) => `<div class="receipt-row"><div>${e(ledgerNames[l.kind] || l.kind)}<small style="display:block">${date(l.created_at)}</small></div><strong>${money(l.amount_cents)}</strong></div>`).join("") : "<p>Aún no hay movimientos.</p>") : `<div class="row">${I("banknote")}<strong>Efectivo</strong><span class="badge">Disponible</span></div><p class="hint">Indica si necesitas cambio antes de solicitar. El conductor verá el monto con el que pagarás.</p><div class="row muted">${I("credit-card")}<strong>Tarjeta</strong><span class="badge neutral">Próximamente</span></div><p class="hint">No se guardan datos de tarjeta. Esta opción se activará al conectar un proveedor de pagos.</p>`}</section><section class="panel"><h2>${driver ? "Cómo se calcula" : "Cada peso, con claridad"}</h2><p>${driver ? "La tarifa y la propina se muestran por separado. Las propinas son 100% tuyas; el porcentaje comercial sólo se calcula sobre la tarifa del viaje." : "La tarifa se muestra antes de confirmar. La propina es voluntaria y puedes entregarla directamente en efectivo."}</p><p class="hint">${driver ? "En pagos electrónicos Yavoi! registra el monto neto. En efectivo, una comisión pendiente aparece en la liquidación semanal sólo cuando tu modalidad es por comisión." : "Cada cobro queda relacionado con el viaje y su recibo."}</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></section></div>${driver ? driverSettlementsMarkup() : ""}`,
+    `${driver ? driverBillingCard() : ""}<div class="balance ${driver ? "section-gap" : ""}"><small>${driver ? "INGRESO NETO REGISTRADO" : "TOTAL DE VIAJES COMPLETADOS"}</small><h2>${money(total)}</h2><p>${driver ? "Tarifas, menos la comisión aplicable a cada viaje, más todas tus propinas." : "Pagos registrados por viajes completados."}</p></div>${driver ? `<details class="panel profile-section income-movements section-gap" open><summary><span>${I("list-filter")}<strong>Tus movimientos</strong></span><span class="badge neutral" id="ledger-count">${S.data.ledger.length}</span>${I("chevron-down")}</summary><div class="profile-section-body"><div class="income-filters"><div class="trip-quick-filters" aria-label="Filtrar movimientos por periodo"><button class="active" data-ledger-period="all">Todos</button><button data-ledger-period="today">Hoy</button><button data-ledger-period="week">Semana</button><button data-ledger-period="month">Mes</button></div><label>Tipo<select id="ledger-kind-filter"><option value="all">Todos los conceptos</option>${Object.entries(ledgerNames).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label></div><div id="ledger-rows">${driverLedgerRows(S.data.ledger, ledgerNames)}</div><div class="empty" id="ledger-filter-empty" ${S.data.ledger.length ? "hidden" : ""}><p>No hay movimientos para este filtro.</p></div></div></details><details class="panel profile-section section-gap income-section"><summary><span>${I("calculator")}<strong>Cómo se calcula</strong></span>${I("chevron-down")}</summary><div class="profile-section-body"><p>La tarifa y la propina se muestran por separado. Las propinas son 100% tuyas; el porcentaje comercial sólo se calcula sobre la tarifa del viaje.</p><p class="hint">En pagos electrónicos Yavoi! registra el monto neto. En efectivo, una comisión pendiente aparece en la liquidación semanal sólo cuando tu modalidad es por comisión.</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></div></details>` : `<div class="grid2"><section class="panel"><h2>Métodos de pago</h2><div class="row">${I("banknote")}<strong>Efectivo</strong><span class="badge">Disponible</span></div><p class="hint">Indica si necesitas cambio antes de solicitar. El conductor verá el monto con el que pagarás.</p><div class="row muted">${I("credit-card")}<strong>Tarjeta</strong><span class="badge neutral">Próximamente</span></div><p class="hint">No se guardan datos de tarjeta. Esta opción se activará al conectar un proveedor de pagos.</p></section><section class="panel"><h2>Cada peso, con claridad</h2><p>La tarifa se muestra antes de confirmar. La propina es voluntaria y puedes entregarla directamente en efectivo.</p><p class="hint">Cada cobro queda relacionado con el viaje y su recibo.</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></section></div>`}${driver ? driverSettlementsMarkup() : ""}`,
     driver ? "Tus ingresos, siempre claros." : "Tu cartera Yavoi!",
     "Consulta importes, porcentajes aplicados y liquidaciones.",
   );
@@ -2182,6 +2161,31 @@ function wallet() {
     if (cardBadge) cardBadge.textContent = "Disponible";
     const note = cardRow?.nextElementSibling;
     if (note) note.textContent = "Tarjeta protegida por Mercado Pago, disponible al solicitar el viaje y para propinas posteriores.";
+  }
+  if (driver) {
+    let ledgerPeriod = "all";
+    const applyLedgerFilters = () => {
+      const kind = $("#ledger-kind-filter")?.value || "all";
+      const now = new Date();
+      const start = new Date(now);
+      if (ledgerPeriod === "today") start.setHours(0, 0, 0, 0);
+      if (ledgerPeriod === "week") start.setDate(now.getDate() - 7);
+      if (ledgerPeriod === "month") start.setMonth(now.getMonth() - 1);
+      const filtered = S.data.ledger.filter((item) => {
+        const matchesKind = kind === "all" || item.kind === kind;
+        const matchesPeriod = ledgerPeriod === "all" || new Date(item.created_at) >= start;
+        return matchesKind && matchesPeriod;
+      });
+      $("#ledger-rows").innerHTML = driverLedgerRows(filtered, ledgerNames);
+      $("#ledger-count").textContent = String(filtered.length);
+      $("#ledger-filter-empty").hidden = filtered.length > 0;
+    };
+    $$("[data-ledger-period]").forEach((item) => item.onclick = () => {
+      ledgerPeriod = item.dataset.ledgerPeriod;
+      $$("[data-ledger-period]").forEach((button) => button.classList.toggle("active", button === item));
+      applyLedgerFilters();
+    });
+    $("#ledger-kind-filter")?.addEventListener("change", applyLedgerFilters);
   }
   $$("[data-settlement-form]").forEach((form, index) => {
     form.id = `settlement-proof-${index}`;
@@ -3366,8 +3370,9 @@ function fleet() {
     const progress = driverDossierStatus(d, d, S.transportComplianceAvailable);
     const reward = driverRewards.get(d.id) || {};
     const weeklyBilling = d.billing_mode !== "commission";
+    const assignedShift = (S.data.service_shifts || []).find((shift) => shift.code === d.service_shift_code);
     const doc = (path, label) => path ? `<button class="btn secondary" data-document="${e(path)}">${I("file-check")} ${label}</button>` : "";
-    return `<details class="offer dossier-card driver-admin-card" data-driver-card="${e(d.id)}"><summary class="driver-admin-summary"><span><strong>${e(d.full_name)}</strong><small>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</small></span><span class="driver-admin-glance"><small>${reward.rating ? `${decimal(reward.rating)}/5` : "Sin calificación"}</small><small>${Number(reward.trip_count || 0)} viajes</small></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span>${I("chevron-down")}</summary><div class="driver-admin-body"><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} requisitos${progress.missing.length ? ` · Faltan: ${e(progress.missing.slice(0, 3).join(", "))}${progress.missing.length > 3 ? "…" : ""}` : " · Expediente completo"}</small></div><div class="driver-reward-summary"><span><small>NIVEL RATING</small><strong>${e(reward.level || "Activo")}</strong></span><span><small>PUNTOS</small><strong>${Number(reward.available_points || 0)}</strong></span><span><small>VIAJES</small><strong>${Number(reward.trip_count || 0)}</strong></span><span><small>CALIFICACIÓN</small><strong>${reward.rating ? `${decimal(reward.rating)}/5` : "—"}</strong></span><span><small>INGRESOS</small><strong>${money(reward.income_cents || 0)}</strong></span><span><small>INCIDENTES 90 DÍAS</small><strong>${Number(reward.recent_incidents || 0)}</strong></span></div><div class="driver-billing-row"><div>${I(weeklyBilling ? "calendar-check" : "percent")}<span><small>MODALIDAD COMERCIAL</small><strong>${weeklyBilling ? `Aportación de ${money(d.weekly_fee_cents || 50000)}` : "Comisión por viaje"}</strong><p>Efectivo: ${Number(d.cash_commission_bps || 0) / 100}% · Electrónico: ${Number(d.card_commission_bps || 0) / 100}% para Yavoi!</p></span></div><button class="btn secondary" data-billing="${e(d.id)}">Configurar cobro ${I("settings-2")}</button></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.vehicle_front_path ? `<button class="btn secondary" data-vehicle-photo="${e(d.vehicle_front_path)}">${I("car-front")} Frente y placa</button>` : ""}${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.government_id_path, "Identificación")}${doc(d.license_path, "Licencia")}${doc(d.transport_card_path, "Tarjetón")}${doc(d.insurance_path, "Seguro")}${doc(d.vehicle_registration_path, "Circulación")}${doc(d.vehicle_verification_path, "Verificación")}${doc(d.mechanical_inspection_path, "Revisión mecánica")}${doc(d.tax_compliance_path, "Fiscal")}${doc(d.criminal_record_path, "No antecedentes · voluntaria")}${doc(d.policy_commitment_path, "Políticas Yavoi!")}${doc(d.traffic_law_commitment_path, "Obligaciones viales")}<button class="btn" data-review="${e(d.id)}">Revisar autorización ${I("arrow-right")}</button></div>${d.advertising_interest ? "<small>Interesado en convenios de publicidad</small>" : ""}</div></details>`;
+    return `<details class="offer dossier-card driver-admin-card" data-driver-card="${e(d.id)}"><summary class="driver-admin-summary"><span><strong>${e(d.full_name)}</strong><small>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</small></span><span class="driver-admin-glance"><small>${reward.rating ? `${decimal(reward.rating)}/5` : "Sin calificación"}</small><small>${Number(reward.trip_count || 0)} viajes</small></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span>${I("chevron-down")}</summary><div class="driver-admin-body"><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} requisitos${progress.missing.length ? ` · Faltan: ${e(progress.missing.slice(0, 3).join(", "))}${progress.missing.length > 3 ? "…" : ""}` : " · Expediente completo"}</small></div><div class="driver-reward-summary"><span><small>NIVEL RATING</small><strong>${e(reward.level || "Activo")}</strong></span><span><small>PUNTOS</small><strong>${Number(reward.available_points || 0)}</strong></span><span><small>VIAJES</small><strong>${Number(reward.trip_count || 0)}</strong></span><span><small>CALIFICACIÓN</small><strong>${reward.rating ? `${decimal(reward.rating)}/5` : "—"}</strong></span><span><small>INGRESOS</small><strong>${money(reward.income_cents || 0)}</strong></span><span><small>INCIDENTES 90 DÍAS</small><strong>${Number(reward.recent_incidents || 0)}</strong></span></div><div class="driver-billing-row"><div>${I(weeklyBilling ? "calendar-check" : "percent")}<span><small>MODALIDAD COMERCIAL</small><strong>${weeklyBilling ? `Aportación de ${money(d.weekly_fee_cents || 50000)}` : "Comisión por viaje"}</strong><p>Efectivo: ${Number(d.cash_commission_bps || 0) / 100}% · Electrónico: ${Number(d.card_commission_bps || 0) / 100}% para Yavoi!</p></span></div><button class="btn secondary" data-billing="${e(d.id)}">Configurar cobro ${I("settings-2")}</button></div><div class="driver-shift-assignment"><div>${I("clock-3")}<span><small>TURNO ASIGNADO POR OPERACIONES</small><strong>${e(assignedShift?.name || "Sin turno asignado")}</strong><p>${assignedShift ? e(shiftTimeLabel(assignedShift)) : "El conductor no podrá conectarse hasta recibir un turno."}</p></span></div><button class="btn secondary" data-driver-shift="${e(d.id)}">Asignar turno ${I("calendar-clock")}</button></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.vehicle_front_path ? `<button class="btn secondary" data-vehicle-photo="${e(d.vehicle_front_path)}">${I("car-front")} Frente y placa</button>` : ""}${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.government_id_path, "Identificación")}${doc(d.license_path, "Licencia")}${doc(d.transport_card_path, "Tarjetón")}${doc(d.insurance_path, "Seguro")}${doc(d.vehicle_registration_path, "Circulación")}${doc(d.vehicle_verification_path, "Verificación")}${doc(d.mechanical_inspection_path, "Revisión mecánica")}${doc(d.tax_compliance_path, "Fiscal")}${doc(d.criminal_record_path, "No antecedentes · voluntaria")}${doc(d.policy_commitment_path, "Políticas Yavoi!")}${doc(d.traffic_law_commitment_path, "Obligaciones viales")}<button class="btn" data-review="${e(d.id)}">Revisar autorización ${I("arrow-right")}</button></div>${d.advertising_interest ? "<small>Interesado en convenios de publicidad</small>" : ""}</div></details>`;
   }).join("");
   const managedProfiles = (S.data.managed_profiles || []).map((managed) => {
     const editState = profileEditState(managed);
@@ -3498,6 +3503,26 @@ function fleet() {
       });
     };
   });
+  $$("[data-driver-shift]").forEach((item) => {
+    item.onclick = () => {
+      const driver = S.data.drivers.find((entry) => entry.id === item.dataset.driverShift);
+      const shifts = (S.data.service_shifts || []).filter((shift) => shift.active);
+      openModal(
+        `Asignar turno a ${driver.full_name}`,
+        `<form id="driver-shift-form"><label>Turno de servicio<select name="shift_code" required><option value="">Selecciona un turno</option>${shifts.map((shift) => `<option value="${e(shift.code)}" ${driver.service_shift_code === shift.code ? "selected" : ""}>${e(shift.name)} · ${e(shiftTimeLabel(shift))}</option>`).join("")}</select></label><label>Motivo o acuerdo<textarea name="note" required minlength="5" maxlength="500" placeholder="Acuerdo de disponibilidad confirmado con el conductor."></textarea></label><p class="hint">Operaciones asigna el turno. Al conectarse, el conductor acepta mantenerse activo y disponible durante ese horario. La unidad debe estar desconectada para cambiarlo.</p><button class="btn wide" type="submit">Guardar turno ${I("calendar-clock")}</button></form>`,
+      );
+      bindForm("#driver-shift-form", async (values) => {
+        await rpc("set_driver_shift", {
+          driver_id: driver.id,
+          shift_code: values.shift_code,
+          note: values.note,
+        });
+        closeModal();
+        await refreshPage();
+        notify("Turno asignado y compromiso registrado.");
+      });
+    };
+  });
   $$("[data-profile-edit]").forEach((item) => {
     item.onclick = () => {
       const allowed = item.dataset.allowed === "true";
@@ -3527,7 +3552,7 @@ function rates() {
     Number(category.minimum_cents || 0),
     Number(category.base_cents || 0) + Number(category.km_cents || 0) * 5 + Number(category.minute_cents || 0) * 12,
   );
-  const shiftEditor = `<section class="panel section-gap shift-editor"><div class="row between wrap"><div><div class="eyebrow">DISPONIBILIDAD DE CONDUCTORES</div><h2>Turnos de servicio</h2><p>Los conductores sólo pueden conectarse dentro del turno elegido. El turno de Noche cruza la medianoche.</p></div><span class="badge neutral">Hora de Chihuahua</span></div><div class="shift-grid">${(S.data.service_shifts || []).map((shift) => `<form data-service-shift="${e(shift.code)}"><div><strong>${e(shift.name)}</strong><small>${e(shiftTimeLabel(shift))}</small></div><label>Nombre<input name="name" required maxlength="40" value="${e(shift.name)}"></label><label>Inicio<input name="start_time" type="time" required value="${e(String(shift.start_time).slice(0, 5))}"></label><label>Fin<input name="end_time" type="time" required value="${e(String(shift.end_time).slice(0, 5))}"></label><label class="check"><input name="active" type="checkbox" ${shift.active ? "checked" : ""}>Disponible</label><button class="btn secondary" type="submit">Guardar turno ${I("save")}</button></form>`).join("")}</div></section>`;
+  const shiftEditor = `<section class="panel section-gap shift-editor"><div class="row between wrap"><div><div class="eyebrow">CONTROL DE OPERACIONES</div><h2>Turnos de servicio</h2><p>Operaciones define estos horarios y asigna el turno individual desde Conductores y flotilla. Los conductores no pueden elegirlo ni cambiarlo. El turno de Noche cruza la medianoche.</p></div><span class="badge neutral">Hora de Chihuahua</span></div><div class="shift-grid">${(S.data.service_shifts || []).map((shift) => `<form data-service-shift="${e(shift.code)}"><div><strong>${e(shift.name)}</strong><small>${e(shiftTimeLabel(shift))}</small></div><label>Nombre<input name="name" required maxlength="40" value="${e(shift.name)}"></label><label>Inicio<input name="start_time" type="time" required value="${e(String(shift.start_time).slice(0, 5))}"></label><label>Fin<input name="end_time" type="time" required value="${e(String(shift.end_time).slice(0, 5))}"></label><label class="check"><input name="active" type="checkbox" ${shift.active ? "checked" : ""}>Disponible para asignar</label><button class="btn secondary" type="submit">Guardar horario ${I("save")}</button></form>`).join("")}</div></section>`;
   shell(
     `<div class="notice-strip">Los cambios se aplican únicamente a nuevas cotizaciones. No se cobra reservación y la recogida lejana sólo se añade cuando el pasajero elige una unidad situada a más de 7 km.</div><details class="panel rate-guide" open><summary><span>${I("circle-help")}<strong>Cómo se calcula y cómo gana Yavoi!</strong></span>${I("chevron-down")}</summary><div class="rate-guide-body"><p><strong>Precio del viaje:</strong> inicio + kilómetros estimados + minutos estimados. Si el resultado es menor, se cobra la tarifa mínima; zona, accesibilidad y recogida lejana se muestran aparte.</p><p><strong>Ingresos de Yavoi!:</strong> se calculan con el esquema del conductor cuando acepta el viaje. En aportación semanal, el efectivo es 100% del conductor y la comisión electrónica se retiene. En comisión por viaje, la comisión del efectivo se reporta para transferencia semanal y la electrónica se retiene al cobrar.</p><p>Configura el esquema de cada conductor desde <strong>Conductores y flotilla</strong>. Cada viaje conserva las condiciones aplicadas al momento de aceptarse.</p></div></details><div class="rate-list">${S.categories.map((c, index) => `<details class="panel rate-card" ${index === 0 ? "open" : ""}><summary><span><strong>Yavoi! ${e(c.name)}</strong><small>Base ${money(c.base_cents)} · ${money(c.km_cents)}/km · mínimo ${money(c.minimum_cents)}</small></span><span class="badge ${c.active ? "" : "cancelled"}">${c.active ? "Disponible" : "Pausada"}</span>${I("chevron-down")}</summary><form data-category="${c.id}" class="rate-form"><input name="commission" type="hidden" value="${c.commission_bps / 100}"><div class="rate-field-grid"><label>Inicio del servicio<input name="base" type="number" min="0" max="1000" step="0.01" required value="${c.base_cents / 100}"><small class="field-note">Importe fijo con el que comienza la cotización.</small></label><label>Precio por kilómetro<input name="km" type="number" min="0" max="100" step="0.01" required value="${c.km_cents / 100}"><small class="field-note">Se multiplica por la distancia estimada de la ruta.</small></label><label>Precio por minuto<input name="minute" type="number" min="0" max="100" step="0.01" required value="${c.minute_cents / 100}"><small class="field-note">Compensa el tiempo estimado de circulación.</small></label><label>Tarifa mínima<input name="minimum" type="number" min="0" max="1000" step="0.01" required value="${c.minimum_cents / 100}"><small class="field-note">Total mínimo antes de recargos o recompensas.</small></label></div><div class="rate-preview"><span><small>EJEMPLO URBANO</small><strong data-rate-preview>${money(exampleFare(c))}</strong></span><p>Referencia de 5 km y 12 min, antes de zona, accesibilidad, recogida lejana, propina o descuentos.</p></div><label class="check rate-availability"><input name="active" type="checkbox" ${c.active ? "checked" : ""}><span><strong>Categoría disponible</strong><small>Al pausarla deja de aparecer en nuevas solicitudes.</small></span></label><button class="btn" type="submit">Guardar cambios ${I("save")}</button></form></details>`).join("")}</div>`,
     "Tarifas y categorías",
@@ -3962,11 +3987,13 @@ async function handleAction(action, b) {
   if (action === "availability")
     return run(async () => {
       const goingOnline = !S.driver.online;
-      const shiftCode = $("#service-shift")?.value || S.driver.service_shift_code;
-      if (goingOnline) await armOfferSound();
+      if (goingOnline) {
+        await armOfferSound();
+        if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+      }
       const position = goingOnline ? await browserPosition() : null;
       try {
-        await rpc("availability", { online: goingOnline, shift_code: shiftCode });
+        await rpc("availability", { online: goingOnline });
         S.driver.online = goingOnline;
         if (goingOnline) {
           S.latestPosition = position;
@@ -3980,7 +4007,7 @@ async function handleAction(action, b) {
         );
       } catch (error) {
         if (goingOnline) {
-          await rpc("availability", { online: false, shift_code: shiftCode }).catch(() => {});
+          await rpc("availability", { online: false }).catch(() => {});
           S.driver.online = false;
           stopDriverTracking();
         }

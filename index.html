@@ -74,8 +74,8 @@
           </div>
           <div id="heroMap" class="hero-map" aria-label="Mapa interactivo de Delicias"></div>
           <div class="hero-route-sheet">
-            <div class="route-row"><span class="route-bullet blue"></span><div><small>Recogida</small><strong>Plaza de la República</strong></div></div>
-            <div class="route-row"><span class="route-bullet orange"></span><div><small>Destino</small><strong>Tecnológico de Delicias</strong></div></div>
+            <div class="route-row"><span class="route-bullet blue"></span><div><small>Recogida</small><strong>Hotel Baeza</strong></div></div>
+            <div class="route-row"><span class="route-bullet orange"></span><div><small>Destino</small><strong>Omnibus Delicias</strong></div></div>
             <div class="route-summary"><strong id="heroEta">8 min</strong><span>Ruta demostrativa trazada sobre calles reales</span></div>
           </div>
         </div>
@@ -224,11 +224,11 @@
             <span class="eyebrow">CONFIGURA TU VIAJE</span>
             <h3>Simulador de usuario</h3>
             <label for="riderOrigin">Origen</label>
-            <select id="riderOrigin"><option value="centro">Plaza de la República</option><option value="oriente">Col. Revolución</option><option value="poniente">Parque Fundadores</option></select>
+            <select id="riderOrigin"><option value="hotel_baeza">Hotel Baeza</option><option value="oasis">Hotel Oasis Suite</option><option value="casa_grande">Hotel Casa Grande</option><option value="comfort">Hotel Comfort Inn</option><option value="american">American Inn Hotel y Suites</option></select>
             <label for="riderDestination">Destino</label>
-            <select id="riderDestination"><option value="tec">Tecnológico de Delicias</option><option value="terminal">Terminal de Autobuses</option><option value="hospital">Hospital Regional</option><option value="meoqui">Meoqui, Chihuahua</option></select>
+            <select id="riderDestination"><option value="omnibus">Omnibus Delicias</option><option value="rapidos">Rápidos Delicias</option><option value="chihuahuenses">Autobuses Chihuahuenses</option><option value="el_dorado">Hotel El Dorado Inn</option><option value="cedros">Hotel Los Cedros Inn</option></select>
             <div class="control-summary"><div><small>Categoría</small><strong id="simCategory">Básico</strong></div><div><small>Estimado</small><strong id="simPrice">$65</strong></div></div>
-            <p class="sim-note">La categoría seleccionada arriba se refleja aquí automáticamente. Cambia origen o destino para recalcular el trayecto sobre las calles disponibles.</p>
+            <p class="sim-note">Todos los puntos corresponden a ubicaciones reales de Delicias. El trayecto se recalcula por las calles disponibles con datos de OpenStreetMap.</p>
             <button class="btn btn-outline full" id="resetRider">Reiniciar experiencia</button>
           </div>
         </div>
@@ -241,9 +241,9 @@
             <div class="driver-request-sheet" id="driverRequestSheet">
               <div class="sheet-handle"></div>
               <span class="sheet-kicker orange-text" id="driverKicker">NUEVO SERVICIO</span>
-              <div class="driver-price-row"><h3 id="driverPrice">$86</h3><span id="driverCountdown">12 s</span></div>
-              <div class="driver-route"><div><span class="route-bullet blue"></span><p><small>Recoger</small><strong>Plaza de la República</strong></p></div><div><span class="route-bullet orange"></span><p><small>Destino</small><strong>Col. Revolución</strong></p></div></div>
-              <div class="driver-metrics"><div><small>Para recoger</small><strong>1.8 km</strong></div><div><small>Viaje</small><strong>14 min</strong></div></div>
+              <div class="driver-price-row"><h3 id="driverPrice">$65</h3><span id="driverCountdown">12 s</span></div>
+              <div class="driver-route"><div><span class="route-bullet blue"></span><p><small>Recoger</small><strong>Hotel Baeza</strong></p></div><div><span class="route-bullet orange"></span><p><small>Destino</small><strong>Omnibus Delicias</strong></p></div></div>
+              <div class="driver-metrics"><div><small>Para recoger</small><strong id="driverPickupDistance">Calculando…</strong></div><div><small>Viaje</small><strong id="driverTripTime">Calculando…</strong></div></div>
               <button class="app-primary orange-button" id="driverAction">Aceptar servicio</button>
             </div>
           </div>

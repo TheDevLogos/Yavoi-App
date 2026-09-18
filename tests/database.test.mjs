@@ -374,7 +374,15 @@ test("Postgres security and complete ride lifecycle", async () => {
       note: "Expediente completo y vigencias verificadas.",
     });
   await db.exec("reset role");
-  await db.query("update public.drivers set online=true,service_shift_code=$3 where id in ($1,$2)", [ids.driver, ids.driver2, currentShiftCode()]);
+  await db.query("update public.service_shifts set start_time='00:00',end_time='23:59' where code=$1", [currentShiftCode()]);
+  await as(ids.admin, "aal2");
+  for (const id of [ids.driver, ids.driver2]) {
+    const assigned = await rpc("set_driver_shift", { driver_id: id, shift_code: currentShiftCode(), note: "Compromiso de disponibilidad confirmado." });
+    assert.equal(assigned.service_shift_code, currentShiftCode());
+  }
+  await expectError(() => as(ids.driver).then(() => rpc("set_driver_shift", { driver_id: ids.driver, shift_code: currentShiftCode(), note: "Intento no autorizado." })), /Operaciones/);
+  await db.exec("reset role");
+  await db.query("update public.drivers set online=true where id in ($1,$2)", [ids.driver, ids.driver2]);
   await as(ids.driver);
   await expectError(
     () => rpc("presence", { lat: 27.5, lng: -105.47, accuracy: 10 }),

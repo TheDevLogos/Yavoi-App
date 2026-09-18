@@ -38,18 +38,21 @@ $$('.category-card').forEach(card => card.addEventListener('click', () => {
 }));
 
 const DELICIAS = [28.1902, -105.4701];
-const DEMO_DRIVER_START = [28.1960, -105.4760];
+const DEMO_DRIVER_START = [28.199502716407586, -105.45266051756059];
 const ROAD_ROUTER = 'https://router.project-osrm.org/route/v1/driving';
 const routeCache = new Map();
 
 const locations = {
-  centro: { label:'Plaza de la República', point:[28.19065,-105.47045] },
-  oriente: { label:'Col. Revolución', point:[28.19015,-105.45785] },
-  poniente: { label:'Parque Fundadores', point:[28.19175,-105.4812] },
-  tec: { label:'Tecnológico de Delicias', point:[28.18415,-105.4593], extra:0 },
-  terminal: { label:'Terminal de Autobuses', point:[28.19265,-105.4671], extra:8 },
-  hospital: { label:'Hospital Regional', point:[28.18145,-105.4750], extra:14 },
-  meoqui: { label:'Meoqui, Chihuahua', point:[28.27215,-105.48075], extra:92 }
+  hotel_baeza: { label:'Hotel Baeza', point:[28.196559401371477,-105.470620961273] },
+  oasis: { label:'Hotel Oasis Suite', point:[28.196397470547517,-105.47075683778465] },
+  casa_grande: { label:'Hotel Casa Grande', point:[28.192822971686198,-105.46264658388489] },
+  comfort: { label:'Hotel Comfort Inn', point:[28.193012729037207,-105.45681979310845] },
+  american: { label:'American Inn Hotel y Suites', point:[28.190635058197287,-105.45602231310774] },
+  el_dorado: { label:'Hotel El Dorado Inn', point:[28.197964529832333,-105.46845486147728] },
+  cedros: { label:'Hotel Los Cedros Inn', point:[28.199502716407586,-105.45266051756059] },
+  omnibus: { label:'Omnibus Delicias', point:[28.196877124464113,-105.46705280588705] },
+  rapidos: { label:'Rápidos Delicias', point:[28.197719970347674,-105.46801468291481] },
+  chihuahuenses: { label:'Autobuses Chihuahuenses', point:[28.199181012388152,-105.46962876145041] }
 };
 
 async function roadRoute(a, b) {
@@ -214,8 +217,8 @@ async function initializeMaps() {
     showToast('Los mapas requieren conexión a internet para mostrar OpenStreetMap.');
     return;
   }
-  const heroStart = locations.centro.point;
-  const heroEnd = locations.tec.point;
+  const heroStart = locations.hotel_baeza.point;
+  const heroEnd = locations.omnibus.point;
   riderMap = baseMap('riderMap', 14, true);
   driverMap = baseMap('driverMap', 14, true);
   const [heroResult, previewResult, securityResult] = await Promise.all([
@@ -241,10 +244,10 @@ async function initializeMaps() {
 initializeMaps().catch(() => showToast('No pudimos iniciar una de las rutas demostrativas. Intenta recargar la página.'));
 
 function currentRiderSelection() {
-  const originKey = $('#riderOrigin')?.value || 'centro';
-  const destinationKey = $('#riderDestination')?.value || 'tec';
-  const origin = locations[originKey] || locations.centro;
-  const destination = locations[destinationKey] || locations.tec;
+  const originKey = $('#riderOrigin')?.value || 'hotel_baeza';
+  const destinationKey = $('#riderDestination')?.value || 'omnibus';
+  const origin = locations[originKey] || locations.hotel_baeza;
+  const destination = locations[destinationKey] || locations.omnibus;
   return { origin, destination };
 }
 
@@ -272,12 +275,12 @@ async function prepareRiderRoute() {
   fitRouteForPhone(riderMap, [...approach, ...points]);
   riderCar = L.marker(approach[0], { icon:carIcon(), zIndexOffset:1000, opacity:0 }).addTo(riderMap);
   riderTraceLine = drawTravelledRoute(riderMap, points[0]);
+  updateRiderEstimate(points);
 }
 
-function updateRiderEstimate() {
-  const destinationKey = $('#riderDestination')?.value || 'tec';
-  const extra = locations[destinationKey]?.extra || 0;
-  const price = selectedPrice + extra;
+function updateRiderEstimate(points = riderRoadPoints) {
+  const routeKm = points?.length > 1 ? routeMeasurements(points).total / 1000 : 0;
+  const price = selectedPrice + Math.round(Math.max(0, routeKm - 4) * 6);
   const fare = $('#riderFare');
   const simPrice = $('#simPrice');
   const simCategory = $('#simCategory');
@@ -288,7 +291,7 @@ function updateRiderEstimate() {
 }
 
 $('#riderOrigin')?.addEventListener('change', async () => { resetRider(false); await prepareRiderRoute(); });
-$('#riderDestination')?.addEventListener('change', async () => { resetRider(false); await prepareRiderRoute(); updateRiderEstimate(); });
+$('#riderDestination')?.addEventListener('change', async () => { resetRider(false); await prepareRiderRoute(); });
 
 let riderPhase = 0;
 let riderBusy = false;
@@ -346,9 +349,11 @@ $('#riderAction')?.addEventListener('click', async () => {
     setRiderUI({ state:'En viaje', kicker:'VIAJE EN CURSO', title:`Rumbo a ${destination.label}`, action:'Ruta monitoreada', disabled:true });
     fitRouteForPhone(riderMap, points);
     riderTraceLine?.setLatLngs([points[0], points[0]]);
-    animateMarker(riderCar, points, { duration:destination.label.includes('Meoqui') ? 7800 : 5600, traceLine:riderTraceLine, progressCallback:progress => {
+    const routeKm = routeMeasurements(points).total / 1000;
+    const simulatedMinutes = Math.max(4, Math.round(routeKm * 2.1));
+    animateMarker(riderCar, points, { duration:Math.max(4600, Math.min(7800, routeKm * 1100)), traceLine:riderTraceLine, progressCallback:progress => {
       const eta = $('#riderEta');
-      if (eta) eta.textContent = `${Math.max(1, Math.round((destination.label.includes('Meoqui') ? 18 : 9) * (1-progress)))} min`;
+      if (eta) eta.textContent = `${Math.max(1, Math.round(simulatedMinutes * (1-progress)))} min`;
     }, completeCallback:() => {
       riderBusy = false;
       riderPhase = 2;
@@ -368,8 +373,8 @@ $('#riderAction')?.addEventListener('click', async () => {
 });
 
 async function driverTripPoints() {
-  const pickup = [28.19065,-105.47045];
-  const destination = [28.19015,-105.45785];
+  const pickup = locations.hotel_baeza.point;
+  const destination = locations.omnibus.point;
   const [approach, trip] = await Promise.all([
     roadRoute(DEMO_DRIVER_START, pickup),
     roadRoute(pickup, destination)
@@ -389,6 +394,10 @@ async function prepareDriverRoute() {
   if (driverCar) driverMap.removeLayer(driverCar);
   if (driverTraceLine) driverMap.removeLayer(driverTraceLine);
   const full = [...approach, ...trip.slice(1)];
+  const pickupKm = routeMeasurements(approach).total / 1000;
+  const tripKm = routeMeasurements(trip).total / 1000;
+  if ($('#driverPickupDistance')) $('#driverPickupDistance').textContent = `${pickupKm.toFixed(1)} km`;
+  if ($('#driverTripTime')) $('#driverTripTime').textContent = `${Math.max(3, Math.round(tripKm * 2.1))} min`;
   driverRouteLine = drawRoute(driverMap, full);
   driverEndpointLayers = addEndpoints(driverMap, full);
   fitRouteForPhone(driverMap, full);
@@ -426,7 +435,7 @@ async function resetDriver() {
   driverBusy = false;
   await prepareDriverRoute();
   setDriverUI({ status:'Conectado', kicker:'NUEVO SERVICIO', action:'Aceptar servicio', help:'Acepta el servicio para activar la navegación hacia el pasajero. Después podrás marcar llegada, iniciar el viaje y finalizarlo.' });
-  if ($('#driverPrice')) $('#driverPrice').textContent = '$86';
+  if ($('#driverPrice')) $('#driverPrice').textContent = '$65';
   startDriverCountdown();
 }
 
@@ -500,12 +509,7 @@ $$('[data-sim]').forEach(button => button.addEventListener('click', () => {
 $$('.regional-destinations button').forEach(button => button.addEventListener('click', () => {
   const city = button.dataset.city;
   if (city === 'Meoqui') {
-    const destination = $('#riderDestination');
-    if (destination) destination.value = 'meoqui';
-    resetRider(true);
-    updateRiderEstimate();
-    $('#simulador')?.scrollIntoView({ behavior:'smooth' });
-    showToast('Meoqui seleccionado como destino regional.');
+    showToast('Meoqui estará disponible en la expansión regional. El simulador muestra ubicaciones verificadas de Delicias.');
   } else {
     showToast(`${city}: ruta regional disponible como concepto de expansión Yavoi!.`);
   }

@@ -1,0 +1,131 @@
+-- Operations assigns each driver's shift. Drivers can only connect during it.
+create function private.availability_v7(payload jsonb) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare
+  uid uuid:=auth.uid();
+  going_online boolean:=coalesce((payload->>'online')::boolean,false);
+  driver_value public.drivers;
+  shift_value public.service_shifts;
+  result jsonb;
+begin
+  select * into driver_value from public.drivers where id=uid for update;
+  if not found then raise exception 'Sólo los conductores pueden cambiar su disponibilidad.' using errcode='42501';end if;
+  -- Preserve the established approval, payment, document and active-trip checks
+  -- before enforcing the Operations-assigned schedule. Any later exception rolls
+  -- the availability update back atomically.
+  result:=private.availability_v5(payload-'shift_code');
+  if going_online then
+    if driver_value.service_shift_code is null then
+      raise exception 'Operaciones debe asignarte un turno antes de conectarte.';
+    end if;
+    select * into shift_value from public.service_shifts where code=driver_value.service_shift_code and active;
+    if not found then raise exception 'Tu turno asignado no está disponible. Comunícate con Operaciones.';end if;
+    if not private.shift_active_v1(driver_value.service_shift_code,now()) then
+      raise exception 'Tu turno asignado no está activo en este momento.';
+    end if;
+  end if;
+  update public.drivers set shift_connected_at=case when going_online then now() else null end,updated_at=now() where id=uid;
+  return result||jsonb_build_object(
+    'shift_code',driver_value.service_shift_code,
+    'shift_name',shift_value.name,
+    'shift_start_time',shift_value.start_time,
+    'shift_end_time',shift_value.end_time
+  );
+end $$;
+revoke all on function private.availability_v7(jsonb) from public,anon;
+grant execute on function private.availability_v7(jsonb) to authenticated;
+
+create function private.set_driver_shift_v1(payload jsonb) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare
+  uid uuid:=auth.uid();
+  target uuid;
+  shift_code_value text:=nullif(trim(payload->>'shift_code'),'');
+  note_value text:=left(trim(coalesce(payload->>'note','')),500);
+  driver_value public.drivers;
+  shift_value public.service_shifts;
+begin
+  if uid is null or not private.is_admin() or coalesce(auth.jwt()->>'aal','aal1')<>'aal2' then
+    raise exception 'Operaciones requiere verificación en dos pasos.' using errcode='42501';
+  end if;
+  begin target:=(payload->>'driver_id')::uuid;exception when others then raise exception 'Conductor inválido.';end;
+  if length(note_value)<5 then raise exception 'Explica el acuerdo de turno con el conductor.';end if;
+  select * into shift_value from public.service_shifts where code=shift_code_value and active;
+  if not found then raise exception 'Selecciona un turno disponible.';end if;
+  select * into driver_value from public.drivers where id=target for update;
+  if not found then raise exception 'Conductor no encontrado.';end if;
+  if driver_value.online then raise exception 'Desconecta la unidad antes de cambiar el turno.';end if;
+  update public.drivers set service_shift_code=shift_value.code,shift_connected_at=null,updated_at=now() where id=target returning * into driver_value;
+  insert into public.audit_log(actor_id,action,target_id,detail) values(
+    uid,'driver_shift_assigned',target,jsonb_build_object(
+      'shift_code',shift_value.code,'shift_name',shift_value.name,
+      'start_time',shift_value.start_time,'end_time',shift_value.end_time,'note',note_value
+    )
+  );
+  return to_jsonb(driver_value)||jsonb_build_object('shift',to_jsonb(shift_value));
+end $$;
+revoke all on function private.set_driver_shift_v1(jsonb) from public,anon;
+grant execute on function private.set_driver_shift_v1(jsonb) to authenticated;
+
+create or replace function public.yavoi(command text,payload jsonb default '{}') returns jsonb
+language sql security invoker set search_path='' as $$
+ select case command
+   when 'bootstrap' then private.bootstrap_v4(payload)
+   when 'dashboard' then private.dashboard_v15(payload)
+   when 'onboard' then private.onboard_referral_v1(payload)
+   when 'profile' then private.profile_v5(payload)
+   when 'quote' then private.quote_v5(payload)
+   when 'available_units' then private.available_units_v4(payload)
+   when 'request_trip' then private.request_trip_v9(payload)
+   when 'trip' then private.trip_v10(payload)
+   when 'capture_trip_route' then private.capture_visible_trip_route_v1(payload)
+   when 'driver_profile' then private.driver_profile_v9(payload)
+   when 'save_driver_profile_draft' then private.save_driver_profile_draft_v1(payload)
+   when 'review_driver' then private.review_driver_v3(payload)
+   when 'authorize_profile_edit' then private.authorize_profile_edit_v1(payload)
+   when 'availability' then private.availability_v7(payload)
+   when 'presence' then private.presence_v4(payload)
+   when 'location' then private.location_v3(payload)
+   when 'offers' then private.offers_v7(payload)
+   when 'accept' then private.accept_offer_v3(payload)
+   when 'reject_offer' then private.reject_offer_v1(payload)
+   when 'save_ride_draft' then private.save_ride_draft_v1(payload)
+   when 'clear_ride_draft' then private.clear_ride_draft_v1(payload)
+   when 'save_saved_place' then private.save_saved_place_v1(payload)
+   when 'delete_saved_place' then private.delete_saved_place_v1(payload)
+   when 'transition' then private.transition_v8(payload)
+   when 'cancellation_quote' then private.cancellation_quote_v1(payload)
+   when 'settle_cancellation_fee' then private.settle_cancellation_fee_v1(payload)
+   when 'complaint' then private.complaint_v2(payload)
+   when 'rating' then private.rating_v3(payload)
+   when 'rating_and_report' then private.rating_and_report_v2(payload)
+   when 'redeem_reward' then private.redeem_reward_v5(payload)
+   when 'review_reward_redemption' then private.review_reward_redemption_v2(payload)
+   when 'set_marketing_settings' then private.set_marketing_settings_v1(payload)
+   when 'set_reward_active' then private.set_reward_active_v1(payload)
+   when 'upsert_reward' then private.upsert_reward_v3(payload)
+   when 'upsert_campaign' then private.upsert_campaign_v1(payload)
+   when 'set_campaign_active' then private.set_campaign_active_v1(payload)
+   when 'operations_report' then private.operations_report_v4(payload)
+   when 'transport_compliance' then private.transport_compliance_v1(payload)
+   when 'update_driver_insurance' then private.update_driver_insurance_v1(payload)
+   when 'log_report_export' then private.log_report_export_v1(payload)
+   when 'set_driver_billing' then private.set_driver_billing_v1(payload)
+   when 'submit_driver_settlement' then private.submit_driver_settlement_v1(payload)
+   when 'review_driver_settlement' then private.review_driver_settlement_v1(payload)
+   when 'payment_checkout' then private.payment_checkout_v1(payload)
+   when 'refund_checkout' then private.refund_checkout_v2(payload)
+   when 'post_trip_tip' then private.post_trip_tip_v1(payload)
+   when 'submit_weekly_fee' then private.submit_weekly_fee_v1(payload)
+   when 'review_weekly_fee' then private.review_weekly_fee_v1(payload)
+   when 'set_driver_access' then private.set_driver_access_v1(payload)
+   when 'scheduled_operations' then private.scheduled_operations_v1(payload)
+   when 'confirm_scheduled_trip' then private.confirm_scheduled_trip_v1(payload)
+   when 'assign_scheduled_trip' then private.assign_scheduled_trip_v1(payload)
+   when 'category' then private.category_v3(payload)
+   when 'upsert_service_shift' then private.upsert_service_shift_v1(payload)
+   when 'set_driver_shift' then private.set_driver_shift_v1(payload)
+   else private.dispatch(command,payload) end
+$$;
+revoke all on function public.yavoi(text,jsonb) from public,anon;
+grant execute on function public.yavoi(text,jsonb) to authenticated;

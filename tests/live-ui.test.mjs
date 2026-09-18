@@ -22,6 +22,7 @@ const transportComplianceMigration = await readFile(new URL("../supabase/migrati
 const dispatchShiftMigration = await readFile(new URL("../supabase/migrations/20260918051732_expand_dispatch_shifts_profiles.sql", import.meta.url), "utf8");
 const referralMigration = await readFile(new URL("../supabase/migrations/20260918140500_referrals_and_driver_drafts.sql", import.meta.url), "utf8");
 const tripHistoryMigration = await readFile(new URL("../supabase/migrations/20260918193000_trip_history_people.sql", import.meta.url), "utf8");
+const operationsShiftMigration = await readFile(new URL("../supabase/migrations/20260918214500_operations_assigned_driver_shifts.sql", import.meta.url), "utf8");
 
 test("verified referrals unlock distinct rewards and remain auditable", () => {
   assert.match(portal, /function referralShareUrl\(code\)/);
@@ -376,8 +377,7 @@ test("drivers receive an audible, visible and recoverable offer alert", () => {
   assert.match(portal, /S\.pendingOfferIds\.add\(payload\.new\.id\)/);
   assert.match(portal, /syncDriverOffers\(\)\.catch\(\(\) => \{\}\);[\s\S]{0,80}safeRefresh\(\)/);
   assert.match(portal, /document\.addEventListener\("visibilitychange"/);
-  assert.match(portal, /Activar sonido/);
-  assert.match(portal, /Probar alerta/);
+  assert.match(portal, /Probar alarma/);
   assert.match(css, /\.driver-offer-alert/);
 });
 
@@ -396,10 +396,27 @@ test("expanded dispatch, seven alerts, fixed capacity, compact profiles and shif
   assert.match(portal, /máximo 4 MB/);
   assert.match(portal, /name="accept_all_policies"/);
   assert.match(portal, /class="profile-section personal-details"/);
-  assert.match(portal, /id="service-shift"/);
+  assert.doesNotMatch(portal, /id="service-shift"/);
+  assert.match(portal, /data-driver-shift/);
+  assert.match(portal, /rpc\("set_driver_shift"/);
+  assert.match(portal, /Operaciones asigna el turno/);
   assert.match(portal, /data-service-shift/);
+  assert.match(operationsShiftMigration, /private\.availability_v7/);
+  assert.match(operationsShiftMigration, /private\.set_driver_shift_v1/);
+  assert.match(operationsShiftMigration, /when 'set_driver_shift' then private\.set_driver_shift_v1/);
+  assert.match(operationsShiftMigration, /Desconecta la unidad antes de cambiar el turno/);
   assert.match(css, /\.compact-agreements/);
   assert.match(css, /\.shift-grid/);
+});
+
+test("driver income is compact and filterable by period and concept", () => {
+  assert.match(portal, /class="panel profile-section income-movements/);
+  assert.match(portal, /data-ledger-period="today"/);
+  assert.match(portal, /data-ledger-period="week"/);
+  assert.match(portal, /id="ledger-kind-filter"/);
+  assert.match(portal, /function driverLedgerRows/);
+  assert.match(portal, /function applyLedgerFilters|const applyLedgerFilters/);
+  assert.match(css, /\.income-filters/);
 });
 
 test("fast booking, recurring schedules, GPS and flexible street names are hardened", () => {

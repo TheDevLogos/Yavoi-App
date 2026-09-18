@@ -44,3 +44,16 @@ test('every animated landing map uses a road route, direction and travelled trac
   assert.match(landing, /animateMarker\(driverCar, trip,[\s\S]{0,160}traceLine:driverTraceLine/);
   assert.match(html, /Ruta demostrativa trazada sobre calles reales/);
 });
+
+test('passenger simulator uses verified Delicias landmarks and matching coordinates', () => {
+  assert.match(landing, /hotel_baeza: \{ label:'Hotel Baeza', point:\[28\.196559401371477,-105\.470620961273\] \}/);
+  assert.match(landing, /omnibus: \{ label:'Omnibus Delicias', point:\[28\.196877124464113,-105\.46705280588705\] \}/);
+  assert.match(landing, /rapidos: \{ label:'Rápidos Delicias'/);
+  assert.match(landing, /chihuahuenses: \{ label:'Autobuses Chihuahuenses'/);
+  assert.match(landing, /roadRoute\(origin\.point, destination\.point\)/);
+  assert.match(landing, /updateRiderEstimate\(points\)/);
+  assert.match(html, /<option value="hotel_baeza">Hotel Baeza<\/option>/);
+  assert.match(html, /<option value="omnibus">Omnibus Delicias<\/option>/);
+  assert.match(html, /datos de OpenStreetMap/);
+  assert.doesNotMatch(html, /<option value="meoqui">/);
+});
