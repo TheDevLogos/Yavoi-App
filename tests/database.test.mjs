@@ -552,7 +552,10 @@ test("Postgres security and complete ride lifecycle", async () => {
   await as(ids.rider);
   const unassignedDetail = await rpc("trip", { trip_id: t.id });
   assert.equal(unassignedDetail.driver, null);
-  assert.equal((await rpc("dashboard")).ride_draft, null);
+  const riderDashboard = await rpc("dashboard");
+  assert.equal(riderDashboard.ride_draft, null);
+  assert.equal(riderDashboard.trips.find((trip) => trip.id === t.id).passenger_name, "Pasajero Actualizado");
+  assert.equal(riderDashboard.trips.find((trip) => trip.id === t.id).driver_name, null);
   const duplicate = await rpc("request_trip", {
     quote_id: q.id,
     request_key: key,
@@ -576,6 +579,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(acceptedTrip.driver_id, ids.driver);
   assert.equal(acceptedTrip.billing_mode, "weekly_fee");
   assert.equal(acceptedTrip.commission_bps_applied, 0);
+  assert.equal((await rpc("dashboard")).trips.find((trip) => trip.id === t.id).passenger_name, "Pasajero Actualizado");
   await as(ids.rider);
   await rpc("message", { trip_id: t.id, body: "Estoy en la entrada principal." });
   await as(ids.driver);

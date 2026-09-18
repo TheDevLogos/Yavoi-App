@@ -121,6 +121,8 @@ const S = {
   routeRenderTimer: null,
   referralCode: "",
   driverDraftTimer: null,
+  passengerOriginMode: "gps",
+  passengerGpsLastApplied: 0,
 };
 const referralFromUrl = String(new URLSearchParams(location.search).get("ref") || "").trim().toUpperCase();
 if (/^YV[A-F0-9]{8}$/.test(referralFromUrl)) {
@@ -497,6 +499,8 @@ function clearSession() {
   S.offerAudioArmed = false;
   S.initialLocationRequested = false;
   S.initialLocationPromise = null;
+  S.passengerOriginMode = "gps";
+  S.passengerGpsLastApplied = 0;
   clearTimeout(S.draftTimer);
   clearTimeout(S.driverDraftTimer);
   clearTimeout(S.routeRenderTimer);
@@ -784,7 +788,7 @@ function setMapPicker(kind = null) {
   $("#map-origin")?.classList.toggle("active", kind === "origin");
   $("#map-destination")?.classList.toggle("active", kind === "destination");
 }
-async function placeRidePoint(kind, point, { resolveAddress = false, focus = false } = {}) {
+async function placeRidePoint(kind, point, { resolveAddress = false, focus = false, source = "manual" } = {}) {
   if (!kind || !Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return;
   const chosen = {
     name: point.name || `Punto en mapa (${Number(point.lat).toFixed(5)}, ${Number(point.lng).toFixed(5)})`,
@@ -792,6 +796,7 @@ async function placeRidePoint(kind, point, { resolveAddress = false, focus = fal
     lng: Number(point.lng),
   };
   S[kind] = chosen;
+  if (kind === "origin") S.passengerOriginMode = source === "gps" ? "gps" : "manual";
   const input = $(`[name=${kind}]`);
   if (input) input.value = chosen.name;
   setMapPicker();
@@ -1270,9 +1275,15 @@ function riderHome() {
   }
   const draft = S.data.ride_draft;
   if (draft) {
-    S.origin = draftPoint(draft, "origin") || S.origin;
     S.destination = draftPoint(draft, "destination");
   }
+  S.passengerOriginMode = "gps";
+  S.passengerGpsLastApplied = 0;
+  S.origin = S.latestPosition ? {
+    name: "Mi ubicación actual",
+    lat: S.latestPosition.coords.latitude,
+    lng: S.latestPosition.coords.longitude,
+  } : null;
   const cats = S.categories.filter((category) => category.active);
   const savedPlaceLabels = { home: "Casa", work: "Trabajo", school: "Escuela" };
   const savedDestinations = (S.data.saved_places || []).map((place) => ({
@@ -1316,6 +1327,7 @@ function riderHome() {
     "Elige tu destino, necesidades y revisa el precio antes de confirmar.",
   );
   startMap();
+  startPassengerOriginTracking();
   const syncAdvancedOptions = () => {
     const advanced = $("#advanced-options-toggle").checked;
     if (!advanced) $("#schedule-enabled").checked = false;
@@ -1381,12 +1393,13 @@ function riderHome() {
   $("#save-destination").onclick = () => openSavedDestinationEditor();
   $("#gps-origin").onclick = () => {
     if (!navigator.geolocation) return notify("Tu navegador no permite ubicación. Usa el mapa.");
+    S.passengerOriginMode = "gps";
     navigator.geolocation.getCurrentPosition(
       (position) => placeRidePoint("origin", {
-        name: "Mi ubicación",
+        name: "Mi ubicación actual",
         lat: position.coords.latitude,
         lng: position.coords.longitude,
-      }, { resolveAddress: true, focus: true }),
+      }, { resolveAddress: true, focus: true, source: "gps" }),
       () => notify("No se pudo obtener tu ubicación. Puedes marcarla en el mapa."),
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 15000 },
     );
@@ -1898,21 +1911,30 @@ async function scheduleOperations() {
 function tableTrips() {
   return `<div class="table-wrap"><table><thead><tr><th>Folio / fecha</th><th>Recorrido</th><th>Estado</th><th>Pago</th><th>Importe</th><th>Valoración</th><th></th></tr></thead><tbody id="trip-rows">${tripRows(S.data.trips)}</tbody></table></div>${!S.data.trips.length ? `<div class="empty">${I("route")}<h3>Tu historial empieza con el primer viaje</h3><p>Los viajes guardados aparecerán aquí.</p></div>` : ""}`;
 }
+function tripPersonName(trip) {
+  if (S.profile.role === "driver") return trip.passenger_name || "Pasajero";
+  if (S.profile.role === "passenger") return trip.driver_name || "Sin conductor asignado";
+  return trip.passenger_name || trip.driver_name || "Usuario";
+}
+function tripFilterDate(trip) {
+  return new Date(trip.scheduled_at || trip.created_at);
+}
 function tripRows(ts) {
   return ts
     .map(
       (t) =>
-        `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e({ paid: "Confirmado", pending: "Pendiente", failed: "No aprobado", cancelled: "Cancelado sin cobro", refund_pending: "Reembolso pendiente", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</small></td><td>${money(t.total_cents ?? t.fare_cents)}</td><td>${t.rating_given ? `<span class="trip-rating-inline">${I("star")} ${t.rating_given}/5</span><small>Tu valoración</small>` : t.rating_received ? `<span class="trip-rating-inline">${I("star")} ${t.rating_received}/5</span><small>Valoración recibida</small>` : '<small>Sin valorar</small>'}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
+        `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small><small class="trip-person">${I("user-round")} ${e(tripPersonName(t))}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e({ paid: "Confirmado", pending: "Pendiente", failed: "No aprobado", cancelled: "Cancelado sin cobro", refund_pending: "Reembolso pendiente", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</small></td><td>${money(t.total_cents ?? t.fare_cents)}</td><td>${t.rating_given ? `<span class="trip-rating-inline">${I("star")} ${t.rating_given}/5</span><small>Tu valoración</small>` : t.rating_received ? `<span class="trip-rating-inline">${I("star")} ${t.rating_received}/5</span><small>Valoración recibida</small>` : '<small>Sin valorar</small>'}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
     )
     .join("");
 }
 function tripsView() {
+  const people = [...new Set(S.data.trips.map(tripPersonName).filter((name) => name && name !== "Sin conductor asignado"))].sort((a, b) => a.localeCompare(b, "es"));
   shell(
-    `<section class="panel"><div class="row between"><h2>Historial de viajes</h2>${button("Exportar", "export", "secondary", "download")}</div><div class="filter-row"><input id="search-trips" aria-label="Buscar viajes" placeholder="Buscar destino o folio"><select id="filter-status" aria-label="Filtrar estado"><option value="">Todos los estados</option>${Object.entries(
+    `<details class="panel profile-section trip-history-section" open><summary><span>${I("history")}<strong>Historial de viajes</strong></span><span class="badge neutral">${S.data.trips.length} registros</span>${I("chevron-down")}</summary><div class="profile-section-body"><div class="row between wrap"><p>Filtra con un toque por fecha o por ${S.profile.role === "driver" ? "pasajero" : "conductor"}.</p>${button("Exportar", "export", "secondary", "download")}</div><div class="filter-row"><input id="search-trips" aria-label="Buscar viajes" placeholder="Nombre, destino o folio"><select id="filter-status" aria-label="Filtrar estado"><option value="">Todos los estados</option>${Object.entries(
       statuses,
     )
       .map(([id, s]) => `<option value="${id}">${s}</option>`)
-      .join("")}</select></div>${tableTrips()}</section>`,
+      .join("")}</select></div><div class="trip-quick-filters" aria-label="Filtros rápidos por fecha"><button type="button" class="active" data-trip-period="all">Todos</button><button type="button" data-trip-period="today">Hoy</button><button type="button" data-trip-period="week">7 días</button><button type="button" data-trip-period="month">Este mes</button></div>${people.length ? `<details class="trip-person-filter"><summary>${I("users-round")} Filtrar por ${S.profile.role === "driver" ? "pasajero" : "conductor"}</summary><div class="trip-quick-filters"><button type="button" class="active" data-trip-person="">Todos</button>${people.map((name) => `<button type="button" data-trip-person="${e(name)}">${e(name)}</button>`).join("")}</div></details>` : ""}${tableTrips()}<p class="hint hidden" id="trip-filter-empty">No hay viajes que coincidan con estos filtros.</p></div></details>`,
     "Cada viaje, en un solo lugar.",
     "Consulta el recorrido, el pago y el detalle de tus viajes.",
   );
@@ -1922,19 +1944,38 @@ function tripsView() {
     $$('[data-action="assign-scheduled"]').forEach((item) => (item.onclick = () => handleAction("assign-scheduled", item)));
     iconsNow();
   }
+  const state = { period: "all", person: "" };
   const filter = () => {
     const q = $("#search-trips").value.toLowerCase(),
       status = $("#filter-status").value;
-    $("#trip-rows").innerHTML = tripRows(
-      S.data.trips.filter(
-        (t) =>
-          (!status || t.status === status) &&
-          [t.origin, t.destination, t.id].join(" ").toLowerCase().includes(q),
-      ),
-    );
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const visible = S.data.trips.filter((t) => {
+      const tripDate = tripFilterDate(t);
+      const dateMatches = state.period === "all"
+        || (state.period === "today" && tripDate >= startOfToday)
+        || (state.period === "week" && tripDate >= new Date(now.getTime() - 7 * 86400000))
+        || (state.period === "month" && tripDate >= startOfMonth);
+      const person = tripPersonName(t);
+      return dateMatches && (!state.person || person === state.person) && (!status || t.status === status)
+        && [t.origin, t.destination, t.id, person].join(" ").toLowerCase().includes(q);
+    });
+    $("#trip-rows").innerHTML = tripRows(visible);
+    $("#trip-filter-empty")?.classList.toggle("hidden", visible.length > 0);
   };
   $("#search-trips").oninput = filter;
   $("#filter-status").onchange = filter;
+  $$('[data-trip-period]').forEach((item) => item.onclick = () => {
+    state.period = item.dataset.tripPeriod;
+    $$('[data-trip-period]').forEach((button) => button.classList.toggle("active", button === item));
+    filter();
+  });
+  $$('[data-trip-person]').forEach((item) => item.onclick = () => {
+    state.person = item.dataset.tripPerson;
+    $$('[data-trip-person]').forEach((button) => button.classList.toggle("active", button === item));
+    filter();
+  });
 }
 function tripRatingsMarkup(ratings = []) {
   const cards = ratings.map((rating) => {
@@ -2662,20 +2703,28 @@ function restoreDriverDraft(form) {
   if (status) status.innerHTML = `${I("cloud-check")} Borrador recuperado${uploaded ? ` · ${uploaded} archivo${uploaded === 1 ? "" : "s"} ya cargado${uploaded === 1 ? "" : "s"}` : ""}.`;
   return true;
 }
-function saveDriverDraft(form, { remote = true } = {}) {
+async function persistDriverDraft(draft, status) {
+  try {
+    const result = await rpc("save_driver_profile_draft", { draft });
+    if (status?.isConnected) status.textContent = `Borrador protegido · ${new Date(result.saved_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}`;
+    return true;
+  } catch {
+    if (status?.isConnected) status.textContent = "Borrador conservado en este dispositivo; se sincronizará al reintentar.";
+    return false;
+  }
+}
+function saveDriverDraft(form, { remote = true, immediate = false } = {}) {
   const draft = driverDraftSnapshot(form);
   try { localStorage.setItem(driverDraftKey(), JSON.stringify(draft)); } catch {}
   const status = $("#driver-draft-status");
   if (status) status.textContent = "Guardando borrador…";
   clearTimeout(S.driverDraftTimer);
   if (!remote) return draft;
+  if (immediate) {
+    return persistDriverDraft(draft, status).then(() => draft);
+  }
   S.driverDraftTimer = setTimeout(async () => {
-    try {
-      const result = await rpc("save_driver_profile_draft", { draft });
-      if (status?.isConnected) status.textContent = `Borrador protegido · ${new Date(result.saved_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}`;
-    } catch {
-      if (status?.isConnected) status.textContent = "Borrador conservado en este dispositivo; se sincronizará al reintentar.";
-    }
+    await persistDriverDraft(draft, status);
   }, 800);
   return draft;
 }
@@ -2689,9 +2738,57 @@ async function uploadDriverDraftFiles(form) {
     if (status) status.textContent = `Cargando ${file.name}…`;
     uploaded[pathName] = await upload(file, bucket);
     form.dataset.uploadedPaths = JSON.stringify(uploaded);
-    saveDriverDraft(form);
+    await saveDriverDraft(form, { immediate: true });
   }
   return uploaded;
+}
+function organizeDriverDossierSections(form, dossier) {
+  if (!form) return;
+  const headings = [...form.querySelectorAll(":scope fieldset > h3")];
+  if (headings.length < 3) return;
+  const missing = new Set(dossier.missing || []);
+  const safetyLabels = [
+    "Cinturones para todas las plazas", "Bolsas de aire frontales", "Frenos ABS",
+    "Herramientas de primer servicio", "Extinguidor ABC", "Unidad de al menos cuatro puertas",
+    "Aire acondicionado", "Señalamientos reflejantes",
+  ];
+  const documentLabels = [
+    "Fotografía frontal del vehículo y placa", "Identificación oficial", "Licencia",
+    "Póliza de seguro", "Tarjetón anual vigente", "Tarjeta de circulación vigente",
+    "Verificación vehicular", "Revisión mecánica vigente", "Cumplimiento fiscal vigente",
+    "Carta de no antecedentes penales", "Carta de políticas Yavoi! firmada",
+    "Carta de obligaciones viales firmada",
+  ];
+  const personalLabels = ["Nombre completo", "Teléfono", "Fotografía"];
+  const allMissing = [...missing];
+  const states = {
+    unit: !allMissing.some((label) => !safetyLabels.includes(label) && !documentLabels.includes(label) && !personalLabels.includes(label)),
+    safety: !safetyLabels.some((label) => missing.has(label)),
+    documents: !documentLabels.some((label) => missing.has(label)),
+  };
+  const fieldset = form.querySelector(":scope > fieldset");
+  const submit = fieldset.querySelector(":scope > button[type=submit]");
+  const groups = [
+    { key: "unit", title: "Datos de la unidad", icon: "car-front", heading: headings[0], end: headings[1] },
+    { key: "safety", title: "Equipo y seguridad", icon: "shield-check", heading: headings[1], end: headings[2] },
+    { key: "documents", title: "Documentos privados", icon: "files", heading: headings[2], end: submit },
+  ];
+  groups.forEach((group) => {
+    const nodes = [];
+    let node = group.heading.nextElementSibling;
+    while (node && node !== group.end) {
+      nodes.push(node);
+      node = node.nextElementSibling;
+    }
+    const details = document.createElement("details");
+    details.className = "profile-section dossier-subsection";
+    details.open = !states[group.key];
+    details.innerHTML = `<summary><span>${I(group.icon)}<strong>${e(group.title)}</strong></span><span class="badge ${states[group.key] ? "" : "pending"}">${states[group.key] ? "Guardado" : "Pendiente"}</span>${I("chevron-down")}</summary><div class="profile-section-body"></div>`;
+    group.heading.replaceWith(details);
+    const body = details.querySelector(".profile-section-body");
+    nodes.forEach((item) => body.append(item));
+  });
+  iconsNow();
 }
 function profile() {
   const p = S.profile;
@@ -2714,6 +2811,7 @@ function profile() {
   if (driver) {
     applyLegacyDriverFormCompatibility($("#vehicle-form"));
     if (editState.editable) restoreDriverDraft($("#vehicle-form"));
+    organizeDriverDossierSections($("#vehicle-form"), dossier);
   }
   if (editState.editable) {
     bindForm("#profile-form", async (v, f) => {
@@ -3706,6 +3804,30 @@ function browserPosition() {
     throw Error("No pudimos obtener tu ubicación. Revisa el permiso del navegador e inténtalo de nuevo.");
   });
 }
+function stopPassengerOriginTracking() {
+  if (S.watch !== null && navigator.geolocation) navigator.geolocation.clearWatch(S.watch);
+  S.watch = null;
+}
+async function applyPassengerGpsPosition(position, { focus = false } = {}) {
+  if (S.profile?.role !== "passenger" || S.view !== "home" || S.passengerOriginMode !== "gps") return;
+  const now = Date.now();
+  if (!focus && now - S.passengerGpsLastApplied < 8000) return;
+  S.latestPosition = position;
+  S.passengerGpsLastApplied = now;
+  await placeRidePoint("origin", {
+    name: "Mi ubicación actual",
+    lat: position.coords.latitude,
+    lng: position.coords.longitude,
+  }, { resolveAddress: focus, focus, source: "gps" });
+}
+function startPassengerOriginTracking() {
+  if (S.profile?.role !== "passenger" || S.view !== "home" || !navigator.geolocation || S.watch !== null) return;
+  S.watch = navigator.geolocation.watchPosition(
+    (position) => applyPassengerGpsPosition(position, { focus: S.passengerGpsLastApplied === 0 }).catch(() => {}),
+    () => notify("No pudimos actualizar tu punto de partida. Revisa el permiso de ubicación o elígelo en el mapa."),
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 },
+  );
+}
 function requestInitialLocation() {
   if (S.initialLocationRequested || !["passenger", "driver"].includes(S.profile?.role))
     return S.initialLocationPromise;
@@ -3714,15 +3836,7 @@ function requestInitialLocation() {
     .then(async (position) => {
       S.latestPosition = position;
       if (S.profile?.role === "passenger") {
-        if (draftPoint(S.data?.ride_draft, "origin")) return position;
-        const point = {
-          name: "Mi ubicación actual",
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        };
-        S.origin = point;
-        if ($("#quote-form"))
-          await placeRidePoint("origin", point, { resolveAddress: true, focus: true });
+        if ($("#quote-form")) await applyPassengerGpsPosition(position, { focus: true });
       } else if (S.driver?.online) {
         await sendDriverPosition(position);
       }
@@ -4151,6 +4265,7 @@ async function renderRoute() {
     S.view = "home";
     history.replaceState(null, "", "#home");
   }
+  if (S.profile.role !== "passenger" || S.view !== "home") stopPassengerOriginTracking();
   if (S.view === "trip") {
     if (!/^[0-9a-f-]{36}$/i.test(hash[1] || "")) {
       location.hash = "trips";

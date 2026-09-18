@@ -21,6 +21,7 @@ const commercialReportingMigration = await readFile(new URL("../supabase/migrati
 const transportComplianceMigration = await readFile(new URL("../supabase/migrations/20260915200412_chihuahua_transport_compliance.sql", import.meta.url), "utf8");
 const dispatchShiftMigration = await readFile(new URL("../supabase/migrations/20260918051732_expand_dispatch_shifts_profiles.sql", import.meta.url), "utf8");
 const referralMigration = await readFile(new URL("../supabase/migrations/20260918140500_referrals_and_driver_drafts.sql", import.meta.url), "utf8");
+const tripHistoryMigration = await readFile(new URL("../supabase/migrations/20260918193000_trip_history_people.sql", import.meta.url), "utf8");
 
 test("verified referrals unlock distinct rewards and remain auditable", () => {
   assert.match(portal, /function referralShareUrl\(code\)/);
@@ -47,11 +48,35 @@ test("driver dossier drafts preserve fields, checks and successful uploads", () 
   assert.match(portal, /async function uploadDriverDraftFiles\(form\)/);
   assert.match(portal, /uploaded\[pathName\] = await upload\(file, bucket\)/);
   assert.match(portal, /restoreDriverDraft\(\$\("#vehicle-form"\)\)/);
+  assert.match(portal, /await saveDriverDraft\(form, \{ immediate: true \}\)/);
+  assert.match(portal, /function organizeDriverDossierSections\(form, dossier\)/);
+  assert.match(portal, /states\[group\.key\] \? "Guardado" : "Pendiente"/);
   assert.match(portal, /Borrador recuperado/);
   assert.match(referralMigration, /create table public\.driver_profile_drafts/);
   assert.match(referralMigration, /private\.save_driver_profile_draft_v1/);
   assert.match(referralMigration, /delete from public\.driver_profile_drafts where driver_id=auth\.uid\(\)/);
   assert.match(referralMigration, /when 'driver_profile' then private\.driver_profile_v9/);
+});
+
+test("passenger and driver trip histories collapse and filter by person or date", () => {
+  assert.match(portal, /class="panel profile-section trip-history-section" open/);
+  assert.match(portal, /data-trip-period="today"/);
+  assert.match(portal, /data-trip-period="week"/);
+  assert.match(portal, /data-trip-person=/);
+  assert.match(portal, /function tripPersonName\(trip\)/);
+  assert.match(tripHistoryMigration, /passenger\.full_name as passenger_name/);
+  assert.match(tripHistoryMigration, /driver\.full_name as driver_name/);
+  assert.match(tripHistoryMigration, /when 'dashboard' then private\.dashboard_v15/);
+  assert.match(css, /\.trip-quick-filters/);
+});
+
+test("passenger origin defaults to fresh GPS and follows it on the planning map", () => {
+  assert.match(portal, /function startPassengerOriginTracking\(\)/);
+  assert.match(portal, /navigator\.geolocation\.watchPosition/);
+  assert.match(portal, /source: "gps"/);
+  assert.match(portal, /S\.passengerOriginMode = "gps"/);
+  assert.match(portal, /if \(kind === "origin"\) S\.passengerOriginMode = source === "gps" \? "gps" : "manual"/);
+  assert.doesNotMatch(portal, /if \(draftPoint\(S\.data\?\.ride_draft, "origin"\)\) return position/);
 });
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
