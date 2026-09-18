@@ -4,6 +4,9 @@ import { access, readFile } from "node:fs/promises";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root));
+const serviceWorker = await read("public/sw.js").then(String);
+const landing = await read("app.js").then(String);
+const portal = await read("src/portal.js").then(String);
 async function pngSize(path) {
   const bytes = await read(path);
   assert.equal(bytes.subarray(1, 4).toString(), "PNG");
@@ -28,6 +31,16 @@ test("PWA manifest and platform icons are complete", async () => {
   assert.deepEqual(await pngSize("public/icons/yavoi-192.png"), [192, 192]);
   assert.deepEqual(await pngSize("public/icons/yavoi-512.png"), [512, 512]);
   assert.deepEqual(await pngSize("public/icons/yavoi-maskable-512.png"), [512, 512]);
+});
+
+test("installed PWA checks for releases and reloads after the new worker takes control", () => {
+  assert.match(serviceWorker, /yavoi-shell-v4/);
+  assert.match(landing, /updateViaCache:'none'/);
+  assert.match(portal, /updateViaCache: "none"/);
+  assert.match(landing, /controllerchange/);
+  assert.match(portal, /controllerchange/);
+  assert.match(landing, /registration => registration\.update\(\)/);
+  assert.match(portal, /registration\) => registration\.update\(\)/);
 });
 
 test("landing and portal advertise the PWA and the new access call to action", async () => {

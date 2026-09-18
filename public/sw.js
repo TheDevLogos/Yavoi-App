@@ -1,4 +1,4 @@
-const CACHE = "yavoi-shell-v3";
+const CACHE = "yavoi-shell-v4";
 const CORE = [
   "/",
   "/portal.html",

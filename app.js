@@ -516,7 +516,16 @@ $$('.regional-destinations button').forEach(button => button.addEventListener('c
 }));
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  let refreshingForUpdate = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshingForUpdate) return;
+    refreshingForUpdate = true;
+    location.reload();
+  });
+  window.addEventListener('load', () => navigator.serviceWorker
+    .register('/sw.js', { updateViaCache:'none' })
+    .then(registration => registration.update())
+    .catch(() => {}));
 }
 
 updateRiderEstimate();
