@@ -107,6 +107,7 @@ const S = {
   offerSyncing: false,
   offerAudioContext: null,
   offerAudioArmed: false,
+  offerRingTimers: new Map(),
   initialLocationRequested: false,
   initialLocationPromise: null,
   draftTimer: null,
@@ -245,12 +246,31 @@ function playOfferSound() {
   navigator.vibrate?.([150, 70, 150, 70, 150, 70, 260]);
   return true;
 }
+function stopOfferRinging(offerId) {
+  const timer = S.offerRingTimers.get(offerId);
+  if (timer) clearInterval(timer);
+  S.offerRingTimers.delete(offerId);
+}
+function stopAllOfferRinging() {
+  [...S.offerRingTimers.keys()].forEach(stopOfferRinging);
+}
+function startOfferRinging(offer) {
+  if (!offer?.offer_id || S.offerRingTimers.has(offer.offer_id)) return;
+  let repetitions = 0;
+  const ring = () => {
+    if (repetitions >= 7) return stopOfferRinging(offer.offer_id);
+    repetitions += 1;
+    playOfferSound();
+  };
+  ring();
+  S.offerRingTimers.set(offer.offer_id, setInterval(ring, 2000));
+}
 function announceOffers(offers) {
   const newOffers = offers.filter((offer) => !S.knownOfferIds.has(offer.offer_id));
   offers.forEach((offer) => S.knownOfferIds.add(offer.offer_id));
   if (newOffers.length) {
     newOffers.forEach((offer) => S.pendingOfferIds.add(offer.offer_id));
-    playOfferSound();
+    newOffers.forEach(startOfferRinging);
     serviceNotification(
       "Nueva solicitud de viaje",
       `${newOffers[0].passenger_name}, ${newOffers[0].party_size} persona${newOffers[0].party_size === 1 ? "" : "s"}, servicio ${newOffers[0].category}.`,
@@ -286,6 +306,8 @@ async function syncDriverOffers({ present = true } = {}) {
   S.offerSyncing = true;
   try {
     const offers = await rpc("offers");
+    const openIds = new Set(offers.map((offer) => offer.offer_id));
+    [...S.offerRingTimers.keys()].filter((id) => !openIds.has(id)).forEach(stopOfferRinging);
     await Promise.all(offers.map((offer) => loadAvatar(offer.passenger_avatar_path)));
     announceOffers(offers);
     if (present) presentPendingOffer(offers);
@@ -458,6 +480,7 @@ function clearSession() {
   S.vehiclePhotoUrls = {};
   S.knownOfferIds = new Set();
   S.pendingOfferIds.clear();
+  stopAllOfferRinging();
   S.offersInitialized = false;
   S.offerSyncing = false;
   S.offerAudioContext?.close?.().catch?.(() => {});
@@ -948,8 +971,11 @@ async function refreshAvailableUnits({ fit = true } = {}) {
     const label = $("#unit-status");
     const serviceName = S.categories.find((item) => item.id === category)?.name || category;
     const radius = Number(S.units[0]?.search_radius_km || 0);
+    const expanded = Boolean(S.units[0]?.fallback_all);
     if (label) label.textContent = S.units.length
-      ? `${S.units.length} unidad${S.units.length === 1 ? "" : "es"} Yavoi! ${serviceName} dentro de ${radius} km. Sólo mostramos el tipo de servicio antes de confirmar.`
+      ? expanded
+        ? `No encontramos Yavoi! ${serviceName} dentro de 3 km. Mostramos ${S.units.length} unidad${S.units.length === 1 ? "" : "es"} disponible${S.units.length === 1 ? "" : "s"} de todos los tipos.`
+        : `${S.units.length} unidad${S.units.length === 1 ? "" : "es"} Yavoi! ${serviceName} dentro de ${radius} km. Sólo mostramos el tipo de servicio antes de confirmar.`
       : "No hay unidades compatibles conectadas en este momento. Puedes cotizar y esperar disponibilidad.";
     drawPoints(null, { fit });
   } catch (error) {
@@ -1064,14 +1090,15 @@ function drawPoints(t = null, { fit = true } = {}) {
     const requestedCategory = $('[name=category]:checked')?.value || "basic";
     const serviceName = S.categories.find((item) => item.id === requestedCategory)?.name || requestedCategory;
     S.units.forEach((unit, index) => {
+      const unitServiceName = S.categories.find((item) => item.id === unit.category)?.name || unit.category || serviceName;
       const marker = L.marker([unit.lat, unit.lng], { icon: vehicleIcon(0, S.selectedUnit === unit.unit_id, unit.category || requestedCategory) })
-        .bindTooltip(`Yavoi! ${e(serviceName)} · ${index === 0 ? "Unidad más cercana" : "Unidad disponible"}`)
+        .bindTooltip(`Yavoi! ${e(unitServiceName)} · ${index === 0 ? "Unidad más cercana" : "Unidad disponible"}`)
         .on("click", () => {
           S.selectedUnit = S.selectedUnit === unit.unit_id ? null : unit.unit_id;
           drawPoints(null, { fit: false });
           const label = $("#unit-selection");
           if (label) label.textContent = S.selectedUnit
-            ? `Yavoi! ${serviceName} · ${index === 0 ? "Unidad más cercana seleccionada" : "Unidad seleccionada"}`
+            ? `Yavoi! ${unitServiceName} · ${index === 0 ? "Unidad más cercana seleccionada" : "Unidad seleccionada"}`
             : "Asignación automática a la unidad más cercana";
         })
         .addTo(S.map);
@@ -1144,6 +1171,8 @@ function rideDraftPayload(form = $("#quote-form")) {
   const recurrence = scheduling && ["daily", "weekly", "monthly"].includes(values.recurrence)
     ? values.recurrence
     : "once";
+  const category = values.category || "basic";
+  const partySize = Number(S.categories.find((item) => item.id === category)?.seats || 1);
   return {
     origin: values.origin || "",
     origin_lat: originValid ? S.origin.lat : null,
@@ -1151,8 +1180,8 @@ function rideDraftPayload(form = $("#quote-form")) {
     destination: values.destination || "",
     dest_lat: destinationValid ? S.destination.lat : null,
     dest_lng: destinationValid ? S.destination.lng : null,
-    category: values.category || "basic",
-    party_size: Number(values.party_size || 1),
+    category,
+    party_size: partySize,
     service_notes: values.service_notes || "",
     women_only: values.women_only === "on",
     accessible: values.accessible === "on",
@@ -1213,7 +1242,7 @@ function riderHome() {
   const passengerProgress = passengerProfileStatus(S.profile);
   if (passengerProgress.percent < 100) {
     shell(
-      `<section class="panel profile-required"><div class="profile-head"><div class="profile-lock">${I("shield-check")}</div><div><div class="eyebrow">SEGURIDAD ANTES DEL PRIMER VIAJE</div><h2>Completa tu perfil de pasajero</h2><p>Necesitamos tus datos de contacto, fotografía, contacto de emergencia y aceptación de seguridad, privacidad y términos de servicio.</p></div></div><div class="dossier-progress"><div class="row between"><strong>${passengerProgress.percent}% completo</strong><b>${passengerProgress.completed} de ${passengerProgress.total}</b></div><progress max="100" value="${passengerProgress.percent}">${passengerProgress.percent}%</progress><p>Falta: ${e(passengerProgress.missing.join(", "))}.</p></div><a class="btn" href="#profile">Completar mi perfil ${I("arrow-right")}</a></section>`,
+      `<section class="panel profile-required"><div class="profile-head"><div class="profile-lock">${I("shield-check")}</div><div><div class="eyebrow">SEGURIDAD ANTES DEL PRIMER VIAJE</div><h2>Completa tu perfil de pasajero</h2><p>Necesitamos tus datos de contacto, fotografía y aceptación simplificada de seguridad, privacidad y términos de servicio.</p></div></div><div class="dossier-progress"><div class="row between"><strong>${passengerProgress.percent}% completo</strong><b>${passengerProgress.completed} de ${passengerProgress.total}</b></div><progress max="100" value="${passengerProgress.percent}">${passengerProgress.percent}%</progress><p>Falta: ${e(passengerProgress.missing.join(", "))}.</p></div><a class="btn" href="#profile">Completar mi perfil ${I("arrow-right")}</a></section>`,
       "Prepara tu cuenta",
       "Completa estos datos una sola vez para solicitar viajes con mayor seguridad.",
     );
@@ -1232,6 +1261,7 @@ function riderHome() {
   }));
   const destinationChoices = [...savedDestinations, ...places];
   const selectedCategory = draft?.category || cats[0]?.id;
+  const selectedSeats = Number(cats.find((category) => category.id === selectedCategory)?.seats || 1);
   const scheduled = Boolean(draft?.scheduled_at);
   const recurrence = scheduled && ["daily", "weekly", "monthly"].includes(draft?.recurrence)
     ? draft.recurrence
@@ -1246,7 +1276,7 @@ function riderHome() {
       <datalist id="destinations">${destinationChoices.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist>
       <div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Elegir origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Elegir destino</button><button type="button" id="save-destination">${I("bookmark-plus")} Guardar destino</button></div>
       <h3 class="service-picker-title">Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt="Vehículo Yavoi! ${e(category.name)}"></div><div class="category-copy"><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div>
-      <label class="passenger-count">Personas que viajarán<input name="party_size" type="number" min="1" max="8" step="1" required value="${e(draft?.party_size || 1)}"></label>
+      <div class="passenger-count fixed-capacity">${I("users-round")}<span><small>Capacidad incluida</small><strong id="service-capacity">Hasta ${selectedSeats} persona${selectedSeats === 1 ? "" : "s"}</strong></span><small>Se define automáticamente según el tipo de servicio.</small></div>
       <label class="check advanced-toggle"><input id="advanced-options-toggle" type="checkbox" ${advancedOpen ? "checked" : ""}><span>${I("sliders-horizontal")}<strong>Opciones avanzadas</strong><small>Programar, agregar indicaciones o preferencias.</small></span>${I("chevron-down")}</label>
       <fieldset id="advanced-options" class="advanced-options ${advancedOpen ? "" : "hidden"}" ${advancedOpen ? "" : "disabled"}>
         <label>Indicaciones para el conductor<textarea name="service_notes" maxlength="500" placeholder="Ejemplo: requiero espacio para mesas y equipo">${e(draft?.service_notes || "")}</textarea></label>
@@ -1300,10 +1330,12 @@ function riderHome() {
     });
   });
   $$('[name=category],[name=women_only],[name=accessible]').forEach((control) => control.addEventListener("change", () => {
+    const selected = S.categories.find((item) => item.id === $('[name=category]:checked')?.value);
+    if (selected && $("#service-capacity")) $("#service-capacity").textContent = `Hasta ${selected.seats} persona${Number(selected.seats) === 1 ? "" : "s"}`;
     refreshAvailableUnits();
     scheduleRideDraft();
   }));
-  $$('[name=origin],[name=destination],[name=party_size],[name=service_notes],[name=scheduled_at],[name=recurrence_count]').forEach((control) => control.addEventListener("input", scheduleRideDraft));
+  $$('[name=origin],[name=destination],[name=service_notes],[name=scheduled_at],[name=recurrence_count]').forEach((control) => control.addEventListener("input", scheduleRideDraft));
   ["origin", "destination"].forEach((kind) =>
     $(`[name=${kind}]`).addEventListener("change", (event) => {
       const place = (kind === "destination" ? destinationChoices : places).find((item) => item.name === event.target.value);
@@ -1351,7 +1383,7 @@ function riderHome() {
     if (!S.roadRoute) await loadRoadRoute();
     S.quote = await rpc("quote", {
       ...values,
-      party_size: Number(values.party_size),
+      party_size: Number(S.categories.find((item) => item.id === values.category)?.seats || 1),
       origin_lat: S.origin.lat,
       origin_lng: S.origin.lng,
       dest_lat: S.destination.lat,
@@ -1555,6 +1587,27 @@ function driverSafetyMarkup() {
   const reports = (S.data.complaints || []).slice(0, 3);
   return `<section class="panel section-gap driver-safety"><div><div class="eyebrow">AYUDA Y SEGURIDAD</div><h2>Asistencia desde Conducir</h2><p>Registra un incidente para seguimiento de Operaciones. Si existe peligro inmediato, llama directamente a emergencias.</p></div><div class="driver-safety-buttons">${button("Crear reporte", "complaint", "secondary", "message-square-warning")}<a class="btn danger" href="tel:911">${I("phone-call")} Emergencias 911</a></div>${reports.length ? `<details><summary>Mis reportes recientes</summary>${reports.map((report) => `<article class="audit-item"><div class="row between"><strong>${e(report.subject)}</strong><span class="badge ${report.status === "resolved" ? "" : "pending"}">${e({ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[report.status] || report.status)}</span></div><small>${date(report.created_at)} · ${e(report.id.slice(0, 8))}</small>${report.response ? `<p class="hint">Respuesta: ${e(report.response)}</p>` : ""}</article>`).join("")}</details>` : ""}</section>`;
 }
+function shiftMinutes(value) {
+  const [hours, minutes] = String(value || "00:00").split(":").map(Number);
+  return hours * 60 + minutes;
+}
+function chihuahuaMinutesNow() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chihuahua", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .formatToParts(new Date());
+  return Number(parts.find((part) => part.type === "hour")?.value || 0) * 60
+    + Number(parts.find((part) => part.type === "minute")?.value || 0);
+}
+function shiftIsCurrent(shift) {
+  if (!shift?.active) return false;
+  const now = chihuahuaMinutesNow();
+  const start = shiftMinutes(shift.start_time);
+  const end = shiftMinutes(shift.end_time);
+  return start < end ? now >= start && now < end : now >= start || now < end;
+}
+function shiftTimeLabel(shift) {
+  const display = (value) => new Date(`2000-01-01T${String(value).slice(0, 5)}:00`).toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" });
+  return `${display(shift.start_time)} a ${display(shift.end_time)}`;
+}
 async function driverHome() {
   const activeTrip = S.data.trips.find((trip) => trip.driver_id === S.user.id && active(trip) && trip.status !== "scheduled");
   if (activeTrip) {
@@ -1586,7 +1639,14 @@ async function driverHome() {
   const soundButton = driver.online
     ? button(S.offerAudioArmed ? "Probar alerta" : "Activar sonido", "offer-sound", "secondary", "volume-2")
     : "";
-  const availabilityActions = `<div class="driver-actions">${button(driver.online ? "Desconectarme" : "Conectarme", "availability", driver.online ? "secondary" : "", "power")}${driver.online ? button("Actualizar ubicación", "presence", "secondary", "locate-fixed") : ""}${soundButton}${notificationButton}</div>`;
+  const shifts = (S.data.service_shifts || []).filter((shift) => shift.active);
+  const currentShift = shifts.find(shiftIsCurrent);
+  const selectedShift = driver.service_shift_code || currentShift?.code || shifts[0]?.code || "";
+  const selectedShiftData = shifts.find((shift) => shift.code === selectedShift);
+  const shiftControl = driver.online
+    ? `<div class="driver-shift active">${I("clock-3")}<span><small>TURNO ACTIVO</small><strong>${e(selectedShiftData?.name || "Turno de servicio")}</strong><small>${selectedShiftData ? e(shiftTimeLabel(selectedShiftData)) : "Horario administrado por Operaciones"}</small></span></div>`
+    : `<label class="driver-shift">${I("clock-3")}<span><small>ELIGE TU TURNO</small><select id="service-shift" required>${shifts.map((shift) => `<option value="${e(shift.code)}" ${shift.code === selectedShift ? "selected" : ""}>${e(shift.name)} · ${e(shiftTimeLabel(shift))}${shiftIsCurrent(shift) ? " · vigente" : ""}</option>`).join("")}</select></span></label>`;
+  const availabilityActions = `<div class="driver-actions">${shiftControl}${button(driver.online ? "Desconectarme" : "Conectarme en este turno", "availability", driver.online ? "secondary" : "", "power")}${driver.online ? button("Actualizar ubicación", "presence", "secondary", "locate-fixed") : ""}${soundButton}${notificationButton}</div>`;
   const offerCards = offers.length
     ? offers
         .map(
@@ -1596,13 +1656,14 @@ async function driverHome() {
         .join("")
     : `<div class="empty">${I("navigation")}<h3>${driver.online ? "Esperando una solicitud compatible" : "Estás desconectado"}</h3><p>${driver.online ? "Tu presencia se renueva automáticamente. Cuando una solicitud llegue, verás sus datos aquí y recibirás un aviso si autorizaste las notificaciones." : "Conéctate para que el sistema pueda enviarte una solicitud por cercanía y disponibilidad."}</p></div>`;
   shell(
-    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Tú eliges cuándo comenzar"}</h2><p>${driver.online ? "Yavoi! actualiza tu presencia y ubicación mientras esta página permanece abierta." : "Conéctate cuando estés listo para recibir solicitudes dirigidas a tu unidad."}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">Tienes 60 segundos para revisar al pasajero, sus necesidades, el recorrido y el pago.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>${driverSafetyMarkup()}`,
+    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Tú eliges cuándo comenzar"}</h2><p>${driver.online ? "Yavoi! actualiza tu presencia y ubicación mientras esta página permanece abierta y tu turno siga vigente." : "Elige el turno vigente y conéctate para recibir solicitudes por cercanía y disponibilidad."}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">Tienes 60 segundos para revisar al pasajero, sus necesidades, el recorrido y el pago. La alerta sonará hasta 7 veces.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>${driverSafetyMarkup()}`,
     "Un buen día para conducir.",
     "Tu tiempo, tus viajes y tus ganancias en un mismo lugar.",
   );
   $$('[data-accept-offer]').forEach((item) => {
     item.onclick = () =>
       run(async () => {
+        stopOfferRinging(item.dataset.acceptOffer);
         const trip = await rpc("accept", { offer_id: item.dataset.acceptOffer });
         if (trip.error) throw Error(trip.error);
         location.hash = "trip/" + trip.id;
@@ -1611,6 +1672,7 @@ async function driverHome() {
   $$('[data-reject-offer]').forEach((item) => {
     item.onclick = () =>
       run(async () => {
+        stopOfferRinging(item.dataset.rejectOffer);
         await rpc("reject_offer", {
           offer_id: item.dataset.rejectOffer,
           reason: "El conductor revisó la solicitud y decidió no tomarla",
@@ -2398,7 +2460,7 @@ async function upload(file, bucket) {
       ? ["application/pdf", "image/jpeg", "image/png"]
       : ["image/jpeg", "image/png", "image/webp"];
   if (!types.includes(file.type)) throw Error("Elige un archivo del formato permitido.");
-  const maxMb = bucket === "yavoi-documents" || bucket === "yavoi-payment-proofs" ? 5 : bucket === "yavoi-marketing" ? 4 : 2;
+  const maxMb = bucket === "yavoi-documents" || bucket === "yavoi-payment-proofs" ? 5 : 4;
   if (file.size > maxMb * 1024 * 1024)
     throw Error("El archivo excede el tamaño permitido.");
   const ext = {
@@ -2438,7 +2500,8 @@ function passengerPolicyMarkup(profile) {
   const termsAccepted =
     profile.terms_accepted_at && profile.terms_version === TERMS_VERSION;
   const complete = safetyAccepted && privacyAccepted && termsAccepted;
-  return `<section class="passenger-policy"><div class="row between"><div><div class="eyebrow">ACUERDOS DE LA CUENTA</div><h3>Seguridad, privacidad y términos</h3></div><span class="badge ${complete ? "" : "pending"}">${complete ? "Aceptados" : "Pendientes"}</span></div><details ${safetyAccepted ? "" : "open"}><summary>Políticas de seguridad para viajar</summary><div class="policy-copy"><p>Al viajar, cada pasajero debe:</p><ul><li>Usar cinturón de seguridad durante todo el trayecto y asegurar correctamente a menores de edad.</li><li>Mantener limpia la unidad y responder por daños causados de forma intencional o negligente.</li><li>No fumar ni vapear, y no consumir alcohol, drogas, estupefacientes u otras sustancias dentro del vehículo.</li><li>No portar armas, materiales peligrosos ni objetos que pongan en riesgo a otras personas.</li><li>Tratar con respeto al conductor y a los acompañantes; no se permite acoso, discriminación, amenazas ni violencia.</li><li>Respetar la capacidad de la categoría, informar equipaje o carga especial y seguir las indicaciones de seguridad.</li><li>No distraer al conductor, interferir con la conducción ni pedir maniobras contrarias a la ley.</li><li>Estar listo en el punto acordado y verificar la placa, unidad y conductor antes de abordar.</li><li>Cancelar tan pronto como sea posible. No hay cargo antes de una asignación ni durante los primeros 2 minutos después de que un conductor acepta. Después se aplica una cuota de $25; si la unidad ya llegó, la cuota es de $35. El importe siempre se muestra antes de confirmar.</li><li>Una cancelación del conductor u Operaciones no genera cuota al pasajero. En pagos electrónicos se devuelve el saldo después de descontar la cuota aplicable; en efectivo la cuota queda registrada hasta su conciliación.</li></ul><p>El conductor puede reportar incumplimientos. Ante una conducta grave o un riesgo inmediato, puede detenerse en un lugar seguro, cancelar el servicio y solicitar el descenso. Yavoi! puede revisar cancelaciones reiteradas, investigar el caso, restringir la cuenta y compartir información con autoridades cuando exista obligación legal. En una emergencia llama al 911.</p></div></details><label class="check policy-accept"><input name="accept_passenger_policy" type="checkbox" ${safetyAccepted ? "checked" : ""} required>He leído y acepto las Políticas de Seguridad y Cancelación, versión ${PASSENGER_POLICY_VERSION}.</label><details ${privacyAccepted ? "" : "open"}><summary>Política de Privacidad y tratamiento de datos</summary><div class="policy-copy"><p>Yavoi! trata los datos necesarios para crear y proteger tu cuenta, cotizar y prestar viajes, procesar pagos, brindar soporte, prevenir fraude y cumplir obligaciones legales.</p><ul><li>Podemos tratar nombre, teléfono, correo, fotografía, contacto de emergencia, ubicaciones, rutas, mensajes del viaje, pagos tokenizados, valoraciones, reportes y datos técnicos de seguridad.</li><li>Durante un servicio compartimos con el conductor sólo la información necesaria para identificarte, recogerte, atender tus indicaciones y completar el viaje.</li><li>La ubicación se utiliza para cotización, asignación, seguimiento y seguridad. Los datos de tarjeta son procesados por el proveedor de pagos; Yavoi! no almacena número completo ni CVV.</li><li>El expediente digital de cada viaje se conserva al menos cinco años desde su terminación para aclaraciones, seguridad y obligaciones aplicables. Aplicamos acceso por rol, trazabilidad y archivos privados.</li><li>Puedes solicitar acceso, rectificación, cancelación u oposición y consultar cambios a este aviso mediante admin.yavoi@gmail.com mientras se habilita el canal oficial.</li></ul><p>No vendemos tus datos personales. Una solicitud legal válida, emergencia o investigación de seguridad puede requerir conservar o compartir información con autoridades competentes.</p><p><a class="link" href="/privacidad" target="_blank" rel="noopener">Consultar la Política de Privacidad completa</a></p></div></details><label class="check policy-accept"><input name="accept_privacy_policy" type="checkbox" ${privacyAccepted ? "checked" : ""} required>He leído y acepto la Política de Privacidad, versión ${PRIVACY_POLICY_VERSION}.</label><details ${termsAccepted ? "" : "open"}><summary>Términos de Servicio</summary><div class="policy-copy"><p>Al utilizar Yavoi! confirmas que proporcionarás información verdadera, protegerás tu acceso y usarás la plataforma únicamente para solicitar y recibir servicios permitidos.</p><ul><li>Las tarifas, categoría, forma de pago, propina y condiciones se muestran antes de confirmar. Los estimados pueden actualizarse si cambia la ruta o disponibilidad antes de solicitar.</li><li>Debes verificar conductor, fotografía, vehículo y placas antes de abordar, comunicar necesidades especiales y respetar las reglas de seguridad.</li><li>Antes de cancelar se presenta la cuota y el reembolso calculados por el servidor. Las cancelaciones previas a la asignación y las realizadas dentro de la gracia de 2 minutos son gratuitas; después cuestan $25 y, cuando la unidad ya llegó, $35.</li><li>Los viajes, cancelaciones, responsables, motivos, mensajes, pagos, ubicaciones, rutas, valoraciones y reportes quedan ligados a la cuenta y se conservan al menos cinco años desde la terminación de cada servicio.</li><li>Yavoi! puede limitar temporalmente una cuenta por datos falsos, fraude, riesgo, cancelaciones abusivas, incumplimientos reiterados o investigación de incidentes.</li><li>Las promociones y recompensas tienen vigencia, disponibilidad y condiciones propias visibles en la aplicación.</li></ul><p>El uso continuado requiere aceptar la versión vigente. Puedes dejar de utilizar el servicio y solicitar atención sobre tu cuenta mediante admin.yavoi@gmail.com.</p><p><a class="link" href="/terminos" target="_blank" rel="noopener">Consultar las Condiciones del Servicio completas</a></p></div></details><label class="check policy-accept"><input name="accept_terms" type="checkbox" ${termsAccepted ? "checked" : ""} required>He leído y acepto los Términos de Servicio, versión ${TERMS_VERSION}.</label></section>`;
+  return `<details class="passenger-policy compact-agreements" ${complete ? "" : "open"}><summary><span>${I("shield-check")}<strong>Acuerdos de seguridad y privacidad</strong></span><span class="badge ${complete ? "" : "pending"}">${complete ? "Aceptados" : "Revisar y aceptar"}</span></summary><div class="policy-compact-body"><p>Para usar Yavoi! debes viajar con respeto, usar cinturón, cuidar la unidad y no fumar, consumir alcohol, drogas ni portar objetos peligrosos. Las cancelaciones posteriores al periodo gratuito pueden generar la cuota que se muestra antes de confirmar.</p><details><summary>Ver reglas de seguridad y cancelación</summary><div class="policy-copy"><ul><li>Verifica conductor, fotografía, unidad y placas antes de abordar.</li><li>Respeta la capacidad del servicio y comunica equipaje o necesidades especiales.</li><li>El conductor puede detener el viaje en un sitio seguro ante violencia, acoso, sustancias, daños o un riesgo inmediato.</li><li>Yavoi! registra viajes, ubicación, mensajes, pagos, reportes y valoraciones para operar, proteger a las personas y atender obligaciones legales.</li></ul></div></details><div class="policy-links"><a class="link" href="/privacidad" target="_blank" rel="noopener">Política de Privacidad</a><a class="link" href="/terminos" target="_blank" rel="noopener">Términos de Servicio</a></div><label class="check policy-accept"><input name="accept_all_policies" type="checkbox" ${complete ? "checked" : ""} required><span><strong>Acepto en un solo paso</strong><small>Políticas de seguridad y cancelación ${PASSENGER_POLICY_VERSION}, privacidad ${PRIVACY_POLICY_VERSION} y términos ${TERMS_VERSION}.</small></span></label></div></details>`;
+
 }
 function documentField(name, title, path, note = "") {
   return `<label class="document-upload"><span>${e(title)}</span><input name="${name}" type="file" accept="application/pdf,image/jpeg,image/png"><small>${path ? "Documento recibido. Puedes reemplazarlo." : "Pendiente de cargar"}${note ? ` · ${e(note)}` : ""}</small></label>`;
@@ -2491,7 +2554,7 @@ function profile() {
   const editState = profileEditState(p);
   const formDisabled = editState.editable ? "" : "disabled";
   const lockNotice = profileLockNotice(editState);
-  const personalForm = `<form id="profile-form"><fieldset ${formDisabled}><div class="grid2"><label>Nombre completo<input name="name" autocomplete="name" required minlength="2" maxlength="100" value="${e(p.full_name)}"></label><label>Teléfono de contacto<input name="phone" type="tel" autocomplete="tel" required minlength="10" maxlength="25" value="${e(p.phone)}"></label><label>Contacto de emergencia<input name="emergency_name" ${passenger ? 'required minlength="2"' : ""} maxlength="100" value="${e(p.emergency_name)}"></label><label>Teléfono de emergencia<input name="emergency_phone" type="tel" ${passenger ? 'required minlength="10"' : ""} maxlength="25" value="${e(p.emergency_phone)}"></label></div><label>Fotografía de perfil · JPG, PNG o WebP, hasta 2 MB<input name="avatar" type="file" accept="image/jpeg,image/png,image/webp" ${passenger && !p.avatar_path ? "required" : ""}></label>${passenger ? passengerPolicyMarkup(p) : ""}<button type="submit" class="btn">Guardar perfil ${I("check")}</button></fieldset></form>`;
+  const personalForm = `<details class="profile-section personal-details" ${passenger && passengerProfileStatus(p).percent < 100 ? "open" : ""}><summary><span>${I("user-round")}<strong>Mis datos generales</strong></span><span class="badge ${p.avatar_path && p.phone ? "" : "pending"}">${p.avatar_path && p.phone ? "Guardados" : "Completar"}</span></summary><div class="profile-section-body"><form id="profile-form"><fieldset ${formDisabled}><div class="grid2"><label>Nombre completo<input name="name" autocomplete="name" required minlength="2" maxlength="100" value="${e(p.full_name)}"></label><label>Teléfono de contacto<input name="phone" type="tel" autocomplete="tel" required minlength="10" maxlength="25" value="${e(p.phone)}"></label></div><div class="profile-photo-picker"><div><strong>Fotografía de perfil</strong><small>JPG, PNG o WebP, máximo 4 MB.</small></div><label class="btn secondary">${I("camera")} Tomar fotografía<input name="avatar_camera" class="visually-hidden" type="file" accept="image/*" capture="user"></label><label class="btn secondary">${I("upload")} Subir archivo<input name="avatar" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp"></label></div>${passenger ? passengerPolicyMarkup(p) : ""}<button type="submit" class="btn">Guardar perfil ${I("check")}</button></fieldset></form></div></details>`;
   const driverDossier = driver
     ? `<details class="profile-section dossier-details" ${dossier.percent < 100 ? "open" : ""}><summary><span>${I("car-front")}<strong>Mi unidad y documentos</strong></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : dossier.percent === 100 ? "100% completo" : `${dossier.percent}% completo`}</span></summary><div class="profile-section-body">${driverProgressMarkup(p, d)}<p class="hint">Al modificar el expediente la autorización anterior se pausa hasta una nueva revisión. Los documentos son privados y sólo el conductor y Operaciones pueden consultarlos.</p>${d.review_note ? `<p class="hint">Revisión: ${e(d.review_note)}</p>` : ""}<form id="vehicle-form"><fieldset ${formDisabled}><h3>Datos de la unidad</h3><div class="grid2"><label>Marca<input name="vehicle_make" required minlength="2" maxlength="50" value="${e(d.vehicle_make)}" placeholder="Nissan"></label><label>Modelo<input name="vehicle_model" required minlength="1" maxlength="50" value="${e(d.vehicle_model)}" placeholder="Versa"></label><label>Año<input name="vehicle_year" type="number" min="${new Date().getFullYear() - 7}" max="${new Date().getFullYear() + 1}" required value="${e(d.vehicle_year || "")}"></label><label>Color<input name="vehicle_color" required minlength="3" maxlength="40" value="${e(d.vehicle_color)}" placeholder="Gris"></label><label>Placas<input name="plate" required minlength="5" maxlength="20" value="${e(d.plate)}"></label><label>Categoría<select name="category">${S.categories.map((c) => `<option value="${c.id}" ${d.category === c.id ? "selected" : ""}>${e(c.name)}</option>`).join("")}</select></label><label>Fecha de nacimiento<input name="birth_date" type="date" required value="${e(d.birth_date || "")}"></label><label>Número de licencia<input name="license_number" required maxlength="50" value="${e(d.license_number)}"></label><label>Vencimiento de licencia<input name="license_expires" type="date" required value="${e(d.license_expires)}"></label><label>Vencimiento de seguro<input name="insurance_expires" type="date" required value="${e(d.insurance_expires)}"></label><label>Número de tarjetón<input name="transport_card_number" required maxlength="50" value="${e(d.transport_card_number || "")}"></label><label>Vencimiento de tarjetón<input name="transport_card_expires" type="date" required value="${e(d.transport_card_expires || "")}"></label><label>NIV / VIN<input name="vin" required minlength="17" maxlength="17" value="${e(d.vin || "")}" placeholder="17 caracteres"></label><label>Número de holograma<input name="hologram_number" required maxlength="50" value="${e(d.hologram_number || "")}"></label><label>Vencimiento de holograma<input name="hologram_expires" type="date" required value="${e(d.hologram_expires || "")}"></label><label>Vencimiento de tarjeta de circulación<input name="vehicle_registration_expires" type="date" required value="${e(d.vehicle_registration_expires || "")}"></label><label>Vencimiento de revisión mecánica<input name="mechanical_inspection_expires" type="date" required value="${e(d.mechanical_inspection_expires || "")}"></label><label>Vencimiento de constancia fiscal<input name="tax_compliance_expires" type="date" required value="${e(d.tax_compliance_expires || "")}"></label><label>Porcentaje de entintado<input name="tint_percent" type="number" min="0" max="20" required value="${e(d.tint_percent ?? "")}"></label><label>Vencimiento de verificación vehicular<input name="vehicle_verification_expires" type="date" value="${e(d.vehicle_verification_expires || "")}" ${d.vehicle_verification_not_applicable ? "disabled" : "required"}></label></div><label class="check"><input type="checkbox" name="vehicle_verification_not_applicable" ${d.vehicle_verification_not_applicable ? "checked" : ""}>La verificación ambiental no es aplicable y Operaciones deberá validarlo</label><h3 class="section-gap">Equipo y características de seguridad</h3><div class="driver-safety-checks"><label class="check"><input type="checkbox" name="seatbelts_all" ${d.seatbelts_all ? "checked" : ""}>Cinturones para todas las plazas</label><label class="check"><input type="checkbox" name="front_airbags" ${d.front_airbags ? "checked" : ""}>Bolsas de aire frontales</label><label class="check"><input type="checkbox" name="abs_brakes" ${d.abs_brakes ? "checked" : ""}>Frenos ABS</label><label class="check"><input type="checkbox" name="first_service_tools" ${d.first_service_tools ? "checked" : ""}>Herramientas de primer servicio</label><label class="check"><input type="checkbox" name="extinguisher_abc" ${d.extinguisher_abc ? "checked" : ""}>Extinguidor ABC</label><label class="check"><input type="checkbox" name="four_doors" ${d.four_doors ? "checked" : ""}>Unidad de al menos cuatro puertas</label><label class="check"><input type="checkbox" name="air_conditioning" ${d.air_conditioning ? "checked" : ""}>Aire acondicionado</label><label class="check"><input type="checkbox" name="reflective_markings" ${d.reflective_markings ? "checked" : ""}>Señalamientos reflejantes</label></div><h3 class="section-gap">Documentos privados</h3><div class="driver-documents">${vehiclePhotoField(d.vehicle_front_path)}${documentField("government_id_file", "Identificación oficial del propietario", d.government_id_path)}${documentField("license_file", "Licencia de conducir", d.license_path)}${documentField("transport_card_file", "Tarjetón anual de transporte", d.transport_card_path)}${documentField("insurance_file", "Póliza particular y recibo", d.insurance_path)}${documentField("vehicle_registration_file", "Tarjeta de circulación", d.vehicle_registration_path)}${documentField("vehicle_verification_file", "Verificación vehicular", d.vehicle_verification_path, d.vehicle_verification_not_applicable ? "marcada como no aplicable" : "")}${documentField("mechanical_inspection_file", "Revisión mecánica y de seguridad", d.mechanical_inspection_path)}${documentField("tax_compliance_file", "Constancia de cumplimiento fiscal", d.tax_compliance_path)}${documentField("criminal_record_file", "Carta de no antecedentes penales (voluntaria)", d.criminal_record_path, "no condiciona la autorización; el requisito legal fue invalidado por la SCJN")}${documentField("policy_commitment_file", "Carta de compromiso y políticas Yavoi! firmada", d.policy_commitment_path)}${documentField("traffic_law_commitment_file", "Carta de aceptación de obligaciones viales firmada", d.traffic_law_commitment_path)}</div><div class="document-templates"><div>${I("file-down")}<span><strong>Plantillas para firma</strong><small>Descarga, completa, firma y carga el documento entero.</small></span></div><a class="btn secondary" href="/documents/carta-compromiso-politicas-yavoi.pdf" download>Políticas Yavoi! ${I("download")}</a><a class="btn secondary" href="/documents/carta-aceptacion-vialidad-chihuahua.pdf" download>Obligaciones viales ${I("download")}</a><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Consultar ley oficial ${I("external-link")}</a></div><label class="check"><input type="checkbox" name="advertising_interest" ${d.advertising_interest ? "checked" : ""}>Me interesa participar en convenios de publicidad</label><button type="submit" class="btn">Guardar y enviar expediente ${I("shield-check")}</button></fieldset></form></div></details>`
     : "";
@@ -2503,18 +2566,18 @@ function profile() {
   if (driver) applyLegacyDriverFormCompatibility($("#vehicle-form"));
   if (editState.editable) {
     bindForm("#profile-form", async (v, f) => {
-      const path = await upload(f.elements.avatar.files[0], "yavoi-avatars");
+      const path = await upload(f.elements.avatar_camera.files[0] || f.elements.avatar.files[0], "yavoi-avatars");
       await rpc("profile", {
         name: v.name,
         phone: v.phone,
-        emergency_name: v.emergency_name,
-        emergency_phone: v.emergency_phone,
+        emergency_name: p.emergency_name || "",
+        emergency_phone: p.emergency_phone || "",
         ...(path ? { avatar_path: path } : {}),
-        accept_passenger_policy: v.accept_passenger_policy === "on",
+        accept_passenger_policy: v.accept_all_policies === "on",
         passenger_policy_version: PASSENGER_POLICY_VERSION,
-        accept_privacy_policy: v.accept_privacy_policy === "on",
+        accept_privacy_policy: v.accept_all_policies === "on",
         privacy_policy_version: PRIVACY_POLICY_VERSION,
-        accept_terms: v.accept_terms === "on",
+        accept_terms: v.accept_all_policies === "on",
         terms_version: TERMS_VERSION,
       });
       await loadSession();
@@ -2584,15 +2647,13 @@ function profile() {
         ...p,
         full_name: values.name,
         phone: values.phone,
-        emergency_name: values.emergency_name,
-        emergency_phone: values.emergency_phone,
-        avatar_path: form.elements.avatar.files?.[0] ? "selected" : p.avatar_path,
-        passenger_policy_accepted_at: values.accept_passenger_policy === "on" ? new Date().toISOString() : null,
-        passenger_policy_version: values.accept_passenger_policy === "on" ? PASSENGER_POLICY_VERSION : null,
-        privacy_policy_accepted_at: values.accept_privacy_policy === "on" ? new Date().toISOString() : null,
-        privacy_policy_version: values.accept_privacy_policy === "on" ? PRIVACY_POLICY_VERSION : null,
-        terms_accepted_at: values.accept_terms === "on" ? new Date().toISOString() : null,
-        terms_version: values.accept_terms === "on" ? TERMS_VERSION : null,
+        avatar_path: form.elements.avatar.files?.[0] || form.elements.avatar_camera.files?.[0] ? "selected" : p.avatar_path,
+        passenger_policy_accepted_at: values.accept_all_policies === "on" ? new Date().toISOString() : null,
+        passenger_policy_version: values.accept_all_policies === "on" ? PASSENGER_POLICY_VERSION : null,
+        privacy_policy_accepted_at: values.accept_all_policies === "on" ? new Date().toISOString() : null,
+        privacy_policy_version: values.accept_all_policies === "on" ? PRIVACY_POLICY_VERSION : null,
+        terms_accepted_at: values.accept_all_policies === "on" ? new Date().toISOString() : null,
+        terms_version: values.accept_all_policies === "on" ? TERMS_VERSION : null,
       };
       const status = passengerProfileStatus(snapshot);
       $("#passenger-progress").value = status.percent;
@@ -3225,11 +3286,14 @@ function rates() {
     Number(category.minimum_cents || 0),
     Number(category.base_cents || 0) + Number(category.km_cents || 0) * 5 + Number(category.minute_cents || 0) * 12,
   );
+  const shiftEditor = `<section class="panel section-gap shift-editor"><div class="row between wrap"><div><div class="eyebrow">DISPONIBILIDAD DE CONDUCTORES</div><h2>Turnos de servicio</h2><p>Los conductores sólo pueden conectarse dentro del turno elegido. El turno de Noche cruza la medianoche.</p></div><span class="badge neutral">Hora de Chihuahua</span></div><div class="shift-grid">${(S.data.service_shifts || []).map((shift) => `<form data-service-shift="${e(shift.code)}"><div><strong>${e(shift.name)}</strong><small>${e(shiftTimeLabel(shift))}</small></div><label>Nombre<input name="name" required maxlength="40" value="${e(shift.name)}"></label><label>Inicio<input name="start_time" type="time" required value="${e(String(shift.start_time).slice(0, 5))}"></label><label>Fin<input name="end_time" type="time" required value="${e(String(shift.end_time).slice(0, 5))}"></label><label class="check"><input name="active" type="checkbox" ${shift.active ? "checked" : ""}>Disponible</label><button class="btn secondary" type="submit">Guardar turno ${I("save")}</button></form>`).join("")}</div></section>`;
   shell(
     `<div class="notice-strip">Los cambios se aplican únicamente a nuevas cotizaciones. No se cobra reservación y la recogida lejana sólo se añade cuando el pasajero elige una unidad situada a más de 7 km.</div><details class="panel rate-guide" open><summary><span>${I("circle-help")}<strong>Cómo se calcula y cómo gana Yavoi!</strong></span>${I("chevron-down")}</summary><div class="rate-guide-body"><p><strong>Precio del viaje:</strong> inicio + kilómetros estimados + minutos estimados. Si el resultado es menor, se cobra la tarifa mínima; zona, accesibilidad y recogida lejana se muestran aparte.</p><p><strong>Ingresos de Yavoi!:</strong> se calculan con el esquema del conductor cuando acepta el viaje. En aportación semanal, el efectivo es 100% del conductor y la comisión electrónica se retiene. En comisión por viaje, la comisión del efectivo se reporta para transferencia semanal y la electrónica se retiene al cobrar.</p><p>Configura el esquema de cada conductor desde <strong>Conductores y flotilla</strong>. Cada viaje conserva las condiciones aplicadas al momento de aceptarse.</p></div></details><div class="rate-list">${S.categories.map((c, index) => `<details class="panel rate-card" ${index === 0 ? "open" : ""}><summary><span><strong>Yavoi! ${e(c.name)}</strong><small>Base ${money(c.base_cents)} · ${money(c.km_cents)}/km · mínimo ${money(c.minimum_cents)}</small></span><span class="badge ${c.active ? "" : "cancelled"}">${c.active ? "Disponible" : "Pausada"}</span>${I("chevron-down")}</summary><form data-category="${c.id}" class="rate-form"><input name="commission" type="hidden" value="${c.commission_bps / 100}"><div class="rate-field-grid"><label>Inicio del servicio<input name="base" type="number" min="0" max="1000" step="0.01" required value="${c.base_cents / 100}"><small class="field-note">Importe fijo con el que comienza la cotización.</small></label><label>Precio por kilómetro<input name="km" type="number" min="0" max="100" step="0.01" required value="${c.km_cents / 100}"><small class="field-note">Se multiplica por la distancia estimada de la ruta.</small></label><label>Precio por minuto<input name="minute" type="number" min="0" max="100" step="0.01" required value="${c.minute_cents / 100}"><small class="field-note">Compensa el tiempo estimado de circulación.</small></label><label>Tarifa mínima<input name="minimum" type="number" min="0" max="1000" step="0.01" required value="${c.minimum_cents / 100}"><small class="field-note">Total mínimo antes de recargos o recompensas.</small></label></div><div class="rate-preview"><span><small>EJEMPLO URBANO</small><strong data-rate-preview>${money(exampleFare(c))}</strong></span><p>Referencia de 5 km y 12 min, antes de zona, accesibilidad, recogida lejana, propina o descuentos.</p></div><label class="check rate-availability"><input name="active" type="checkbox" ${c.active ? "checked" : ""}><span><strong>Categoría disponible</strong><small>Al pausarla deja de aparecer en nuevas solicitudes.</small></span></label><button class="btn" type="submit">Guardar cambios ${I("save")}</button></form></details>`).join("")}</div>`,
     "Tarifas y categorías",
     "Ajusta precios con una referencia inmediata y conserva el control comercial por conductor.",
   );
+  $("#page-content").insertAdjacentHTML("beforeend", shiftEditor);
+  iconsNow();
   $$("[data-category]").forEach((f, i) => {
     f.id = "category-" + i;
     const updatePreview = () => {
@@ -3249,6 +3313,20 @@ function rates() {
       });
       await loadSession();
       notify("Tarifa actualizada para nuevas cotizaciones.");
+    });
+  });
+  $$('[data-service-shift]').forEach((form, index) => {
+    form.id = `service-shift-${index}`;
+    bindForm(`#${form.id}`, async (values) => {
+      await rpc("upsert_service_shift", {
+        code: form.dataset.serviceShift,
+        name: values.name,
+        start_time: values.start_time,
+        end_time: values.end_time,
+        active: values.active === "on",
+      });
+      await loadSession();
+      notify("Turno actualizado para los conductores.");
     });
   });
 }
@@ -3533,10 +3611,18 @@ async function sendDriverPosition(position = S.latestPosition) {
   S.presenceSending = true;
   try {
     const trip = driverActiveTrip();
-    await rpc(trip ? "location" : "presence", {
+    const result = await rpc(trip ? "location" : "presence", {
       ...positionPayload(position),
       ...(trip ? { trip_id: trip.id } : {}),
     });
+    if (result?.shift_ended) {
+      S.driver.online = false;
+      stopDriverTracking();
+      stopAllOfferRinging();
+      notify(result.message || "Tu turno terminó y quedaste fuera de línea.");
+      safeRefresh();
+      return;
+    }
     S.gpsLast = Date.now();
   } finally {
     S.presenceSending = false;
@@ -3619,10 +3705,11 @@ async function handleAction(action, b) {
   if (action === "availability")
     return run(async () => {
       const goingOnline = !S.driver.online;
+      const shiftCode = $("#service-shift")?.value || S.driver.service_shift_code;
       if (goingOnline) await armOfferSound();
       const position = goingOnline ? await browserPosition() : null;
       try {
-        await rpc("availability", { online: goingOnline });
+        await rpc("availability", { online: goingOnline, shift_code: shiftCode });
         S.driver.online = goingOnline;
         if (goingOnline) {
           S.latestPosition = position;
@@ -3636,7 +3723,7 @@ async function handleAction(action, b) {
         );
       } catch (error) {
         if (goingOnline) {
-          await rpc("availability", { online: false }).catch(() => {});
+          await rpc("availability", { online: false, shift_code: shiftCode }).catch(() => {});
           S.driver.online = false;
           stopDriverTracking();
         }

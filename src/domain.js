@@ -106,8 +106,6 @@ export const passengerProfileStatus = (profile = {}) => {
     ["Nombre completo", String(profile.full_name || "").trim().length >= 2],
     ["Teléfono", String(profile.phone || "").trim().length >= 10],
     ["Fotografía", profile.avatar_path],
-    ["Contacto de emergencia", String(profile.emergency_name || "").trim().length >= 2],
-    ["Teléfono de emergencia", String(profile.emergency_phone || "").trim().length >= 10],
     [
       "Políticas de seguridad aceptadas",
       profile.passenger_policy_accepted_at &&

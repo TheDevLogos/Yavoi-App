@@ -19,6 +19,7 @@ const offlineScheduleMigration = await readFile(new URL("../supabase/migrations/
 const feeReactivationMigration = await readFile(new URL("../supabase/migrations/20260914211500_persist_operations_fee_reactivation.sql", import.meta.url), "utf8");
 const commercialReportingMigration = await readFile(new URL("../supabase/migrations/20260914223000_commercial_reporting_and_scheduled_billing.sql", import.meta.url), "utf8");
 const transportComplianceMigration = await readFile(new URL("../supabase/migrations/20260915200412_chihuahua_transport_compliance.sql", import.meta.url), "utf8");
+const dispatchShiftMigration = await readFile(new URL("../supabase/migrations/20260918051732_expand_dispatch_shifts_profiles.sql", import.meta.url), "utf8");
 
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
@@ -70,7 +71,8 @@ test("vehicle markers use service-specific silhouettes and adapt to map zoom", (
 test("passenger unit search expands progressively and protects driver identity until acceptance", () => {
   assert.match(portal, /dentro de \$\{radius\} km/);
   assert.match(portal, /Sólo mostramos el tipo de servicio antes de confirmar/);
-  assert.match(portal, /Yavoi! \$\{e\(serviceName\)\} · \$\{index === 0/);
+  assert.match(portal, /No encontramos Yavoi! \$\{serviceName\} dentro de 3 km/);
+  assert.match(portal, /Yavoi! \$\{e\(unitServiceName\)\} · \$\{index === 0/);
   assert.doesNotMatch(portal, /bindTooltip\(`\$\{index === 0 \? "Recomendada por cercanía"[\s\S]*pickup_km/);
   assert.match(portal, /Los datos personales del conductor se muestran cuando acepte el viaje/);
   assert.match(portal, /refreshAvailableUnits\(\{ fit: false \}\)/);
@@ -319,6 +321,27 @@ test("drivers receive an audible, visible and recoverable offer alert", () => {
   assert.match(portal, /Activar sonido/);
   assert.match(portal, /Probar alerta/);
   assert.match(css, /\.driver-offer-alert/);
+});
+
+test("expanded dispatch, seven alerts, fixed capacity, compact profiles and shifts work together", () => {
+  assert.match(dispatchShiftMigration, /not exact_near as fallback_all/);
+  assert.match(dispatchShiftMigration, /private\.available_units_v4/);
+  assert.match(dispatchShiftMigration, /private\.driver_candidate_eligible_v1/);
+  assert.match(dispatchShiftMigration, /'night','Noche','22:00','05:00'/);
+  assert.match(dispatchShiftMigration, /private\.presence_v4/);
+  assert.match(portal, /if \(repetitions >= 7\)/);
+  assert.match(portal, /newOffers\.forEach\(startOfferRinging\)/);
+  assert.match(portal, /id="service-capacity"/);
+  assert.doesNotMatch(portal, /name="party_size" type="number"/);
+  assert.doesNotMatch(portal, /Teléfono de emergencia<input/);
+  assert.match(portal, /name="avatar_camera"[\s\S]{0,120}capture="user"/);
+  assert.match(portal, /máximo 4 MB/);
+  assert.match(portal, /name="accept_all_policies"/);
+  assert.match(portal, /class="profile-section personal-details"/);
+  assert.match(portal, /id="service-shift"/);
+  assert.match(portal, /data-service-shift/);
+  assert.match(css, /\.compact-agreements/);
+  assert.match(css, /\.shift-grid/);
 });
 
 test("fast booking, recurring schedules, GPS and flexible street names are hardened", () => {

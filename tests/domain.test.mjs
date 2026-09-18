@@ -173,16 +173,14 @@ test("driver dossier progress requires every current document and expiration", (
     missing: [],
   });
 });
-test("passenger profile progress requires safety policy and emergency data", () => {
+test("passenger profile progress requires identity, photo and legal acceptance", () => {
   const partial = passengerProfileStatus({ full_name: "Ana Pérez", phone: "6391234567" });
   assert.equal(partial.completed, 2);
-  assert.equal(partial.percent, 25);
+  assert.equal(partial.percent, 33);
   const complete = passengerProfileStatus({
     full_name: "Ana Pérez",
     phone: "6391234567",
     avatar_path: "avatar.png",
-    emergency_name: "Contacto Seguro",
-    emergency_phone: "6397654321",
     passenger_policy_accepted_at: "2026-09-10T12:00:00Z",
     passenger_policy_version: "2026-09-11-cancelaciones",
     privacy_policy_accepted_at: "2026-09-11T12:00:00Z",

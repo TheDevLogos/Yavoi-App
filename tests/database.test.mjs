@@ -33,6 +33,14 @@ async function rpc(command, payload = {}) {
 async function expectError(fn, pattern) {
   await assert.rejects(fn, pattern);
 }
+function currentShiftCode() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chihuahua", hour: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+  if (hour >= 5 && hour < 10) return "morning";
+  if (hour >= 10 && hour < 13) return "midday";
+  if (hour >= 17 && hour < 22) return "evening";
+  return "night";
+}
 test("Postgres security and complete ride lifecycle", async () => {
   await db.exec(
     `create role anon;create role authenticated;create role service_role;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.jwt() returns jsonb language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb$$;create function auth.uid() returns uuid language sql stable as $$select nullif(auth.jwt()->>'sub','')::uuid$$;grant usage on schema auth to authenticated,anon;grant execute on function auth.uid(),auth.jwt() to authenticated,anon;create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text);alter table storage.objects enable row level security;grant usage on schema storage to authenticated;grant select,insert on storage.objects to authenticated;create function storage.foldername(text) returns text[] language sql immutable as $$select (string_to_array($1,'/'))[1:array_length(string_to_array($1,'/'),1)-1]$$;`,
@@ -162,6 +170,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(adminDashboard.marketing.rewards_enabled, true);
   assert.equal(adminDashboard.marketing.advertising_enabled, true);
   assert.ok(adminDashboard.marketing.reward_catalog.some((reward) => reward.id === "passenger_snack"));
+  assert.deepEqual(adminDashboard.service_shifts.map((shift) => shift.code), ["morning", "midday", "evening", "night"]);
   const campaignImage = `${ids.admin}/hotel-baeza.webp`;
   await db.exec("reset role");
   await db.query("insert into storage.objects(bucket_id,name) values('yavoi-marketing',$1)", [
@@ -357,7 +366,7 @@ test("Postgres security and complete ride lifecycle", async () => {
       note: "Expediente completo y vigencias verificadas.",
     });
   await db.exec("reset role");
-  await db.query("update public.drivers set online=true where id in ($1,$2)", [ids.driver, ids.driver2]);
+  await db.query("update public.drivers set online=true,service_shift_code=$3 where id in ($1,$2)", [ids.driver, ids.driver2, currentShiftCode()]);
   await as(ids.driver);
   await expectError(
     () => rpc("presence", { lat: 27.5, lng: -105.47, accuracy: 10 }),
@@ -379,20 +388,17 @@ test("Postgres security and complete ride lifecycle", async () => {
     service_notes: "Viaje para 4 personas",
   });
   assert.equal((await rpc("dashboard")).ride_draft.party_size, 4);
-  await expectError(
-    () =>
-      rpc("quote", {
-        origin: "Centro",
-        destination: "Tecnológico",
-        origin_lat: 28.19065,
-        origin_lng: -105.47045,
-        dest_lat: 28.18415,
-        dest_lng: -105.4593,
-        category: "basic",
-        party_size: 5,
-      }),
-    /no tiene espacio/,
-  );
+  const normalizedCapacityQuote = await rpc("quote", {
+    origin: "Centro",
+    destination: "Tecnológico",
+    origin_lat: 28.19065,
+    origin_lng: -105.47045,
+    dest_lat: 28.18415,
+    dest_lng: -105.4593,
+    category: "basic",
+    party_size: 5,
+  });
+  assert.equal(normalizedCapacityQuote.party_size, 4);
   const q = await rpc("quote", {
     origin: "Centro",
     destination: "Tecnológico",
@@ -438,8 +444,15 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.ok(Number(units[0].pickup_km) < 1);
   assert.equal(units[0].search_radius_km, 1);
   assert.deepEqual(Object.keys(units[0]).sort(), [
-    "category", "lat", "lng", "pickup_km", "pickup_minutes", "search_radius_km", "unit_id",
+    "category", "fallback_all", "lat", "lng", "pickup_km", "pickup_minutes", "search_radius_km", "unit_id",
   ]);
+  const allCategoryFallbackUnits = await rpc("available_units", {
+    lat: 28.25,
+    lng: -105.475,
+    category: "plus",
+  });
+  assert.equal(allCategoryFallbackUnits.length, 2);
+  assert.ok(allCategoryFallbackUnits.every((unit) => unit.fallback_all === true && unit.search_radius_km === null));
   await db.exec("reset role");
   await db.query("update public.driver_presence set heartbeat_at=now()-interval '2 minutes' where driver_id=$1", [ids.driver2]);
   await as(ids.rider);
@@ -1065,7 +1078,7 @@ test("Postgres security and complete ride lifecycle", async () => {
     [ids.driver2],
   )).rows[0].count, 1);
   await as(ids.driver2);
-  await rpc("availability", { online: true });
+  await rpc("availability", { online: true, shift_code: currentShiftCode() });
   await rpc("availability", { online: false });
   await as(ids.admin, "aal2");
   await rpc("set_driver_billing", {
@@ -1091,7 +1104,7 @@ test("Postgres security and complete ride lifecycle", async () => {
     0,
   );
   await as(ids.driver2);
-  await rpc("availability", { online: true });
+  await rpc("availability", { online: true, shift_code: currentShiftCode() });
   await rpc("presence", { lat: 28.198, lng: -105.478, accuracy: 8, session_id: crypto.randomUUID() });
   await as(ids.rider);
 
