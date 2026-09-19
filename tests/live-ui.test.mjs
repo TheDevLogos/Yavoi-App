@@ -80,6 +80,21 @@ test("passenger origin defaults to fresh GPS and follows it on the planning map"
   assert.doesNotMatch(portal, /if \(draftPoint\(S\.data\?\.ride_draft, "origin"\)\) return position/);
 });
 
+test("passenger planning keeps one road route and uses direct address fields", () => {
+  assert.match(portal, /points\.every\(Boolean\) && S\.roadRoute\?\.coordinates\?\.length > 1/);
+  assert.doesNotMatch(portal, /: points\.map\(\(p\) => \[p\.lat, p\.lng\]\)/);
+  assert.match(portal, /preserveRoute: !focus && Boolean\(S\.roadRoute\)/);
+  assert.match(portal, /if \(!focus && movement < 25\) return/);
+  assert.match(portal, /function recentDestinations\(\)/);
+  assert.match(portal, /\.slice\(0, 10\)/);
+  assert.match(portal, /id="destination-history-toggle"/);
+  assert.match(portal, /data-recent-destination/);
+  assert.match(portal, /enterkeyhint="search"/);
+  assert.doesNotMatch(portal, /data-search-address=/);
+  assert.match(css, /\.address-control>img/);
+  assert.match(css, /\.address-history-menu/);
+});
+
 test("live map refreshes markers without recreating or refocusing the map", () => {
   assert.match(portal, /updateOperationsMapLayers\(\{ fit: false \}\)/);
   assert.match(portal, /updateTripMap\(\)/);

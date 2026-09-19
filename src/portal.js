@@ -788,7 +788,29 @@ function setMapPicker(kind = null) {
   $("#map-origin")?.classList.toggle("active", kind === "origin");
   $("#map-destination")?.classList.toggle("active", kind === "destination");
 }
-async function placeRidePoint(kind, point, { resolveAddress = false, focus = false, source = "manual" } = {}) {
+function recentDestinationKey() {
+  return `yavoi:recent-destinations:${S.user?.id || "guest"}`;
+}
+function recentDestinations() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(recentDestinationKey()) || "[]");
+    return Array.isArray(stored)
+      ? stored.filter((place) => place?.name && Number.isFinite(Number(place.lat)) && Number.isFinite(Number(place.lng))).slice(0, 10)
+      : [];
+  } catch {
+    return [];
+  }
+}
+function rememberDestination(point) {
+  if (!point?.name || !Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return;
+  const normalized = String(point.name).trim().toLocaleLowerCase("es-MX");
+  const next = [
+    { name: String(point.name).trim(), lat: Number(point.lat), lng: Number(point.lng) },
+    ...recentDestinations().filter((place) => String(place.name).trim().toLocaleLowerCase("es-MX") !== normalized),
+  ].slice(0, 10);
+  try { localStorage.setItem(recentDestinationKey(), JSON.stringify(next)); } catch {}
+}
+async function placeRidePoint(kind, point, { resolveAddress = false, focus = false, source = "manual", preserveRoute = false } = {}) {
   if (!kind || !Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return;
   const chosen = {
     name: point.name || `Punto en mapa (${Number(point.lat).toFixed(5)}, ${Number(point.lng).toFixed(5)})`,
@@ -798,9 +820,15 @@ async function placeRidePoint(kind, point, { resolveAddress = false, focus = fal
   S[kind] = chosen;
   if (kind === "origin") S.passengerOriginMode = source === "gps" ? "gps" : "manual";
   const input = $(`[name=${kind}]`);
-  if (input) input.value = chosen.name;
+  if (input) {
+    input.value = chosen.name;
+    delete input.dataset.editingAddress;
+  }
   setMapPicker();
-  S.roadRoute = null;
+  if (!preserveRoute) {
+    S.routeVersion += 1;
+    S.roadRoute = null;
+  }
   drawPoints(null, { fit: false });
   if (focus) S.map?.setView([chosen.lat, chosen.lng], 17);
   if (resolveAddress) {
@@ -814,6 +842,7 @@ async function placeRidePoint(kind, point, { resolveAddress = false, focus = fal
     } catch {}
   }
   await loadRoadRoute();
+  if (kind === "destination") rememberDestination(S.destination);
   if (kind === "origin") await refreshAvailableUnits();
   scheduleRideDraft();
 }
@@ -1101,10 +1130,8 @@ function drawPoints(t = null, { fit = true } = {}) {
       S.markers.push(marker);
     }
   });
-  if (points.every(Boolean)) {
-    const routeCoordinates = S.roadRoute?.coordinates?.length
-      ? S.roadRoute.coordinates.map(([lng, lat]) => [lat, lng])
-      : points.map((p) => [p.lat, p.lng]);
+  if (points.every(Boolean) && S.roadRoute?.coordinates?.length > 1) {
+    const routeCoordinates = S.roadRoute.coordinates.map(([lng, lat]) => [lat, lng]);
     S.tripSuggestedCasing = L.polyline(routeCoordinates, { color: "#fff", weight: t ? 10 : 9, opacity: 0.96, lineCap: "round", lineJoin: "round" }).addTo(S.map);
     S.markers.push(S.tripSuggestedCasing);
     const suggestedLine = L.polyline(routeCoordinates, { color: "#153e63", weight: t ? 6 : 5, opacity: 0.9, lineCap: "round", lineJoin: "round" }).addTo(S.map);
@@ -1290,7 +1317,10 @@ function riderHome() {
     ...place,
     name: `${savedPlaceLabels[place.slot] || "Guardado"}: ${place.address}`,
   }));
-  const destinationChoices = [...savedDestinations, ...places];
+  const recent = recentDestinations();
+  const destinationChoices = [...recent, ...savedDestinations, ...places].filter((place, index, all) =>
+    index === all.findIndex((candidate) => candidate.name.trim().toLocaleLowerCase("es-MX") === place.name.trim().toLocaleLowerCase("es-MX")),
+  );
   const selectedCategory = draft?.category || cats[0]?.id;
   const selectedSeats = Number(cats.find((category) => category.id === selectedCategory)?.seats || 1);
   const scheduled = Boolean(draft?.scheduled_at);
@@ -1302,8 +1332,8 @@ function riderHome() {
   const maxSchedule = localDateTime(new Date(Date.now() + 30 * 86400000));
   shell(
     `<div class="booking"><section class="panel booking-panel"><div class="row between booking-title"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form">
-      <div class="address-field"><label class="input-point">Punto de partida${I("circle-dot")}<input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address" placeholder="Ej. Av. Río Conchos 123"></label><button type="button" data-search-address="origin" aria-label="Buscar punto de partida">${I("search")}<span>Buscar</span></button></div>
-      <div class="address-field"><label class="input-point">Destino${I("map-pin")}<input name="destination" list="destinations" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Ej. Calle 9 1/2, colonia Centro" required maxlength="200" autocomplete="street-address"></label><button type="button" data-search-address="destination" aria-label="Buscar destino">${I("search")}<span>Buscar</span></button></div>
+      <div class="address-field"><label class="input-point"><span class="address-caption">Punto de partida</span><span class="address-control"><img src="/assets/map-origin.svg" alt=""><input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search" placeholder="Escribe una dirección"></span></label></div>
+      <div class="address-field destination-address"><label class="input-point"><span class="address-caption">Destino</span><span class="address-control"><img src="/assets/map-destination.svg" alt=""><input name="destination" list="destinations" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Escribe calle, número o lugar" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search"><button type="button" id="destination-history-toggle" class="address-dropdown" aria-label="Mostrar los últimos destinos" aria-expanded="false">${I("chevron-down")}</button></span></label><div id="destination-history" class="address-history-menu hidden">${recent.length ? `<small>ÚLTIMOS DESTINOS</small>${recent.map((place, index) => `<button type="button" data-recent-destination="${index}">${I("history")}<span>${e(place.name)}</span></button>`).join("")}` : '<p>Aún no hay destinos recientes.</p>'}</div></div>
       <datalist id="destinations">${destinationChoices.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist>
       <div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Elegir origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Elegir destino</button><button type="button" id="save-destination">${I("bookmark-plus")} Guardar destino</button></div>
       <h3 class="service-picker-title">Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt="Vehículo Yavoi! ${e(category.name)}"></div><div class="category-copy"><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div>
@@ -1353,9 +1383,20 @@ function riderHome() {
   $("[name=recurrence]").addEventListener("change", () => { syncAdvancedOptions(); scheduleRideDraft(); });
   syncAdvancedOptions();
   refreshAvailableUnits();
-  $$('[data-search-address]').forEach((search) => search.onclick = () => searchAddress(search.dataset.searchAddress));
   ["origin", "destination"].forEach((kind) => {
-    $(`[name=${kind}]`).addEventListener("keydown", (event) => {
+    const input = $(`[name=${kind}]`);
+    input.addEventListener("focus", () => {
+      if (input.dataset.editingAddress === "true") return;
+      input.dataset.editingAddress = "true";
+      input.value = "";
+      S[kind] = null;
+      S.routeVersion += 1;
+      S.roadRoute = null;
+      drawPoints(null, { fit: false });
+      if (kind === "origin") S.passengerOriginMode = "manual";
+      $("#destination-history")?.classList.add("hidden");
+    });
+    input.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
       searchAddress(kind);
@@ -1372,18 +1413,30 @@ function riderHome() {
     $(`[name=${kind}]`).addEventListener("change", (event) => {
       const place = (kind === "destination" ? destinationChoices : places).find((item) => item.name === event.target.value);
       if (place) {
-        S[kind] = place;
-        S.roadRoute = null;
-        drawPoints();
-        loadRoadRoute();
-        if (kind === "origin") refreshAvailableUnits();
-      } else if (S[kind] && event.target.value !== S[kind].name) {
-        S[kind] = null;
-        notify("Pulsa Buscar para localizar la dirección, o elige el marcador en el mapa.");
-      }
+        placeRidePoint(kind, place, { focus: true });
+      } else if (event.target.value.trim().length >= 3 && (!S[kind] || event.target.value !== S[kind].name))
+        searchAddress(kind);
       scheduleRideDraft();
     }),
   );
+  const historyToggle = $("#destination-history-toggle");
+  const historyMenu = $("#destination-history");
+  historyToggle.onclick = () => {
+    const opening = historyMenu.classList.contains("hidden");
+    historyMenu.classList.toggle("hidden", !opening);
+    historyToggle.setAttribute("aria-expanded", String(opening));
+  };
+  $$('[data-recent-destination]', historyMenu).forEach((item) => item.onclick = () => {
+    historyMenu.classList.add("hidden");
+    historyToggle.setAttribute("aria-expanded", "false");
+    placeRidePoint("destination", recent[Number(item.dataset.recentDestination)], { focus: true });
+  });
+  $(".destination-address").addEventListener("focusout", () => setTimeout(() => {
+    if (!$(".destination-address").contains(document.activeElement)) {
+      historyMenu.classList.add("hidden");
+      historyToggle.setAttribute("aria-expanded", "false");
+    }
+  }, 0));
   $("#map-origin").onclick = () => {
     setMapPicker(S.pick === "origin" ? null : "origin");
   };
@@ -3838,12 +3891,17 @@ async function applyPassengerGpsPosition(position, { focus = false } = {}) {
   const now = Date.now();
   if (!focus && now - S.passengerGpsLastApplied < 8000) return;
   S.latestPosition = position;
+  const nextPoint = { lat: Number(position.coords.latitude), lng: Number(position.coords.longitude) };
+  const movement = S.origin && S.map
+    ? S.map.distance([Number(S.origin.lat), Number(S.origin.lng)], [nextPoint.lat, nextPoint.lng])
+    : Infinity;
+  if (!focus && movement < 25) return;
   S.passengerGpsLastApplied = now;
   await placeRidePoint("origin", {
     name: "Mi ubicación actual",
-    lat: position.coords.latitude,
-    lng: position.coords.longitude,
-  }, { resolveAddress: focus, focus, source: "gps" });
+    lat: nextPoint.lat,
+    lng: nextPoint.lng,
+  }, { resolveAddress: focus, focus, source: "gps", preserveRoute: !focus && Boolean(S.roadRoute) });
 }
 function startPassengerOriginTracking() {
   if (S.profile?.role !== "passenger" || S.view !== "home" || !navigator.geolocation || S.watch !== null) return;
