@@ -40,6 +40,7 @@ import {
   escapeHtml as e,
   money,
   errorMessage,
+  isWeakPasswordError,
 } from "./domain.js";
 const $ = (s, el = document) => el.querySelector(s),
   $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -568,7 +569,20 @@ function authPage(view = "login", message = "") {
           email: v.email.trim(),
           password: v.password,
         });
-        if (error) throw error;
+        if (error) {
+          // Una contraseña que ya no cumple los requisitos vigentes no puede dejar a nadie fuera:
+          // se le ofrece de inmediato el camino para elegir una nueva.
+          if (isWeakPasswordError(error)) {
+            authPage(
+              "forgot",
+              "Tu contraseña ya no cumple los requisitos de seguridad vigentes. Confirma tu correo y te enviaremos el enlace para elegir una nueva.",
+            );
+            const correo = $("#auth-form input[name=email]");
+            if (correo) correo.value = v.email.trim();
+            return;
+          }
+          throw error;
+        }
         await loadSession();
       } finally {
         authLoading = false;

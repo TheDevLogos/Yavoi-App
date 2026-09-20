@@ -232,10 +232,24 @@ export const escapeHtml = (s) =>
   );
 export const money = (c) =>
   new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format((c || 0) / 100);
+// Supabase Auth rechaza contraseñas débiles o filtradas al crearlas o cambiarlas, y también
+// avisa durante el ingreso cuando una contraseña existente ya no cumple los requisitos vigentes.
+export const isWeakPasswordError = (error) => {
+  const code = String(error?.code ?? error?.error_code ?? "").toLowerCase();
+  const reasons = error?.weak_password?.reasons ?? [];
+  const message = String(error?.message || "");
+  return (
+    code.includes("weak") ||
+    reasons.length > 0 ||
+    /weak password|easy to guess|pwned|leaked|compromis/i.test(message)
+  );
+};
 export function errorMessage(error) {
   const m = String(error?.message || error || "");
   if (/Invalid login credentials/i.test(m)) return "Correo o contraseña incorrectos.";
   if (/Email not confirmed/i.test(m)) return "Verifica tu correo antes de ingresar.";
+  if (isWeakPasswordError(error))
+    return "Elige una contraseña más larga (mínimo 12 caracteres) y que no aparezca en filtraciones de datos conocidas.";
   if (/provider.*not enabled|unsupported provider/i.test(m))
     return "Este acceso ya está preparado, pero falta activar las credenciales del proveedor en Yavoi!. Puedes continuar con correo y contraseña.";
   if (/rate limit/i.test(m)) return "Demasiados intentos. Espera unos minutos.";
