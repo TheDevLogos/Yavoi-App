@@ -34,7 +34,7 @@ test("PWA manifest and platform icons are complete", async () => {
 });
 
 test("installed PWA checks for releases and reloads after the new worker takes control", () => {
-  assert.match(serviceWorker, /yavoi-shell-v4/);
+  assert.match(serviceWorker, /yavoi-shell-v5/);
   assert.match(landing, /updateViaCache:'none'/);
   assert.match(portal, /updateViaCache: "none"/);
   assert.match(landing, /controllerchange/);

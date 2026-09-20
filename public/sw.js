@@ -1,4 +1,4 @@
-const CACHE = "yavoi-shell-v4";
+const CACHE = "yavoi-shell-v5";
 const CORE = [
   "/",
   "/portal.html",
@@ -8,6 +8,8 @@ const CORE = [
   "/assets/map-origin.svg",
   "/assets/map-destination.svg",
   "/assets/map-car-top.svg",
+  "/fonts/nunito-latin.woff2",
+  "/fonts/inter-latin.woff2",
   "/icons/yavoi-192.png",
   "/icons/yavoi-512.png",
   "/icons/yavoi-maskable-512.png",
