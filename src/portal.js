@@ -2519,7 +2519,7 @@ function rewardCard(reward, metrics, systemEnabled = true) {
   const [eligible, reason] = rewardEligibility(reward, metrics, systemEnabled);
   const image = rewardImageUrl(reward.image_path);
   const referral = reward.program_type === "referral";
-  return `<article class="reward-card ${eligible ? "eligible" : ""} ${referral ? "referral-reward" : ""}">${image ? `<img class="reward-card-image" src="${e(image)}" alt="${e(reward.partner_name || reward.name)}">` : `<div class="reward-icon">${I(reward.icon || "gift")}</div>`}<div class="reward-card-copy"><div class="row between wrap"><h3>${e(reward.name)}</h3><div class="row wrap">${referral ? '<span class="badge referral">POR INVITACIONES</span>' : ""}<strong>${reward.automatic ? "Meta automática" : `${reward.points_cost} pts`}</strong></div></div><p>${e(reward.description)}</p><small>${e(reason)}${reward.partner_name ? ` · ${e(reward.partner_name)}` : ""}</small></div>${!reward.automatic ? `<button class="btn ${eligible ? "" : "secondary"}" data-redeem="${e(reward.id)}" ${eligible ? "" : "disabled"}>${eligible ? "Canjear" : "Aún no disponible"}</button>` : ""}</article>`;
+  return `<article class="reward-card ${eligible ? "eligible" : ""} ${referral ? "referral-reward" : ""}"><div class="reward-card-art">${image ? `<img class="reward-card-image" src="${e(image)}" alt="${e(reward.partner_name || reward.name)}">` : `<span class="reward-icon">${I(reward.icon || "gift")}</span>`}${referral ? '<span class="badge referral">INVITA Y GANA</span>' : ""}</div><div class="reward-card-copy"><div class="reward-card-cost">${reward.automatic ? "Meta automática" : `${reward.points_cost} puntos`}</div><h3>${e(reward.name)}</h3><p>${e(reward.description)}</p><small>${e(reason)}${reward.partner_name ? ` · ${e(reward.partner_name)}` : ""}</small></div>${!reward.automatic ? `<button class="btn ${eligible ? "" : "secondary"}" data-redeem="${e(reward.id)}" ${eligible ? "" : "disabled"}>${eligible ? "Canjear recompensa" : "Aún no disponible"}</button>` : ""}</article>`;
 }
 function activeRewardCard(item) {
   const tripBenefit = item.delivery_mode === "trip";
@@ -2541,8 +2541,11 @@ function rewards() {
   const available = Number(wallet.available_points || 0);
   const lifetime = Number(wallet.lifetime_points || 0);
   const next = wallet.next_level_points ? Math.max(0, Number(wallet.next_level_points) - lifetime) : 0;
+  const levelStartPoints = (driver
+    ? { Activo: 0, Destacado: 300, Élite: 800, Referente: 1600 }
+    : { Explorador: 0, Viajero: 150, Frecuente: 400, Embajador: 900 })[wallet.level] || 0;
   const levelProgress = wallet.next_level_points
-    ? Math.min(100, Math.round((lifetime / Number(wallet.next_level_points)) * 100))
+    ? Math.min(100, Math.round(((lifetime - levelStartPoints) / (Number(wallet.next_level_points) - levelStartPoints)) * 100))
     : 100;
   const catalog = (wallet.catalog || []).filter((reward) => !reward.automatic);
   const redemptions = wallet.redemptions || [];
@@ -2552,37 +2555,70 @@ function rewards() {
   const freeRides = redemptions.filter((item) => item.kind === "free_local_trip" && item.status === "available");
   const referralCode = !driver ? wallet.referral_code : "";
   const referralPanel = referralCode
-    ? `<section class="panel referral-panel"><div class="referral-panel-copy"><span class="badge referral">INVITA Y GANA</span><h2>Comparte tu código ${e(referralCode)}</h2><p>Recibes 30 puntos cuando tu invitado completa su registro y 70 puntos más al terminar su primer viaje. Los descuentos y viajes gratuitos por invitación se muestran en color morado.</p><div class="referral-stats"><span><strong>${Number(wallet.referral_registered_count || 0)}</strong> registrados</span><span><strong>${Number(wallet.referral_first_trip_count || 0)}</strong> primeros viajes</span><span><strong>${Number(wallet.referral_points || 0)}</strong> puntos ganados</span></div></div><div class="referral-actions"><button class="btn referral-btn" id="share-referral-whatsapp">${I("message-circle")} Invitar por WhatsApp</button><button class="btn secondary" id="share-referral">${I("share-2")} Compartir</button><button class="link" id="copy-referral">Copiar código</button></div></section>${(wallet.referrals || []).length ? `<details class="panel referral-history"><summary>Seguimiento de invitados (${wallet.referrals.length})</summary><div class="reward-redemptions">${wallet.referrals.map((item) => `<article><div><strong>${e(item.invitee_name || "Nuevo viajero")}</strong><small>Registro: ${date(item.registered_at)}</small></div><span class="badge ${item.first_trip_at ? "referral" : "pending"}">${item.first_trip_at ? "Primer viaje completado" : "Primer viaje pendiente"}</span></article>`).join("")}</div></details>` : ""}`
+    ? `<section class="panel referral-panel"><div class="referral-panel-copy"><span class="badge referral">INVITA Y GANA</span><h2>Hasta 100 puntos por invitado</h2><p>Comparte tu código y suma cuando completen registro y primer viaje.</p><div class="referral-code-box"><small>TU CÓDIGO</small><strong>${e(referralCode)}</strong><button class="icon-btn" id="copy-referral" aria-label="Copiar código">${I("copy")}</button></div><div class="referral-stats"><span><strong>${Number(wallet.referral_registered_count || 0)}</strong><small>Registrados</small></span><span><strong>${Number(wallet.referral_first_trip_count || 0)}</strong><small>Primer viaje</small></span><span><strong>${Number(wallet.referral_points || 0)}</strong><small>Puntos ganados</small></span></div></div><div class="referral-actions"><button class="btn referral-btn" id="share-referral-whatsapp">${I("message-circle")} Invitar por WhatsApp</button><button class="btn secondary" id="share-referral">${I("share-2")} Compartir invitación</button></div></section>${(wallet.referrals || []).length ? `<details class="panel referral-history"><summary>Seguimiento de invitados (${wallet.referrals.length})</summary><div class="reward-redemptions">${wallet.referrals.map((item) => `<article><div><strong>${e(item.invitee_name || "Nuevo viajero")}</strong><small>Registro: ${date(item.registered_at)}</small></div><span class="badge ${item.first_trip_at ? "referral" : "pending"}">${item.first_trip_at ? "Primer viaje completado" : "Primer viaje pendiente"}</span></article>`).join("")}</div></details>` : ""}`
     : "";
+  const level = wallet.level || (driver ? "Activo" : "Explorador");
+  const tripCount = Number(wallet.trip_count || 0);
+  const levelSummary = wallet.next_level
+    ? `Siguiente nivel: ${e(wallet.next_level)}`
+    : "¡Llegaste al nivel máximo!";
+  const rewardFaq = `<div class="reward-faq-list">
+    <details open><summary>¿Cómo gano puntos?</summary><p>${driver ? "Cada viaje completado suma puntos base y puedes obtener puntos adicionales por ingresos y calificaciones." : "Cada viaje completado suma 10 puntos y calificarlo agrega 2 puntos."}</p></details>
+    <details><summary>¿Cómo avanzo de nivel?</summary><p>Los puntos acumulados determinan tu nivel. En esta pantalla ves cuánto te falta para el siguiente; tus puntos disponibles también se usan para canjear recompensas.</p></details>
+    <details><summary>¿Cómo canjeo una recompensa?</summary><p>Revisa el costo y los requisitos en cada tarjeta. Al canjear, el ticket o folio aparece en tus recompensas activas.</p></details>
+    ${referralCode ? '<details><summary>¿Cómo funciona Invita y gana?</summary><p>Comparte tu código: recibes 30 puntos cuando la persona completa su registro y 70 más cuando termina su primer viaje.</p></details>' : ""}
+    <details><summary>¿Dónde veo mis tickets y movimientos?</summary><p>Abre tus recompensas activas para consultar tickets y solicitudes. El historial y los movimientos de puntos están al final de esta pantalla.</p></details>
+  </div>`;
   shell(
-    `<div class="rewards reward-hero">${I(driver ? "star" : "gift")}<div><div class="eyebrow">${driver ? "RATING YAVOI!" : "PUNTOS VIAJEROS"}</div><h2>${driver ? `${e(wallet.level || "Activo")} · ${wallet.rating ? `${decimal(wallet.rating)}/5` : "sin rating aún"}` : `${e(wallet.level || "Explorador")} · cada viaje te acerca`}</h2><p>${driver ? "Suma por viajes, ingresos y calificaciones. Un historial limpio habilita mejores beneficios." : "Acumula puntos, canjea amenidades y descuentos, y recibe un viaje local Básico gratis cada 15 viajes."}</p></div><div class="points">${available}<small>PUNTOS DISPONIBLES</small></div></div>${systemEnabled ? "" : `<div class="notice-strip">${I("pause-circle")} Operaciones pausó temporalmente la acumulación y el canje. Tus puntos y recompensas guardadas se conservan.</div>`}${referralPanel}<section class="panel reward-progress"><div class="row between wrap"><div><small>NIVEL ACTUAL</small><h2>${e(wallet.level || (driver ? "Activo" : "Explorador"))}</h2></div><div class="reward-metrics"><span><strong>${wallet.trip_count || 0}</strong> viajes</span>${driver ? `<span><strong>${wallet.rating ? decimal(wallet.rating) : "—"}</strong> rating</span><span><strong>${money(wallet.income_cents || 0)}</strong> generados</span><span><strong>${wallet.recent_incidents || 0}</strong> incidentes recientes</span>` : `<span><strong>${freeRides.length}</strong> viajes gratis guardados</span><span><strong>${wallet.trips_to_free_ride || 15}</strong> para el siguiente gratis</span>`}</div></div><progress max="100" value="${levelProgress}">${levelProgress}%</progress><p>${wallet.next_level ? `Faltan ${next} puntos para llegar a ${e(wallet.next_level)}.` : "Alcanzaste el nivel más alto del programa actual."}</p></section>${activeBenefits.length ? `<section class="panel section-gap"><div class="row between wrap"><div><h2>Tus recompensas activas</h2><p>Elige los beneficios para viaje durante la confirmación. Los demás conservan su ticket y folio individual.</p></div><span class="badge neutral">${activeBenefits.length} activas</span></div><div class="reward-redemptions">${activeBenefits.map(activeRewardCard).join("")}</div></section>` : ""}<section class="section-gap"><div class="row between wrap reward-heading"><div><h2>${driver ? "Beneficios para tu unidad y tu trabajo" : "Elige tu próxima recompensa"}</h2><p>${driver ? "Los requisitos se revisan al canjear: actividad, ingresos, rating e incidentes recientes." : "Tus puntos no vencen. Los cupones de viaje quedan guardados hasta que decidas usarlos."}</p></div><span class="badge neutral">${catalog.filter((reward) => reward.active).length} beneficios activos</span></div><div class="reward-catalog">${catalog.map((reward) => rewardCard(reward, wallet, systemEnabled)).join("") || '<div class="empty"><p>El catálogo está temporalmente pausado.</p></div>'}</div></section>${pastBenefits.length ? `<details class="panel section-gap reward-history"><summary>Historial de recompensas (${pastBenefits.length})</summary><div class="reward-redemptions">${pastBenefits.map(rewardHistoryCard).join("")}</div></details>` : ""}<section class="panel section-gap"><h2>Cómo sumas</h2><div class="grid3 reward-rules">${driver ? `<div>${I("route")}<strong>12 puntos base</strong><p>Por cada viaje completado, más un bono gradual según el ingreso del servicio.</p></div><div>${I("star")}<strong>Hasta 8 puntos extra</strong><p>Las calificaciones de cuatro y cinco estrellas reconocen la calidad del servicio.</p></div><div>${I("shield-check")}<strong>Historial confiable</strong><p>Los mejores beneficios requieren rating alto y no presentar incidentes recientes.</p></div>` : `<div>${I("route")}<strong>10 puntos</strong><p>Por cada viaje completado.</p></div><div>${I("star")}<strong>2 puntos</strong><p>Al evaluar el viaje y ayudar a cuidar la comunidad.</p></div><div>${I("users-round")}<strong>100 puntos por invitado</strong><p>30 al registrarse y 70 cuando complete su primer viaje.</p></div>`}</div></section><details class="panel section-gap reward-history"><summary>Ver movimientos de puntos</summary>${entries.length ? entries.map((entry) => `<div class="receipt-row"><div><strong>${e(entry.description || entry.entry_type)}</strong><small>${date(entry.created_at)}</small></div><strong class="${entry.points < 0 ? "negative-points" : "positive-points"}">${entry.points > 0 ? "+" : ""}${entry.points}</strong></div>`).join("") : '<p class="muted">Tus movimientos aparecerán después del primer viaje o canje.</p>'}</details>`,
+    `<section class="rewards reward-hero">
+      <div class="reward-overview-head">
+        <span class="reward-brand-icon">${I(driver ? "star" : "gift")}</span>
+        <div class="reward-overview-title">
+          <div class="eyebrow">${driver ? "RECONOCIMIENTO YAVOI!" : "PUNTOS VIAJEROS"}</div>
+          <h2>Nivel ${e(level)}</h2>
+          <span class="reward-next-level">${levelSummary}</span>
+        </div>
+        <div class="reward-points-card"><strong>${available}</strong><small>PUNTOS DISPONIBLES</small></div>
+      </div>
+      <div class="reward-level-progress">
+        <div class="reward-progress-label"><span>Progreso de nivel</span><strong>${next ? `Faltan ${next} puntos` : "Nivel máximo"}</strong></div>
+        <progress max="100" value="${levelProgress}" aria-label="Avance al siguiente nivel">${levelProgress}%</progress>
+        <div class="reward-progress-foot"><span>${levelProgress}% de avance</span><span>${lifetime} puntos acumulados</span></div>
+      </div>
+      <div class="reward-overview-stats">
+        <span><strong>${tripCount}</strong><small>Viajes completados</small></span>
+        ${driver
+          ? `<span><strong>${wallet.rating ? `${decimal(wallet.rating)}/5` : "—"}</strong><small>Calificación</small></span><span><strong>${money(wallet.income_cents || 0)}</strong><small>Ingresos generados</small></span>`
+          : `<span><strong>${freeRides.length}</strong><small>Viajes gratis guardados</small></span><span><strong>${wallet.trips_to_free_ride || 15}</strong><small>Viajes al siguiente gratis</small></span>`}
+      </div>
+    </section>
+    ${systemEnabled ? "" : `<div class="notice-strip">${I("pause-circle")} Operaciones pausó temporalmente la acumulación y el canje. Tus puntos y recompensas guardadas se conservan.</div>`}
+    ${referralPanel}
+    ${activeBenefits.length ? `<section class="panel section-gap"><div class="row between wrap reward-section-heading"><div><h2>Tus recompensas activas</h2><p>Tus tickets y beneficios listos para usar.</p></div><span class="badge neutral">${activeBenefits.length} activas</span></div><div class="reward-redemptions">${activeBenefits.map(activeRewardCard).join("")}</div></section>` : ""}
+    <section class="panel section-gap reward-catalog-section">
+      <div class="reward-section-heading">
+        <div><div class="eyebrow">ELIGE TU BENEFICIO</div><h2>${driver ? "Recompensas para tu trabajo" : "Recompensas para ti"}</h2><p>Desliza para descubrir y canjear con tus puntos.</p></div>
+        <div class="reward-catalog-heading-actions"><span class="badge neutral">${catalog.filter((reward) => reward.active).length} disponibles</span><button class="btn secondary reward-faq-button" id="open-reward-faq">${I("circle-help")} Preguntas frecuentes</button></div>
+      </div>
+      <div class="reward-carousel">
+        ${catalog.length > 1 ? `<button type="button" class="reward-carousel-arrow" data-reward-scroll="-1" aria-label="Ver recompensas anteriores">${I("chevron-left")}</button>` : ""}
+        <div class="reward-carousel-track" id="reward-carousel-track" tabindex="0" aria-label="Catálogo de recompensas">${catalog.map((reward) => rewardCard(reward, wallet, systemEnabled)).join("") || '<div class="empty"><p>Por ahora no hay recompensas para mostrar.</p></div>'}</div>
+        ${catalog.length > 1 ? `<button type="button" class="reward-carousel-arrow" data-reward-scroll="1" aria-label="Ver más recompensas">${I("chevron-right")}</button>` : ""}
+      </div>
+    </section>
+    ${pastBenefits.length ? `<details class="panel section-gap reward-history"><summary>Historial de recompensas (${pastBenefits.length})</summary><div class="reward-redemptions">${pastBenefits.map(rewardHistoryCard).join("")}</div></details>` : ""}
+    <details class="panel section-gap reward-history"><summary>Ver movimientos de puntos</summary>${entries.length ? entries.map((entry) => `<div class="receipt-row"><div><strong>${e(entry.description || entry.entry_type)}</strong><small>${date(entry.created_at)}</small></div><strong class="${entry.points < 0 ? "negative-points" : "positive-points"}">${entry.points > 0 ? "+" : ""}${entry.points}</strong></div>`).join("") : '<p class="muted">Tus movimientos aparecerán después del primer viaje o canje.</p>'}</details>`,
     driver ? "Tu buen servicio se recompensa." : "Viaja, suma y disfruta.",
-    driver ? "Beneficios graduales para cuidar tu unidad y reconocer tu desempeño." : "Puntos Viajeros y recompensas que puedes guardar para cuando las necesites.",
+    driver ? "Beneficios para reconocer tu desempeño." : "Tus viajes te acercan a nuevos beneficios.",
   );
-  const compactSection = (section, summaryMarkup, { openOnDesktop = false } = {}) => {
-    if (!section) return;
-    const details = document.createElement("details");
-    details.className = `${section.className} compact-details`;
-    details.open = openOnDesktop && !window.matchMedia("(max-width: 650px)").matches;
-    const summary = document.createElement("summary");
-    summary.innerHTML = summaryMarkup;
-    details.append(summary, ...section.childNodes);
-    section.replaceWith(details);
-  };
-  const catalogHeading = $(".reward-heading");
-  const catalogSection = catalogHeading?.closest("section");
-  if (catalogHeading && catalogSection) {
-    const summaryMarkup = catalogHeading.innerHTML;
-    catalogHeading.remove();
-    compactSection(catalogSection, summaryMarkup, { openOnDesktop: true });
-  }
-  const rules = $(".reward-rules");
-  const rulesSection = rules?.closest("section");
-  if (rules && rulesSection) {
-    $("h2", rulesSection)?.remove();
-    compactSection(rulesSection, `<span>${I("plus-circle")}<strong>Cómo sumas</strong></span>${I("chevron-down")}`);
-  }
   iconsNow();
+  $("#open-reward-faq").onclick = () => openModal("Preguntas frecuentes", rewardFaq);
+  $$("[data-reward-scroll]").forEach((button) => button.onclick = () => {
+    const track = $("#reward-carousel-track");
+    const card = $(".reward-card", track);
+    const direction = Number(button.dataset.rewardScroll) || 1;
+    track?.scrollBy({ left: direction * Math.max(280, (card?.getBoundingClientRect().width || 320) + 16), behavior: "smooth" });
+  });
   if (referralCode) {
     $("#share-referral-whatsapp").onclick = () => shareReferral(referralCode, true);
     $("#share-referral").onclick = () => shareReferral(referralCode);
