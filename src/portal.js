@@ -1401,12 +1401,13 @@ function riderHome({ preserveDestination = false } = {}) {
       <div class="unit-summary"><img class="unit-map-car" src="/assets/map-car-top.svg" alt=""><div><strong id="unit-selection">Asignación automática a la unidad más cercana</strong><small id="unit-status">Consultando unidades disponibles…</small></div></div>
       <button class="btn wide" type="submit">Ver tarifa y método de pago ${I("arrow-right")}</button>
       <small class="booking-privacy-note">Los datos personales del conductor se muestran cuando acepte el viaje.</small>
-    </form></section>${mapFrame("ride-map", undefined, "planning")}</div>`,
+    </form></section>${mapFrame("ride-map", undefined, "planning")}</div>${featureCardsMarkup("passenger")}`,
     `¿A dónde vamos, ${e(S.profile.full_name.split(" ")[0])}?`,
     "Elige tu destino, necesidades y revisa el precio antes de confirmar.",
   );
   startMap();
   startPassengerOriginTracking();
+  bindFeatureCards("passenger");
   const syncAdvancedOptions = () => {
     const advanced = $("#advanced-options-toggle").checked;
     if (!advanced) $("#schedule-enabled").checked = false;
@@ -1771,7 +1772,7 @@ async function driverHome() {
         .join("")
     : `<div class="empty">${I("navigation")}<h3>${driver.online ? "Esperando una solicitud compatible" : "Estás desconectado"}</h3><p>${driver.online ? "Tu presencia se renueva automáticamente. Cuando una solicitud llegue, verás sus datos aquí y recibirás un aviso si autorizaste las notificaciones." : "Conéctate para que el sistema pueda enviarte una solicitud por cercanía y disponibilidad."}</p></div>`;
   shell(
-    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Conéctate en tu turno asignado"}</h2><p>${e(shiftCommitment)}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">La alerta rápida dura 7 segundos. Si necesitas más contexto, las solicitudes vigentes permanecen aquí hasta su vencimiento operativo.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>${driverSafetyMarkup()}`,
+    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Conéctate en tu turno asignado"}</h2><p>${e(shiftCommitment)}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">La alerta rápida dura 7 segundos. Si necesitas más contexto, las solicitudes vigentes permanecen aquí hasta su vencimiento operativo.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>${driverSafetyMarkup()}${featureCardsMarkup("driver")}`,
     "Un buen día para conducir.",
     "Tu tiempo, tus viajes y tus ganancias en un mismo lugar.",
   );
@@ -1797,6 +1798,7 @@ async function driverHome() {
       });
   });
   presentPendingOffer(offers);
+  bindFeatureCards("driver");
 }
 function scheduledTripsMarkup() {
   const scheduled = S.data.scheduling?.upcoming || [];
@@ -2543,6 +2545,50 @@ function rewardArtwork(reward = {}) {
     return "/assets/rewards/ride-benefit.png";
   }
   return "/assets/rewards/passenger-points.png";
+}
+const featureCardFallbacks = [
+  { id: "passenger-reserve-ahead", audience: "passenger", title: "Reserva con tiempo", summary: "Aparta una salida para la fecha y hora que necesitas.", body: "Desde Opciones avanzadas puedes programar un viaje y, si lo necesitas, repetirlo cada día, semana o mes. Yavoi! conserva el detalle de cada salida en Mis viajes.", image_path: "/assets/feature-cards/passenger-reserve-ahead.png", cta_label: "Programar viaje", cta_href: "#home", sort_order: 10 },
+  { id: "passenger-plan-routes", audience: "passenger", title: "Planifica tus salidas", summary: "Elige destino, servicio y preferencias antes de confirmar.", body: "Consulta la tarifa estimada, el tiempo y la ruta sugerida antes de pedir. Puedes agregar indicaciones para tu conductor y seleccionar las opciones que requiere tu salida.", image_path: "/assets/feature-cards/passenger-plan-routes.png", cta_label: "Pedir un viaje", cta_href: "#home", sort_order: 20 },
+  { id: "passenger-saved-places", audience: "passenger", title: "Lugares que usas", summary: "Guarda Casa, Trabajo o Escuela para pedir más rápido.", body: "Después de elegir un destino, guárdalo desde Pedir un viaje. Quedará disponible junto con tus destinos recientes, sin volver a escribir toda la dirección.", image_path: "/assets/feature-cards/passenger-saved-places.png", cta_label: "Ver destinos", cta_href: "#home", sort_order: 30 },
+  { id: "passenger-safety", audience: "passenger", title: "Tu seguridad cuenta", summary: "Revisa los datos del viaje y reporta cualquier situación.", body: "Antes de subir, confirma la información del conductor, unidad y placas. Durante el viaje puedes consultar la ruta y, si ocurre algo, crear un reporte para Operaciones.", image_path: "/assets/feature-cards/passenger-safety.png", cta_label: "Ver seguridad", cta_href: "#safety", sort_order: 40 },
+  { id: "passenger-track-trip", audience: "passenger", title: "Sigue tu viaje", summary: "Consulta el estado y el recorrido de tus servicios.", body: "Mis viajes reúne los folios, destinos, comprobantes y detalle de cada recorrido. Abre un viaje para ver la información disponible y pedir apoyo relacionado.", image_path: "/assets/feature-cards/passenger-track-trip.png", cta_label: "Abrir Mis viajes", cta_href: "#trips", sort_order: 50 },
+  { id: "passenger-rewards", audience: "passenger", title: "Suma y disfruta", summary: "Revisa puntos, recompensas e invitaciones desde tu perfil.", body: "Tus viajes y recomendaciones pueden acercarte a beneficios. Consulta los requisitos, puntos disponibles y los canjes que ya están listos para ti.", image_path: "/assets/feature-cards/passenger-rewards.png", cta_label: "Ver recompensas", cta_href: "#rewards", sort_order: 60 },
+  { id: "passenger-payments", audience: "passenger", title: "Pago claro y seguro", summary: "Revisa la tarifa antes de confirmar y conserva tus comprobantes.", body: "Elige efectivo o tarjeta cuando esté disponible. La pantalla de confirmación separa cada concepto de la tarifa y el resumen queda asociado a tu viaje.", image_path: "/assets/feature-cards/passenger-payments.png", cta_label: "Ver métodos de pago", cta_href: "#wallet", sort_order: 70 },
+  { id: "passenger-help", audience: "passenger", title: "Estamos para ayudarte", summary: "Encuentra respuestas o abre un reporte con el viaje correcto.", body: "El Centro de ayuda organiza temas de cuenta, pagos, seguridad y viajes recientes. Seleccionar un viaje permite que Operaciones revise el contexto adecuado.", image_path: "/assets/feature-cards/passenger-help.png", cta_label: "Abrir ayuda", cta_href: "#help", sort_order: 80 },
+  { id: "driver-go-online", audience: "driver", title: "Conduce a tu ritmo", summary: "Conéctate durante tu turno y controla tu disponibilidad.", body: "Activa tu disponibilidad cuando estés listo para recibir solicitudes compatibles. Puedes desconectarte cuando termines y actualizar tu ubicación mientras estás conectado.", image_path: "/assets/feature-cards/driver-go-online.png", cta_label: "Ir a Conducir", cta_href: "#home", sort_order: 10 },
+  { id: "driver-offers", audience: "driver", title: "Decide cada oferta", summary: "Consulta origen, destino, pago y ganancia antes de aceptar.", body: "Cada solicitud muestra el contexto operativo disponible. Revisa el servicio, las indicaciones, la distancia para recoger y el importe antes de decidir.", image_path: "/assets/feature-cards/driver-offers.png", cta_label: "Ver solicitudes", cta_href: "#home", sort_order: 20 },
+  { id: "driver-earnings", audience: "driver", title: "Tus ganancias, claras", summary: "Consulta ingresos, cuotas y movimientos en un solo lugar.", body: "La billetera reúne los registros de tus viajes y el estado de tus pagos. Los datos se actualizan con el detalle que Operaciones registra para tu cuenta.", image_path: "/assets/feature-cards/driver-earnings.png", cta_label: "Ver billetera", cta_href: "#wallet", sort_order: 30 },
+  { id: "driver-schedule", audience: "driver", title: "Organiza tu jornada", summary: "Conoce el turno y mantén tu disponibilidad al día.", body: "Tu turno asignado se muestra al conectarte. Mantener tu perfil y presencia actualizados ayuda a que las solicitudes lleguen con información correcta.", image_path: "/assets/feature-cards/driver-schedule.png", cta_label: "Ver mi jornada", cta_href: "#home", sort_order: 40 },
+  { id: "driver-safety", audience: "driver", title: "Conduce con respaldo", summary: "Consulta las pautas de seguridad y registra incidentes.", body: "Revisa los datos del viaje antes de aceptarlo y usa el reporte dentro de la aplicación si surge una situación que Operaciones deba atender.", image_path: "/assets/feature-cards/driver-safety.png", cta_label: "Ver seguridad", cta_href: "#safety", sort_order: 50 },
+  { id: "driver-rewards", audience: "driver", title: "Reconocemos tu avance", summary: "Sigue metas, beneficios y recompensas de conductor.", body: "Las recompensas disponibles consideran los requisitos configurados para tu perfil. Consulta tus puntos y las condiciones antes de iniciar un canje.", image_path: "/assets/feature-cards/driver-rewards.png", cta_label: "Ver recompensas", cta_href: "#rewards", sort_order: 60 },
+  { id: "driver-profile", audience: "driver", title: "Expediente siempre al día", summary: "Mantén documentos, unidad y datos de cobro actualizados.", body: "Tu perfil concentra licencia, seguro, vehículo y datos requeridos por Operaciones. Actualizarlos a tiempo evita interrupciones al momento de conectarte.", image_path: "/assets/feature-cards/driver-profile.png", cta_label: "Abrir mi perfil", cta_href: "#profile", sort_order: 70 },
+  { id: "driver-history", audience: "driver", title: "Cada viaje cuenta", summary: "Consulta historial, folios y detalle de servicios completados.", body: "Mis viajes conserva la información operativa de tus traslados. Úsala para revisar un recorrido o localizar el contexto de una aclaración.", image_path: "/assets/feature-cards/driver-history.png", cta_label: "Abrir Mis viajes", cta_href: "#trips", sort_order: 80 },
+];
+function featureCardImageUrl(path) {
+  if (!path) return "";
+  return path.startsWith("/") ? path : db.storage.from("yavoi-marketing").getPublicUrl(path).data.publicUrl || "";
+}
+function featureCardsFor(audience) {
+  const remote = S.data.marketing?.feature_cards || [];
+  const matching = remote.filter((card) => card.audience === audience && card.active !== false);
+  return (matching.length ? matching : featureCardFallbacks.filter((card) => card.audience === audience)).sort((a, b) => Number(a.sort_order) - Number(b.sort_order));
+}
+function featureCardsMarkup(audience) {
+  const cards = featureCardsFor(audience);
+  const heading = audience === "driver" ? "Herramientas para conducir" : "Planea mejor tus salidas";
+  const intro = audience === "driver" ? "Conoce funciones que te acompañan durante tu jornada." : "Conoce las opciones que tienes disponibles en Yavoi!.";
+  return `<section class="feature-cards-section section-gap"><div class="row between feature-cards-heading"><div><div class="eyebrow">NOVEDADES Y HERRAMIENTAS</div><h2>${heading}</h2><p>${intro}</p></div><span class="feature-cards-swipe">Desliza ${I("arrow-right")}</span></div><div class="feature-cards-track">${cards.map((card) => `<button type="button" class="feature-card" data-feature-card="${e(card.id)}"><img src="${e(featureCardImageUrl(card.image_path))}" alt=""><span class="feature-card-copy"><strong>${e(card.title)}</strong><small>${e(card.summary)}</small><em>Conocer más ${I("arrow-up-right")}</em></span></button>`).join("")}</div></section>`;
+}
+function openFeatureCard(card) {
+  const image = featureCardImageUrl(card.image_path);
+  openModal(card.title, `<article class="feature-card-modal">${image ? `<img src="${e(image)}" alt="Ilustración de ${e(card.title)}">` : ""}<div><div class="eyebrow">YAVOI! EN DELICIAS</div><h2>${e(card.title)}</h2><p>${e(card.body || card.summary)}</p><a class="btn wide" href="${e(card.cta_href || "#home")}">${e(card.cta_label || "Abrir opción")} ${I("arrow-right")}</a></div></article>`);
+}
+function bindFeatureCards(audience) {
+  const cards = featureCardsFor(audience);
+  $$('[data-feature-card]').forEach((item) => item.onclick = () => {
+    const card = cards.find((candidate) => candidate.id === item.dataset.featureCard);
+    if (card) openFeatureCard(card);
+  });
 }
 function openRewardCoupon(redemption) {
   const image = rewardArtwork(redemption);
@@ -3370,8 +3416,35 @@ function bindRewardOperationControls(redemptions, root = document) {
     if (redemption) openRewardOperationReview(redemption, item.dataset.result);
   });
 }
+function openFeatureCardEditor(card = null) {
+  const routes = [
+    ["#home", "Inicio"], ["#trips", "Mis viajes"], ["#wallet", "Billetera"], ["#rewards", "Recompensas"], ["#profile", "Mi perfil"], ["#safety", "Seguridad"], ["#help", "Ayuda"],
+  ];
+  openModal(
+    card ? "Editar tarjeta informativa" : "Nueva tarjeta informativa",
+    `<form id="feature-card-form"><div class="grid2"><label>Identificador<input name="id" required pattern="[a-z0-9-]{3,80}" maxlength="80" value="${e(card?.id || "")}" placeholder="ej. passenger-reserve-ahead" ${card ? "readonly" : ""}><small class="field-note">Sólo minúsculas, números y guiones.</small></label><label>Dirigida a<select name="audience"><option value="passenger" ${card?.audience !== "driver" ? "selected" : ""}>Pasajeros</option><option value="driver" ${card?.audience === "driver" ? "selected" : ""}>Conductores</option></select></label></div><label>Título<input name="title" required minlength="3" maxlength="100" value="${e(card?.title || "")}" placeholder="Nombre de la herramienta"></label><label>Resumen corto<input name="summary" required minlength="5" maxlength="180" value="${e(card?.summary || "")}" placeholder="Texto visible en la tarjeta"></label><label>Información completa<textarea name="body" required minlength="10" maxlength="1200" placeholder="Explica cómo funciona y cuándo usarla.">${e(card?.body || "")}</textarea></label><div class="grid2"><label>Imagen · JPG, PNG o WebP, hasta 4 MB<input name="image" type="file" accept="image/jpeg,image/png,image/webp"></label><label>Orden de aparición<input name="sort_order" type="number" min="0" max="10000" value="${e(card?.sort_order ?? 100)}"></label></div>${card?.image_path ? '<p class="hint">La ilustración actual se conserva si no eliges otra.</p>' : ""}<div class="grid2"><label>Texto del botón<input name="cta_label" required maxlength="50" value="${e(card?.cta_label || "")}" placeholder="Abrir opción"></label><label>Al tocar el botón<select name="cta_href">${routes.map(([value, label]) => `<option value="${value}" ${card?.cta_href === value || (!card && value === "#home") ? "selected" : ""}>${label}</option>`).join("")}</select></label></div><label class="check"><input name="active" type="checkbox" ${card?.active === false ? "" : "checked"}>Mostrar esta tarjeta en la aplicación</label><button class="btn wide" type="submit">Guardar tarjeta ${I("check")}</button></form>`,
+  );
+  bindForm("#feature-card-form", async (values, form) => {
+    const uploadedImage = await upload(form.elements.image.files[0], "yavoi-marketing");
+    await rpc("upsert_feature_card", {
+      id: values.id,
+      audience: values.audience,
+      title: values.title,
+      summary: values.summary,
+      body: values.body,
+      image_path: uploadedImage || card?.image_path || null,
+      cta_label: values.cta_label,
+      cta_href: values.cta_href,
+      sort_order: Number(values.sort_order),
+      active: values.active === "on",
+    });
+    closeModal();
+    await refreshPage();
+    notify("Tarjeta guardada y registrada en Auditoría.");
+  });
+}
 function marketingView() {
-  const marketing = S.data.marketing || { rewards_enabled: true, advertising_enabled: true, campaigns: [], reward_catalog: [] };
+  const marketing = S.data.marketing || { rewards_enabled: true, advertising_enabled: true, campaigns: [], reward_catalog: [], feature_cards: [] };
   const campaigns = marketing.campaigns || [];
   const rewardsCatalog = marketing.reward_catalog || [];
   const rewardRedemptions = S.data.reward_operations?.redemptions || [];
@@ -3384,10 +3457,12 @@ function marketingView() {
     return `<article class="campaign-card">${image ? `<img src="${e(image)}" alt="${e(campaign.title)}">` : `<div class="campaign-card-placeholder">${I("image")}</div>`}<div class="campaign-card-copy"><div class="row between wrap"><span class="badge ${kind}">${e(status)}</span><small>${e(audienceLabel[campaign.audience] || campaign.audience)}</small></div><h3>${e(campaign.title)}</h3><strong>${e(campaign.advertiser_name)}</strong><p>${e(campaign.description)}</p><small>${date(campaign.starts_at)} → ${date(campaign.ends_at)}</small></div><div class="campaign-card-actions"><button class="btn secondary" data-edit-campaign="${e(campaign.id)}">Editar ${I("pencil")}</button><button class="btn ${campaign.active ? "danger" : "secondary"}" data-toggle-campaign="${e(campaign.id)}" data-active="${campaign.active ? "false" : "true"}">${campaign.active ? "Desactivar" : "Activar"}</button></div></article>`;
   }).join("");
   const rewardCards = rewardsCatalog.map((reward) => { const image = rewardImageUrl(reward.image_path); const referral = reward.program_type === "referral"; return `<article class="marketing-reward ${referral ? "referral-reward" : ""}" data-reward-audience="${e(reward.audience)}">${image ? `<img class="marketing-reward-image" src="${e(image)}" alt="${e(reward.partner_name || reward.name)}">` : `<div class="reward-icon">${I(reward.icon || "gift")}</div>`}<div><div class="row wrap"><strong>${e(reward.name)}</strong><span class="badge neutral">${reward.audience === "driver" ? "Conductores" : "Pasajeros"}</span>${referral ? '<span class="badge referral">Invita y gana</span>' : ""}<span class="badge ${reward.active ? "" : "pending"}">${reward.active ? "Activa" : "Pausada"}</span></div><p>${e(reward.description)}</p><small>${reward.points_cost} puntos · ${e(reward.partner_name || "Yavoi!")} · ${e(rewardDeliveryNames[reward.delivery_mode] || "Operaciones")}${referral ? ` · ${Number(reward.min_referrals_first_trip || 0)} primeros viajes requeridos` : ""}</small></div><div class="marketing-reward-actions"><button class="btn secondary" data-edit-reward="${e(reward.id)}">Editar ${I("pencil")}</button><button class="btn ${reward.active ? "danger" : "secondary"}" data-toggle-reward="${e(reward.id)}" data-active="${reward.active ? "false" : "true"}">${reward.active ? "Desactivar" : "Activar"}</button></div></article>`; }).join("");
+  const featureCards = (marketing.feature_cards?.length ? marketing.feature_cards : featureCardFallbacks).sort((a, b) => Number(a.sort_order) - Number(b.sort_order));
+  const featureCardOperations = featureCards.map((card) => `<article class="feature-card-operation"><img src="${e(featureCardImageUrl(card.image_path))}" alt=""><div><div class="row wrap"><strong>${e(card.title)}</strong><span class="badge neutral">${card.audience === "driver" ? "Conductores" : "Pasajeros"}</span><span class="badge ${card.active === false ? "pending" : ""}">${card.active === false ? "Pausada" : "Activa"}</span></div><p>${e(card.summary)}</p><small>${e(card.cta_label || "Abrir opción")} · ${e(card.cta_href || "#home")} · orden ${Number(card.sort_order || 0)}</small></div><div class="marketing-reward-actions"><button class="btn secondary" data-edit-feature-card="${e(card.id)}">Editar ${I("pencil")}</button><button class="btn ${card.active === false ? "secondary" : "danger"}" data-toggle-feature-card="${e(card.id)}" data-active="${card.active === false ? "true" : "false"}">${card.active === false ? "Activar" : "Desactivar"}</button></div></article>`).join("");
   const redemptionCards = rewardRedemptions.map(rewardOperationCard).join("");
   const referralRows = referrals.map((item) => `<tr><td>${date(item.registered_at)}</td><td>${e(item.inviter_name)}</td><td>${e(item.invitee_name)}</td><td><code>${e(item.code)}</code></td><td><span class="badge ${item.first_trip_at ? "referral" : "pending"}">${item.first_trip_at ? "Primer viaje completado" : "Pendiente"}</span></td></tr>`).join("");
   shell(
-    `<section class="panel marketing-controls"><div class="row between wrap"><div><h2>Controles generales</h2><p>Pausa o reactiva cada sistema para todos los perfiles. Los puntos y registros existentes siempre se conservan.</p></div><span class="badge neutral">Cambios protegidos con verificación en dos pasos</span></div><form id="marketing-settings" class="marketing-switches"><label class="marketing-switch"><input name="rewards_enabled" type="checkbox" ${marketing.rewards_enabled ? "checked" : ""}><span>${I("gift")}<strong>Sistema de Recompensas</strong><small>Acumulación, metas y canjes.</small></span></label><label class="marketing-switch"><input name="advertising_enabled" type="checkbox" ${marketing.advertising_enabled ? "checked" : ""}><span>${I("megaphone")}<strong>Publicidad y promociones</strong><small>Ventanas vigentes para usuarios y conductores.</small></span></label><button class="btn" type="submit">Guardar controles ${I("shield-check")}</button></form></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Publicidad y descuentos</h2><p>Programa fotografías, vigencia, audiencia y enlace de cada negocio.</p></div><button class="btn" id="new-campaign">Nueva promoción ${I("plus")}</button></div><div class="campaign-grid">${campaignCards || '<div class="empty"><p>No hay promociones creadas. Agrega la primera cuando tengas un convenio vigente.</p></div>'}</div></section><section class="panel section-gap referral-operations"><div class="row between wrap"><div><span class="badge referral">INVITA Y GANA</span><h2>Referencias efectivas</h2><p>Cada código es único. El registro acredita 30 puntos y el primer viaje 70 puntos adicionales al pasajero que invitó.</p></div><div class="referral-stats"><span><strong>${Number(referralSummary.registered || 0)}</strong> registros</span><span><strong>${Number(referralSummary.first_trips || 0)}</strong> primeros viajes</span><span><strong>${Number(referralSummary.points_awarded || 0)}</strong> puntos</span></div></div><details class="reward-history"><summary>Ver registros (${referrals.length})</summary><div class="table-wrap"><table><thead><tr><th>Registro</th><th>Invitó</th><th>Nuevo pasajero</th><th>Código</th><th>Resultado</th></tr></thead><tbody>${referralRows || '<tr><td colspan="5">Aún no existen referencias registradas.</td></tr>'}</tbody></table></div></details></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Catálogo de recompensas</h2><p>Crea, modifica y publica beneficios con imagen, requisitos, inventario y forma de entrega. Los beneficios morados pertenecen al programa de invitaciones.</p></div><div class="row wrap"><span class="badge ${marketing.rewards_enabled ? "" : "pending"}">${marketing.rewards_enabled ? "Sistema activo" : "Sistema pausado"}</span><button class="btn" id="new-reward">Nueva recompensa ${I("plus")}</button></div></div><div class="reward-catalog-toolbar"><label>Mostrar catálogo<select id="reward-audience-filter"><option value="all">Todos</option><option value="passenger">Pasajeros</option><option value="driver">Conductores</option></select></label><span id="reward-filter-count">${rewardsCatalog.length} conceptos</span></div><div class="marketing-reward-list">${rewardCards || '<div class="empty"><p>No hay recompensas en este catálogo.</p></div>'}</div></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Seguimiento de canjes</h2><p>Consulta tickets, prepara entregas y registra cada uso para impedir que un código se repita.</p></div><span class="badge neutral" id="reward-ops-count">${rewardRedemptions.length} registros</span></div><div class="reward-ops-toolbar"><label>Perfil<select id="reward-ops-audience"><option value="all">Todos</option><option value="passenger">Pasajeros</option><option value="driver">Conductores</option></select></label><label>Estado<select id="reward-ops-status"><option value="all">Todos</option><option value="requested">Solicitadas</option><option value="available">Disponibles</option><option value="fulfilled">Listas</option><option value="applied">Aplicadas a viaje</option><option value="redeemed">Canjeadas</option><option value="cancelled">Canceladas</option><option value="expired">Vencidas</option></select></label></div><div class="reward-operations" id="reward-ops-list">${redemptionCards || '<div class="empty"><p>Aún no existen solicitudes o tickets de recompensas.</p></div>'}</div></section>`,
+    `<section class="panel marketing-controls"><div class="row between wrap"><div><h2>Controles generales</h2><p>Pausa o reactiva cada sistema para todos los perfiles. Los puntos y registros existentes siempre se conservan.</p></div><span class="badge neutral">Cambios protegidos con verificación en dos pasos</span></div><form id="marketing-settings" class="marketing-switches"><label class="marketing-switch"><input name="rewards_enabled" type="checkbox" ${marketing.rewards_enabled ? "checked" : ""}><span>${I("gift")}<strong>Sistema de Recompensas</strong><small>Acumulación, metas y canjes.</small></span></label><label class="marketing-switch"><input name="advertising_enabled" type="checkbox" ${marketing.advertising_enabled ? "checked" : ""}><span>${I("megaphone")}<strong>Publicidad y promociones</strong><small>Ventanas vigentes para usuarios y conductores.</small></span></label><button class="btn" type="submit">Guardar controles ${I("shield-check")}</button></form></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Publicidad y descuentos</h2><p>Programa fotografías, vigencia, audiencia y enlace de cada negocio.</p></div><button class="btn" id="new-campaign">Nueva promoción ${I("plus")}</button></div><div class="campaign-grid">${campaignCards || '<div class="empty"><p>No hay promociones creadas. Agrega la primera cuando tengas un convenio vigente.</p></div>'}</div></section><section class="panel section-gap"><div class="row between wrap"><div><div class="eyebrow">EXPERIENCIA EN LA APP</div><h2>Tarjetas de novedades y herramientas</h2><p>Administra las ilustraciones y la información que se muestra al final de Inicio para pasajeros y conductores.</p></div><button class="btn" id="new-feature-card">Nueva tarjeta ${I("plus")}</button></div><div class="feature-card-operations">${featureCardOperations}</div></section><section class="panel section-gap referral-operations"><div class="row between wrap"><div><span class="badge referral">INVITA Y GANA</span><h2>Referencias efectivas</h2><p>Cada código es único. El registro acredita 30 puntos y el primer viaje 70 puntos adicionales al pasajero que invitó.</p></div><div class="referral-stats"><span><strong>${Number(referralSummary.registered || 0)}</strong> registros</span><span><strong>${Number(referralSummary.first_trips || 0)}</strong> primeros viajes</span><span><strong>${Number(referralSummary.points_awarded || 0)}</strong> puntos</span></div></div><details class="reward-history"><summary>Ver registros (${referrals.length})</summary><div class="table-wrap"><table><thead><tr><th>Registro</th><th>Invitó</th><th>Nuevo pasajero</th><th>Código</th><th>Resultado</th></tr></thead><tbody>${referralRows || '<tr><td colspan="5">Aún no existen referencias registradas.</td></tr>'}</tbody></table></div></details></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Catálogo de recompensas</h2><p>Crea, modifica y publica beneficios con imagen, requisitos, inventario y forma de entrega. Los beneficios morados pertenecen al programa de invitaciones.</p></div><div class="row wrap"><span class="badge ${marketing.rewards_enabled ? "" : "pending"}">${marketing.rewards_enabled ? "Sistema activo" : "Sistema pausado"}</span><button class="btn" id="new-reward">Nueva recompensa ${I("plus")}</button></div></div><div class="reward-catalog-toolbar"><label>Mostrar catálogo<select id="reward-audience-filter"><option value="all">Todos</option><option value="passenger">Pasajeros</option><option value="driver">Conductores</option></select></label><span id="reward-filter-count">${rewardsCatalog.length} conceptos</span></div><div class="marketing-reward-list">${rewardCards || '<div class="empty"><p>No hay recompensas en este catálogo.</p></div>'}</div></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Seguimiento de canjes</h2><p>Consulta tickets, prepara entregas y registra cada uso para impedir que un código se repita.</p></div><span class="badge neutral" id="reward-ops-count">${rewardRedemptions.length} registros</span></div><div class="reward-ops-toolbar"><label>Perfil<select id="reward-ops-audience"><option value="all">Todos</option><option value="passenger">Pasajeros</option><option value="driver">Conductores</option></select></label><label>Estado<select id="reward-ops-status"><option value="all">Todos</option><option value="requested">Solicitadas</option><option value="available">Disponibles</option><option value="fulfilled">Listas</option><option value="applied">Aplicadas a viaje</option><option value="redeemed">Canjeadas</option><option value="cancelled">Canceladas</option><option value="expired">Vencidas</option></select></label></div><div class="reward-operations" id="reward-ops-list">${redemptionCards || '<div class="empty"><p>Aún no existen solicitudes o tickets de recompensas.</p></div>'}</div></section>`,
     "Recompensas y publicidad",
     "Controla beneficios, campañas y promociones desde un solo módulo.",
   );
@@ -3398,6 +3473,7 @@ function marketingView() {
   });
   $("#new-campaign").onclick = () => openCampaignEditor();
   $("#new-reward").onclick = () => openRewardEditor();
+  $("#new-feature-card").onclick = () => openFeatureCardEditor();
   $("#reward-audience-filter").onchange = (event) => {
     const audience = event.target.value;
     let visible = 0;
@@ -3425,12 +3501,17 @@ function marketingView() {
   bindRewardOperationControls(rewardRedemptions);
   $$('[data-edit-campaign]').forEach((item) => item.onclick = () => openCampaignEditor(campaigns.find((campaign) => campaign.id === item.dataset.editCampaign)));
   $$('[data-edit-reward]').forEach((item) => item.onclick = () => openRewardEditor(rewardsCatalog.find((reward) => reward.id === item.dataset.editReward)));
+  $$('[data-edit-feature-card]').forEach((item) => item.onclick = () => openFeatureCardEditor(featureCards.find((card) => card.id === item.dataset.editFeatureCard)));
   $$('[data-toggle-campaign]').forEach((item) => item.onclick = () => run(async () => {
     await rpc("set_campaign_active", { campaign_id: item.dataset.toggleCampaign, active: item.dataset.active === "true" });
     await refreshPage();
   }));
   $$('[data-toggle-reward]').forEach((item) => item.onclick = () => run(async () => {
     await rpc("set_reward_active", { reward_id: item.dataset.toggleReward, active: item.dataset.active === "true" });
+    await refreshPage();
+  }));
+  $$('[data-toggle-feature-card]').forEach((item) => item.onclick = () => run(async () => {
+    await rpc("set_feature_card_active", { feature_card_id: item.dataset.toggleFeatureCard, active: item.dataset.active === "true" });
     await refreshPage();
   }));
 }
