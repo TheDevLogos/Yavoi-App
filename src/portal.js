@@ -65,6 +65,7 @@ const S = {
   busy: false,
   map: null,
   markers: [],
+  driverLiveMarker: null,
   tripVehicleMarker: null,
   tripHistoryLine: null,
   tripSuggestedLine: null,
@@ -491,6 +492,7 @@ function teardownMap() {
     S.map = null;
   }
   S.markers = [];
+  S.driverLiveMarker = null;
   S.tripVehicleMarker = null;
   S.tripHistoryLine = null;
   S.tripSuggestedLine = null;
@@ -1728,6 +1730,40 @@ function driverSafetyMarkup() {
   const reports = (S.data.complaints || []).slice(0, 3);
   return `<section class="panel section-gap driver-safety"><div><div class="eyebrow">AYUDA Y SEGURIDAD</div><h2>Asistencia desde Conducir</h2><p>Registra un incidente para seguimiento de Operaciones. Si existe peligro inmediato, llama directamente a emergencias.</p></div><div class="driver-safety-buttons">${button("Crear reporte", "complaint", "secondary", "message-square-warning")}<a class="btn danger" href="tel:911">${I("phone-call")} Emergencias 911</a></div>${reports.length ? `<details><summary>Mis reportes recientes</summary>${reports.map((report) => `<article class="audit-item"><div class="row between"><strong>${e(report.subject)}</strong><span class="badge ${report.status === "resolved" ? "" : "pending"}">${e({ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[report.status] || report.status)}</span></div><small>${date(report.created_at)} · ${e(report.id.slice(0, 8))}</small>${report.response ? `<p class="hint">Respuesta: ${e(report.response)}</p>` : ""}</article>`).join("")}</details>` : ""}</section>`;
 }
+function driverLiveMapMarkup(driver) {
+  const status = driver.online ? "Ubicación en vivo" : "Ubicación lista";
+  const action = driver.online ? "Desconectarme" : "Conectarme";
+  return `<section class="driver-live-map section-gap"><div class="driver-live-map-heading"><div><div class="eyebrow">NAVEGACIÓN DE TU UNIDAD</div><h2>Tu posición en Delicias</h2><p>El mapa se actualiza automáticamente mientras esta pantalla esté abierta.</p></div><span class="driver-live-status ${driver.online ? "online" : ""}"><i></i>${status}</span></div>${mapFrame("driver-live-map", "Tu ubicación se mantiene actualizada para la operación.")}<div class="driver-live-controls"><button class="btn ${driver.online ? "secondary" : ""}" data-action="availability">${I("power")} ${action}</button></div></section>`;
+}
+function updateDriverHomeMap(position = S.latestPosition, { focus = true } = {}) {
+  if (!S.map || !$("#driver-live-map") || !position?.coords) return;
+  const lat = Number(position.coords.latitude);
+  const lng = Number(position.coords.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  const point = [lat, lng];
+  const heading = normalizeHeading(position.coords.heading) ?? 0;
+  if (!S.driverLiveMarker) {
+    S.driverLiveMarker = L.marker(point, { icon: vehicleIcon(heading, false, S.driver?.category), zIndexOffset: 1200 })
+      .bindTooltip("Tu unidad", { direction: "top" })
+      .addTo(S.map);
+  } else {
+    S.driverLiveMarker.setLatLng(point);
+  }
+  rotateVehicle(S.driverLiveMarker, heading);
+  if (focus) S.map.setView(point, Math.max(S.map.getZoom(), 15), { animate: true });
+}
+function startDriverHomeMap() {
+  if (!$("#driver-live-map")) return;
+  S.map = L.map("driver-live-map", { zoomControl: true, scrollWheelZoom: false }).setView([28.19065, -105.47045], 14);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(S.map);
+  S.map.zoomControl.setPosition("bottomright");
+  bindVehicleScale();
+  updateDriverHomeMap();
+  setTimeout(() => S.map?.invalidateSize(), 70);
+}
 function shiftTimeLabel(shift) {
   const display = (value) => new Date(`2000-01-01T${String(value).slice(0, 5)}:00`).toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" });
   return `${display(shift.start_time)} a ${display(shift.end_time)}`;
@@ -1741,7 +1777,7 @@ async function driverHome() {
   const driver = S.driver;
   if (!driver?.approved) {
     shell(
-      `<section class="panel"><span class="badge pending">Expediente pendiente de aprobación</span><h2 class="section-gap">Tu próximo paso: completa tu perfil</h2><p>Necesitamos tu fotografía, licencia, seguro y datos de la unidad. Operaciones revisará el expediente antes de que puedas recibir viajes.</p>${driver?.review_note ? `<p class="hint">${e(driver.review_note)}</p>` : ""}<a class="btn" href="#profile">Completar mi expediente ${I("arrow-right")}</a></section>${driverSafetyMarkup()}`,
+      `<section class="panel"><span class="badge pending">Expediente pendiente de aprobación</span><h2 class="section-gap">Tu próximo paso: completa tu perfil</h2><p>Necesitamos tu fotografía, licencia, seguro y datos de la unidad. Operaciones revisará el expediente antes de que puedas recibir viajes.</p>${driver?.review_note ? `<p class="hint">${e(driver.review_note)}</p>` : ""}<a class="btn" href="#profile">Completar mi expediente ${I("arrow-right")}</a></section>`,
       "Hola, " + e(S.profile.full_name.split(" ")[0]),
       "Tu actividad como conductor comienza con una revisión de seguridad.",
     );
@@ -1749,56 +1785,19 @@ async function driverHome() {
   }
   if (!driver.account_active) {
     shell(
-      `<section class="panel"><span class="badge cancelled">Cuenta sin acceso a viajes</span><h2 class="section-gap">Revisa tu cuota semanal</h2><p>Tu cuenta no puede conectarse hasta que Operaciones valide la cuota o reactive el acceso.</p><a class="btn" href="#profile">Consultar cuota en mi perfil ${I("arrow-right")}</a></section>${driverSafetyMarkup()}`,
+      `<section class="panel"><span class="badge cancelled">Cuenta sin acceso a viajes</span><h2 class="section-gap">Revisa tu cuota semanal</h2><p>Tu cuenta no puede conectarse hasta que Operaciones valide la cuota o reactive el acceso.</p><a class="btn" href="#profile">Consultar cuota en mi perfil ${I("arrow-right")}</a></section>`,
       "Acceso temporalmente desactivado",
       "Tu historial y tu perfil siguen disponibles.",
     );
     return;
   }
   const offers = await syncDriverOffers({ present: false });
-  const soundButton = button("Probar alarma", "offer-sound", "secondary", "volume-2");
-  const shifts = (S.data.service_shifts || []).filter((shift) => shift.active);
-  const assignedShift = shifts.find((shift) => shift.code === driver.service_shift_code);
-  const shiftCommitment = assignedShift
-    ? `Turno asignado por Operaciones: ${assignedShift.name}, ${shiftTimeLabel(assignedShift)}. Al conectarte confirmas que permanecerás disponible durante este horario.`
-    : "Operaciones todavía no te asigna un turno. Solicita la asignación antes de conectarte.";
-  const availabilityActions = `<div class="driver-actions">${button(driver.online ? "Desconectarme" : "Conectarme", "availability", driver.online ? "secondary" : "", "power")}${driver.online ? button("Actualizar ubicación", "presence", "secondary", "locate-fixed") : ""}${soundButton}</div>`;
-  const offerCards = offers.length
-    ? offers
-        .map(
-          (offer) => {
-            const operationalSeconds = Math.max(0, Math.ceil((Date.parse(offer.expires_at) - Date.now()) / 1000));
-            return `<article class="offer targeted-offer"><div class="offer-passenger">${avatar(offer.passenger_name, offer.passenger_avatar_path, "big")}<div><small>Pasajero</small><h3>${e(offer.passenger_name)}</h3><p>${offer.passenger_rating ? `${decimal(offer.passenger_rating)}/5` : "Sin evaluaciones"} · ${offer.passenger_trips} viaje${Number(offer.passenger_trips) === 1 ? "" : "s"} completado${Number(offer.passenger_trips) === 1 ? "" : "s"}</p></div><div class="offer-expiry">${I("timer")}<span>Responde antes de<br><strong>${date(offer.expires_at)}</strong></span></div></div><div class="row between"><span class="badge neutral">Yavoi! ${e(S.categories.find((category) => category.id === offer.category)?.name || offer.category)}</span><strong class="earn">Ganas ${money(offer.net_cents)}</strong></div><div class="route-line">${I("circle-dot")}${e(offer.origin)}</div><div class="route-line destination">${I("map-pin")}${e(offer.destination)}</div><div class="estimate-grid compact"><div><small>Para recoger</small><strong>${offer.pickup_from_driver_km == null ? "Actualiza tu ubicación" : `${decimal(offer.pickup_from_driver_km)} km`}</strong></div><div><small>Viaje estimado</small><strong>${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min</strong></div></div><div class="request-details"><div>${I("users-round")}<span><small>Personas</small><strong>${offer.party_size}</strong></span></div><div>${I("banknote")}<span><small>Pago</small><strong>${offer.payment_method === "card" ? "Tarjeta aprobada" : `Efectivo · paga con ${money(offer.cash_tender_cents)}`}</strong></span></div></div>${offer.service_notes ? `<div class="service-request">${I("message-square-text")}<div><small>Petición del pasajero</small><strong>${e(offer.service_notes)}</strong></div></div>` : ""}<div class="meta-row"><span>${zoneLabel(offer.service_zone)}</span><span>Total ${money(offer.total_cents || offer.fare_cents)}</span>${offer.payment_method === "cash" ? `<span>Cambio ${money(changeDue(offer.total_cents || offer.fare_cents, offer.cash_tender_cents))}</span>` : ""}${offer.tip_cents ? `<span>Incluye propina ${money(offer.tip_cents)}</span>` : ""}${offer.women_only ? "<span>Conductora verificada</span>" : ""}${offer.accessible ? "<span>Accesibilidad requerida</span>" : ""}</div><div class="offer-decisions"><button class="btn danger" data-reject-offer="${e(offer.offer_id)}">Rechazar ${I("x")}</button><button class="btn" data-accept-offer="${e(offer.offer_id)}">Aceptar viaje ${I("arrow-right")}</button></div><small class="offer-operational-expiry">Disponible hasta ${date(offer.expires_at)} · ~${operationalSeconds} s</small></article>`;
-          },
-        )
-        .join("")
-    : `<div class="empty">${I("navigation")}<h3>${driver.online ? "Esperando una solicitud compatible" : "Estás desconectado"}</h3><p>${driver.online ? "Tu presencia se renueva automáticamente. Cuando una solicitud llegue, verás sus datos aquí y recibirás un aviso si autorizaste las notificaciones." : "Conéctate para que el sistema pueda enviarte una solicitud por cercanía y disponibilidad."}</p></div>`;
   shell(
-    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Conéctate en tu turno asignado"}</h2><p>${e(shiftCommitment)}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">La alerta rápida dura 7 segundos. Si necesitas más contexto, las solicitudes vigentes permanecen aquí hasta su vencimiento operativo.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>${driverSafetyMarkup()}${featureCardsMarkup("driver")}`,
+    `${driverLiveMapMarkup(driver)}${stats()}${featureCardsMarkup("driver")}`,
     "Un buen día para conducir.",
     "Tu tiempo, tus viajes y tus ganancias en un mismo lugar.",
   );
-  $$('[data-accept-offer]').forEach((item) => {
-    item.onclick = () =>
-      run(async () => {
-        stopOfferRinging(item.dataset.acceptOffer);
-        const trip = await rpc("accept", { offer_id: item.dataset.acceptOffer });
-        if (trip.error) throw Error(trip.error);
-        location.hash = "trip/" + trip.id;
-      });
-  });
-  $$('[data-reject-offer]').forEach((item) => {
-    item.onclick = () =>
-      run(async () => {
-        stopOfferRinging(item.dataset.rejectOffer);
-        await rpc("reject_offer", {
-          offer_id: item.dataset.rejectOffer,
-          reason: "El conductor revisó la solicitud y decidió no tomarla",
-        });
-        await refreshPage();
-        notify("Solicitud rechazada. Yavoi! buscará la siguiente unidad disponible.");
-      });
-  });
+  startDriverHomeMap();
   presentPendingOffer(offers);
   bindFeatureCards("driver");
 }
@@ -4237,8 +4236,9 @@ function requestInitialLocation() {
       S.latestPosition = position;
       if (S.profile?.role === "passenger") {
         if ($("#quote-form")) await applyPassengerGpsPosition(position, { focus: true });
-      } else if (S.driver?.online) {
-        await sendDriverPosition(position);
+      } else if (S.profile?.role === "driver") {
+        updateDriverHomeMap(position);
+        if (S.driver?.online) await sendDriverPosition(position);
       }
       return position;
     })
@@ -4265,6 +4265,7 @@ function driverActiveTrip() {
 }
 async function sendDriverPosition(position = S.latestPosition) {
   if (!position || !S.driver?.online || S.profile?.role !== "driver" || S.presenceSending) return;
+  updateDriverHomeMap(position);
   S.presenceSending = true;
   try {
     const trip = driverActiveTrip();
@@ -4304,6 +4305,7 @@ function startDriverTracking() {
   S.trackingWatch = navigator.geolocation.watchPosition(
     (position) => {
       S.latestPosition = position;
+      updateDriverHomeMap(position);
       if (Date.now() - S.gpsLast >= 7000)
         sendDriverPosition(position).catch((error) => notify(errorMessage(error)));
     },
