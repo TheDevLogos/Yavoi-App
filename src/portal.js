@@ -107,6 +107,7 @@ const S = {
   offersInitialized: false,
   offerSyncTimer: null,
   offerSyncing: false,
+  driverHomeLastTripCheck: 0,
   offerAudioContext: null,
   offerAudioArmed: false,
   offerRingTimers: new Map(),
@@ -1784,32 +1785,47 @@ function bindAvailabilityHold() {
   control.addEventListener("click", (event) => event.preventDefault());
   control.addEventListener("contextmenu", (event) => event.preventDefault());
 }
-function updateDriverHomeMap(position = S.latestPosition, { focus = true } = {}) {
+function updateDriverHomeMap(position = S.latestPosition) {
   if (!S.map || !$("#driver-live-map") || !position?.coords) return;
   const lat = Number(position.coords.latitude);
   const lng = Number(position.coords.longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
   const point = [lat, lng];
-  const heading = normalizeHeading(position.coords.heading) ?? 0;
+  const current = S.driverLiveMarker?.getLatLng();
+  // GPS readings may drift a few metres while the unit is stopped. Ignoring that
+  // small drift keeps the vehicle visually still while the driver is using the map.
+  const movedEnough = !current || S.map.distance(current, point) >= 5;
+  const displayPoint = movedEnough ? point : [current.lat, current.lng];
+  const heading = vehicleHeading(S.driverLiveMarker, position.coords.heading, displayPoint);
   if (!S.driverLiveMarker) {
     S.driverLiveMarker = L.marker(point, { icon: vehicleIcon(heading, false, S.driver?.category), zIndexOffset: 1200 })
       .bindTooltip("Tu unidad", { direction: "top" })
       .addTo(S.map);
-  } else {
+    // Centre only once, when the live location first becomes available. Subsequent
+    // GPS updates must never fight a driver's own pan or zoom gesture.
+    S.map.setView(point, 15, { animate: false });
+  } else if (movedEnough) {
     S.driverLiveMarker.setLatLng(point);
   }
   rotateVehicle(S.driverLiveMarker, heading);
-  if (focus) S.map.setView(point, Math.max(S.map.getZoom(), 15), { animate: true });
 }
 function startDriverHomeMap() {
   if (!$("#driver-live-map")) return;
-  S.map = L.map("driver-live-map", { zoomControl: true, scrollWheelZoom: false }).setView([28.19065, -105.47045], 14);
+  S.map = L.map("driver-live-map", {
+    zoomControl: true,
+    scrollWheelZoom: false,
+    doubleClickZoom: false,
+    touchZoom: "center",
+    zoomSnap: 0.5,
+    zoomDelta: 0.5,
+    bounceAtZoomLimits: false,
+    tap: false,
+  }).setView([28.19065, -105.47045], 14);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(S.map);
   S.map.zoomControl.setPosition("bottomright");
-  bindVehicleScale();
   updateDriverHomeMap();
   setTimeout(() => S.map?.invalidateSize(), 70);
 }
@@ -4358,7 +4374,6 @@ function driverActiveTrip() {
 }
 async function sendDriverPosition(position = S.latestPosition) {
   if (!position || !S.driver?.online || S.profile?.role !== "driver" || S.presenceSending) return;
-  updateDriverHomeMap(position);
   S.presenceSending = true;
   try {
     const trip = driverActiveTrip();
@@ -4880,10 +4895,20 @@ async function safeRefresh() {
     }
     else if (S.view === "rewards") await refreshPage();
     else if (S.view === "inbox" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) await renderRoute();
-    else if (
-      (S.view === "home" && S.profile.role === "driver") ||
-      (S.profile.role === "admin" && ["home", "trips", "payments"].includes(S.view))
-    ) {
+    else if (S.view === "home" && S.profile.role === "driver") {
+      // This receives location events from the fleet. Re-rendering the entire home
+      // screen here destroys and recreates Leaflet, which interrupts pinch zoom.
+      await syncDriverOffers({ present: true });
+      const now = Date.now();
+      if (now - S.driverHomeLastTripCheck >= 30000) {
+        S.driverHomeLastTripCheck = now;
+        const dashboard = await rpc("dashboard");
+        const activeTrip = dashboard.trips.find((trip) => trip.driver_id === S.user.id && active(trip) && trip.status !== "scheduled");
+        S.data = dashboard;
+        if (activeTrip) await renderRoute();
+      }
+    }
+    else if (S.profile.role === "admin" && ["home", "trips", "payments"].includes(S.view)) {
       const focused = document.activeElement;
       if (!["INPUT", "TEXTAREA", "SELECT"].includes(focused?.tagName)) await refreshPage();
     }
