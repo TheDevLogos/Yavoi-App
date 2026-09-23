@@ -1991,6 +1991,7 @@ async function scheduleOperations() {
   renderScheduleOperations();
 }
 function tableTrips() {
+  if (S.view === "trips") return tripHistoryList(sortTripsRecent(S.data.trips).slice(0, 3));
   return `<div class="table-wrap"><table><thead><tr><th>Folio / fecha</th><th>Recorrido</th><th>Estado</th><th>Pago</th><th>Importe</th><th>Valoración</th><th></th></tr></thead><tbody id="trip-rows">${tripRows(S.data.trips)}</tbody></table></div>${!S.data.trips.length ? `<div class="empty">${I("route")}<h3>Tu historial empieza con el primer viaje</h3><p>Los viajes guardados aparecerán aquí.</p></div>` : ""}`;
 }
 function tripPersonName(trip) {
@@ -1998,25 +1999,61 @@ function tripPersonName(trip) {
   if (S.profile.role === "passenger") return trip.driver_name || "Sin conductor asignado";
   return trip.passenger_name || trip.driver_name || "Usuario";
 }
-function tripFilterDate(trip) {
-  return new Date(trip.scheduled_at || trip.created_at);
+function tripDateValue(trip) {
+  if (trip.completed_at) return trip.completed_at;
+  if (trip.status === "cancelled") return trip.updated_at || trip.created_at;
+  return ["payment_pending", "scheduled", "requested"].includes(trip.status)
+    ? trip.scheduled_at || trip.created_at
+    : trip.created_at || trip.scheduled_at;
 }
-function tripRows(ts) {
-  return ts
-    .map(
-      (t) =>
-        `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small><small class="trip-person">${I("user-round")} ${e(tripPersonName(t))}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e({ paid: "Confirmado", pending: "Pendiente", failed: "No aprobado", cancelled: "Cancelado sin cobro", refund_pending: "Reembolso pendiente", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</small></td><td>${money(t.total_cents ?? t.fare_cents)}</td><td>${t.rating_given ? `<span class="trip-rating-inline">${I("star")} ${t.rating_given}/5</span><small>Tu valoración</small>` : t.rating_received ? `<span class="trip-rating-inline">${I("star")} ${t.rating_received}/5</span><small>Valoración recibida</small>` : '<small>Sin valorar</small>'}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
-    )
-    .join("");
+function tripFilterDate(trip) {
+  const timestamp = Date.parse(tripDateValue(trip) || "");
+  return Number.isFinite(timestamp) ? new Date(timestamp) : null;
+}
+function tripServiceName(trip) {
+  const names = { basic: "Básico", large: "Grande", plus: "Plus", commercial: "Comercial", pickup: "Pickup" };
+  return S.categories.find((category) => category.id === trip.category)?.name || names[trip.category] || trip.category || "Servicio";
+}
+function sortTripsRecent(trips) {
+  return [...trips].sort((a, b) => (Date.parse(b.created_at || b.scheduled_at || "") || 0) - (Date.parse(a.created_at || a.scheduled_at || "") || 0));
+}
+function tripFolio(trip) {
+  const id = String(trip.id || "");
+  return String(trip.folio || trip.receipt_number || `YV-${id.replaceAll("-", "").slice(0, 12).toUpperCase()}`);
+}
+function tripPaymentName(trip) {
+  return {
+    paid: "Pago confirmado",
+    pending: "Pago pendiente",
+    failed: "Pago no aprobado",
+    cancelled: "Sin cobro",
+    refund_pending: "Reembolso pendiente",
+    refunded: "Reembolsado",
+  }[trip.payment_status] || "";
+}
+function tripRows(trips) {
+  return trips.map((t) =>
+    `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small><small class="trip-person">${I("user-round")} ${e(tripPersonName(t))}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e(tripPaymentName(t))}</small></td><td>${money(t.total_cents ?? t.fare_cents)}</td><td>${t.rating_given ? `<span class="trip-rating-inline">${I("star")} ${t.rating_given}/5</span><small>Tu valoración</small>` : t.rating_received ? `<span class="trip-rating-inline">${I("star")} ${t.rating_received}/5</span><small>Valoración recibida</small>` : "<small>Sin valorar</small>"}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
+  ).join("");
+}
+function tripHistoryCard(t) {
+  const id = String(t.id || "");
+  const folio = tripFolio(t);
+  const person = S.profile.role === "admin"
+    ? `<span>Pasajero: ${e(t.passenger_name || "Sin asignar")}</span><span>Conductor: ${e(t.driver_name || "Sin asignar")}</span>`
+    : `<span>${I("user-round")} ${e(S.profile.role === "passenger" ? "Conductor" : "Pasajero")}: ${e(tripPersonName(t))}</span>`;
+  return `<article class="trip-history-card"><span class="trip-service-icon"><img src="${serviceAsset(t.category)}" alt="" loading="lazy"></span><div class="trip-history-main"><div class="trip-history-title"><div><span class="trip-service-name">Yavoi! ${e(tripServiceName(t))}</span><h3>${e(t.destination || "Destino por confirmar")}</h3><small>Folio ${e(folio)} · ${date(tripDateValue(t))}</small><small class="trip-history-origin">Desde ${e(t.origin || "Origen por confirmar")}</small></div><strong class="trip-history-amount">${money(t.total_cents ?? t.fare_cents)}</strong></div><div class="trip-history-meta"><div class="trip-history-people">${person}</div>${badge(t)}${tripPaymentName(t) ? `<small>${e(tripPaymentName(t))}</small>` : ""}<a class="link" href="#trip/${e(id)}">Ver viaje ${I("arrow-right")}</a></div></div></article>`;
+}
+function tripHistoryList(trips) {
+  return `<div class="trip-history-list" id="trip-rows">${trips.map(tripHistoryCard).join("")}</div>`;
 }
 function tripsView() {
-  const people = [...new Set(S.data.trips.map(tripPersonName).filter((name) => name && name !== "Sin conductor asignado"))].sort((a, b) => a.localeCompare(b, "es"));
+  const people = [...new Set(S.data.trips.map(tripPersonName).filter((name) => name && name !== "Sin conductor asignado"))]
+    .sort((a, b) => a.localeCompare(b, "es"));
+  const categories = [...new Set(S.data.trips.map((trip) => trip.category).filter(Boolean))];
+  const personLabel = S.profile.role === "driver" ? "pasajero" : S.profile.role === "passenger" ? "conductor" : "persona";
   shell(
-    `<details class="panel profile-section trip-history-section" open><summary><span>${I("history")}<strong>Historial de viajes</strong></span><span class="badge neutral">${S.data.trips.length} registros</span>${I("chevron-down")}</summary><div class="profile-section-body"><div class="row between wrap"><p>Filtra con un toque por fecha o por ${S.profile.role === "driver" ? "pasajero" : "conductor"}.</p>${button("Exportar", "export", "secondary", "download")}</div><div class="filter-row"><input id="search-trips" aria-label="Buscar viajes" placeholder="Nombre, destino o folio"><select id="filter-status" aria-label="Filtrar estado"><option value="">Todos los estados</option>${Object.entries(
-      statuses,
-    )
-      .map(([id, s]) => `<option value="${id}">${s}</option>`)
-      .join("")}</select></div><div class="trip-quick-filters" aria-label="Filtros rápidos por fecha"><button type="button" class="active" data-trip-period="all">Todos</button><button type="button" data-trip-period="today">Hoy</button><button type="button" data-trip-period="week">7 días</button><button type="button" data-trip-period="month">Este mes</button></div>${people.length ? `<details class="trip-person-filter"><summary>${I("users-round")} Filtrar por ${S.profile.role === "driver" ? "pasajero" : "conductor"}</summary><div class="trip-quick-filters"><button type="button" class="active" data-trip-person="">Todos</button>${people.map((name) => `<button type="button" data-trip-person="${e(name)}">${e(name)}</button>`).join("")}</div></details>` : ""}${tableTrips()}<p class="hint hidden" id="trip-filter-empty">No hay viajes que coincidan con estos filtros.</p></div></details>`,
+    `<section class="panel trip-history-section"><div class="trip-history-heading"><div><span class="eyebrow">TU ACTIVIDAD</span><h2>Mis viajes</h2><p>Consulta tus recorridos, pagos y detalles en un solo lugar.</p></div>${button("Exportar", "export", "secondary", "download")}</div><div class="trip-filter-controls"><label class="trip-search-field"><span class="sr-only">Buscar viajes</span>${I("search")}<input id="search-trips" aria-label="Buscar por folio, destino o persona" placeholder="Busca por folio, destino o nombre"></label><select id="filter-status" aria-label="Filtrar por estado"><option value="">Todos los estados</option>${Object.entries(statuses).map(([id, label]) => `<option value="${e(id)}">${e(label)}</option>`).join("")}</select><select id="filter-category" aria-label="Filtrar por tipo de servicio"><option value="">Todos los servicios</option>${categories.map((id) => `<option value="${e(id)}">Yavoi! ${e(tripServiceName({ category: id }))}</option>`).join("")}</select>${people.length ? `<select id="filter-person" aria-label="Filtrar por ${personLabel}"><option value="">Cualquier ${personLabel}</option>${people.map((name) => `<option value="${e(name)}">${e(name)}</option>`).join("")}</select>` : ""}</div><div class="trip-quick-filters" aria-label="Filtrar por fecha"><button type="button" class="active" data-trip-period="all">Todas las fechas</button><button type="button" data-trip-period="today">Hoy</button><button type="button" data-trip-period="week">Últimos 7 días</button><button type="button" data-trip-period="month">Este mes</button></div><div class="trip-results-heading"><p id="trip-result-count" aria-live="polite">${S.data.trips.length} viajes</p><button type="button" id="clear-trip-filters" class="link hidden">Limpiar filtros ${I("x")}</button></div>${tableTrips()}<button type="button" id="trip-expand" class="btn secondary trip-expand-button" hidden></button><div id="trip-no-history" class="empty hidden">${I("route")}<h3>Aún no tienes viajes</h3><p>Cuando solicites o realices un viaje, aparecerá aquí.</p></div><p class="hint trip-filter-empty hidden" id="trip-filter-empty">No hay viajes que coincidan. Prueba con otros filtros o limpia la búsqueda.</p></section>`,
     "Cada viaje, en un solo lugar.",
     "Consulta el recorrido, el pago y el detalle de tus viajes.",
   );
@@ -2026,38 +2063,82 @@ function tripsView() {
     $$('[data-action="assign-scheduled"]').forEach((item) => (item.onclick = () => handleAction("assign-scheduled", item)));
     iconsNow();
   }
-  const state = { period: "all", person: "" };
-  const filter = () => {
-    const q = $("#search-trips").value.toLowerCase(),
-      status = $("#filter-status").value;
+  const state = { period: "all", expanded: false };
+  const normalize = (value) => String(value ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase("es");
+  const filter = (expandMatches = false) => {
+    const q = normalize($("#search-trips").value.trim());
+    const status = $("#filter-status").value;
+    const category = $("#filter-category").value;
+    const person = $("#filter-person")?.value || "";
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const visible = S.data.trips.filter((t) => {
+    const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const filtersActive = !!(q || status || category || person || state.period !== "all");
+    if (expandMatches) state.expanded = filtersActive;
+    const matching = sortTripsRecent(S.data.trips).filter((t) => {
       const tripDate = tripFilterDate(t);
       const dateMatches = state.period === "all"
-        || (state.period === "today" && tripDate >= startOfToday)
-        || (state.period === "week" && tripDate >= new Date(now.getTime() - 7 * 86400000))
-        || (state.period === "month" && tripDate >= startOfMonth);
-      const person = tripPersonName(t);
-      return dateMatches && (!state.person || person === state.person) && (!status || t.status === status)
-        && [t.origin, t.destination, t.id, person].join(" ").toLowerCase().includes(q);
+        || (tripDate && state.period === "today" && tripDate >= startOfToday && tripDate < startOfTomorrow)
+        || (tripDate && state.period === "week" && tripDate >= startOfWeek && tripDate < startOfTomorrow)
+        || (tripDate && state.period === "month" && tripDate >= startOfMonth && tripDate < startOfNextMonth);
+      const names = [t.passenger_name, t.driver_name, tripPersonName(t)].filter(Boolean);
+      const paymentMethod = t.payment_method === "card" ? "tarjeta pago electronico" : "efectivo";
+      const searchable = [
+        t.id,
+        tripFolio(t),
+        String(t.id || "").slice(0, 8),
+        t.origin,
+        t.destination,
+        tripServiceName(t),
+        statuses[t.status],
+        t.status,
+        tripPaymentName(t),
+        paymentMethod,
+        ...names,
+      ].map(normalize).join(" ");
+      return dateMatches && (!person || names.includes(person)) && (!status || t.status === status)
+        && (!category || t.category === category) && (!q || searchable.includes(q));
     });
-    $("#trip-rows").innerHTML = tripRows(visible);
-    $("#trip-filter-empty")?.classList.toggle("hidden", visible.length > 0);
+    const visible = state.expanded ? matching : matching.slice(0, 3);
+    $("#trip-rows").innerHTML = visible.map(tripHistoryCard).join("");
+    $("#trip-result-count").textContent = `${matching.length} ${matching.length === 1 ? "viaje" : "viajes"}`;
+    $("#trip-expand").hidden = matching.length <= 3;
+    $("#trip-expand").classList.toggle("hidden", matching.length <= 3);
+    $("#trip-expand").textContent = state.expanded ? "Mostrar los últimos 3" : `Ver todos los viajes (${matching.length})`;
+    $("#trip-expand").setAttribute("aria-expanded", String(state.expanded));
+    $("#trip-no-history").classList.toggle("hidden", S.data.trips.length > 0);
+    $("#trip-filter-empty").classList.toggle("hidden", S.data.trips.length === 0 || matching.length > 0);
+    $("#trip-filter-empty").classList.toggle("trip-filter-empty-active", filtersActive);
+    $("#clear-trip-filters").classList.toggle("hidden", !filtersActive);
+    iconsNow();
   };
-  $("#search-trips").oninput = filter;
-  $("#filter-status").onchange = filter;
+  $("#search-trips").oninput = () => filter(true);
+  $("#filter-status").onchange = () => filter(true);
+  $("#filter-category").onchange = () => filter(true);
+  $("#filter-person")?.addEventListener("change", () => filter(true));
   $$('[data-trip-period]').forEach((item) => item.onclick = () => {
     state.period = item.dataset.tripPeriod;
     $$('[data-trip-period]').forEach((button) => button.classList.toggle("active", button === item));
-    filter();
+    filter(true);
   });
-  $$('[data-trip-person]').forEach((item) => item.onclick = () => {
-    state.person = item.dataset.tripPerson;
-    $$('[data-trip-person]').forEach((button) => button.classList.toggle("active", button === item));
+  $("#trip-expand").onclick = () => {
+    state.expanded = !state.expanded;
     filter();
-  });
+  };
+  $("#clear-trip-filters").onclick = () => {
+    $("#search-trips").value = "";
+    $("#filter-status").value = "";
+    $("#filter-category").value = "";
+    if ($("#filter-person")) $("#filter-person").value = "";
+    state.period = "all";
+    state.expanded = false;
+    $$('[data-trip-period]').forEach((button) => button.classList.toggle("active", button.dataset.tripPeriod === "all"));
+    filter();
+  };
+  filter();
 }
 function tripRatingsMarkup(ratings = []) {
   const cards = ratings.map((rating) => {
