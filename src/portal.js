@@ -1766,7 +1766,7 @@ function bindAvailabilityHold() {
       completed = true;
       reset();
       control.disabled = true;
-      run(() => handleAction("availability", control));
+      run(toggleDriverAvailability);
     }, 2000);
   };
   const cancel = () => {
@@ -4372,6 +4372,35 @@ async function updateDriverPresence(showConfirmation = true) {
   if (showConfirmation)
     notify("Ubicación actualizada. Permanecerás activo mientras esta página siga abierta.");
 }
+async function toggleDriverAvailability() {
+  const goingOnline = !S.driver.online;
+  if (goingOnline) {
+    await armOfferSound();
+    if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+  }
+  const position = goingOnline ? await browserPosition() : null;
+  try {
+    await rpc("availability", { online: goingOnline });
+    S.driver.online = goingOnline;
+    if (goingOnline) {
+      S.latestPosition = position;
+      await sendDriverPosition(position);
+    } else stopDriverTracking();
+    await loadSession();
+    notify(
+      goingOnline
+        ? "Ya estás disponible. Mantén Yavoi! abierto para recibir solicitudes."
+        : "Te desconectaste y ya no recibirás nuevas solicitudes.",
+    );
+  } catch (error) {
+    if (goingOnline) {
+      await rpc("availability", { online: false }).catch(() => {});
+      S.driver.online = false;
+      stopDriverTracking();
+    }
+    throw error;
+  }
+}
 async function handleAction(action, b) {
   if (action === "logout") return signOut();
   if (action === "refresh") return run(S.view === "opsmap" ? refreshOperationsMap : refreshPage);
@@ -4410,36 +4439,7 @@ async function handleAction(action, b) {
       notify("Alerta con sonido activada. La escucharás al recibir una solicitud.");
       await renderRoute();
     });
-  if (action === "availability")
-    return run(async () => {
-      const goingOnline = !S.driver.online;
-      if (goingOnline) {
-        await armOfferSound();
-        if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission();
-      }
-      const position = goingOnline ? await browserPosition() : null;
-      try {
-        await rpc("availability", { online: goingOnline });
-        S.driver.online = goingOnline;
-        if (goingOnline) {
-          S.latestPosition = position;
-          await sendDriverPosition(position);
-        } else stopDriverTracking();
-        await loadSession();
-        notify(
-          goingOnline
-            ? "Ya estás disponible. Mantén Yavoi! abierto para recibir solicitudes."
-            : "Te desconectaste y ya no recibirás nuevas solicitudes.",
-        );
-      } catch (error) {
-        if (goingOnline) {
-          await rpc("availability", { online: false }).catch(() => {});
-          S.driver.online = false;
-          stopDriverTracking();
-        }
-        throw error;
-      }
-    });
+  if (action === "availability") return run(toggleDriverAvailability);
   if (action === "presence")
     return run(async () => {
       await updateDriverPresence();
