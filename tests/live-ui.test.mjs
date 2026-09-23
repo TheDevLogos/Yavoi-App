@@ -203,8 +203,7 @@ test("trip communication, ratings and mobile identity remain visible", () => {
 });
 
 test("passenger safety is integrated into each trip and cancellation is transparent", () => {
-  assert.doesNotMatch(domain, /passenger:[^
-]+\["help"/);
+  assert.doesNotMatch(domain, /passenger:[^\\n]+\\["help"/);
   assert.match(portal, /Reportar este viaje/);
   assert.match(portal, /Reportar este servicio/);
   assert.match(portal, /Emergencias 911/);
