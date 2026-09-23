@@ -2530,10 +2530,22 @@ function rewardBarcode(code) {
   return `<svg class="coupon-barcode" viewBox="0 0 ${x + 10} 64" role="img" aria-label="Código de barras ${e(safe)}" preserveAspectRatio="none">${bars.join("")}</svg>`;
 }
 function rewardImageUrl(path) {
-  return path ? db.storage.from("yavoi-marketing").getPublicUrl(path).data.publicUrl || "" : "";
+  return path
+    ? db.storage.from("yavoi-marketing").getPublicUrl(path).data.publicUrl || ""
+    : "/assets/rewards/ride-benefit.png";
+}
+function rewardArtwork(reward = {}) {
+  const uploaded = reward.image_path ? rewardImageUrl(reward.image_path) : "";
+  if (uploaded) return uploaded;
+  if (reward.program_type === "referral") return "/assets/rewards/referral.png";
+  if (reward.audience === "driver") return "/assets/rewards/driver-recognition.png";
+  if (["free_local_trip", "fare_discount_fixed", "fare_discount_percent"].includes(reward.kind)) {
+    return "/assets/rewards/ride-benefit.png";
+  }
+  return "/assets/rewards/passenger-points.png";
 }
 function openRewardCoupon(redemption) {
-  const image = rewardImageUrl(redemption.image_path);
+  const image = rewardArtwork(redemption);
   const usable = ["available", "fulfilled"].includes(redemption.status);
   const tripBenefit = redemption.delivery_mode === "trip";
   const ownerName = redemption.user_name || S.profile.full_name;
@@ -2598,7 +2610,7 @@ function rewardEligibility(reward, metrics, systemEnabled = true) {
 }
 function rewardCard(reward, metrics, systemEnabled = true) {
   const [eligible, reason] = rewardEligibility(reward, metrics, systemEnabled);
-  const image = rewardImageUrl(reward.image_path);
+  const image = rewardArtwork(reward);
   const referral = reward.program_type === "referral";
   return `<article class="reward-card ${eligible ? "eligible" : ""} ${referral ? "referral-reward" : ""}"><div class="reward-card-art">${image ? `<img class="reward-card-image" src="${e(image)}" alt="${e(reward.partner_name || reward.name)}">` : `<span class="reward-icon">${I(reward.icon || "gift")}</span>`}${referral ? '<span class="badge referral">INVITA Y GANA</span>' : ""}</div><div class="reward-card-copy"><div class="reward-card-cost">${reward.automatic ? "Meta automática" : `${reward.points_cost} puntos`}</div><h3>${e(reward.name)}</h3><p>${e(reward.description)}</p><small>${e(reason)}${reward.partner_name ? ` · ${e(reward.partner_name)}` : ""}</small></div>${!reward.automatic ? `<button class="btn ${eligible ? "" : "secondary"}" data-redeem="${e(reward.id)}" ${eligible ? "" : "disabled"}>${eligible ? "Canjear recompensa" : "Aún no disponible"}</button>` : ""}</article>`;
 }
@@ -3321,7 +3333,7 @@ function rewardOperationCard(redemption) {
   const canPrepare = external && redemption.status === "requested";
   const canRedeem = external && ["available", "fulfilled"].includes(redemption.status);
   const canCancel = external && ["available", "requested", "fulfilled"].includes(redemption.status);
-  const image = rewardImageUrl(redemption.image_path);
+  const image = rewardArtwork(redemption);
   return `<article class="reward-operation-card" data-reward-op-audience="${e(redemption.audience)}" data-reward-op-status="${e(redemption.status)}">${image ? `<img class="marketing-reward-image" src="${e(image)}" alt="${e(redemption.partner_name || redemption.name)}">` : `<div class="reward-icon">${I(redemption.icon || "gift")}</div>`}<div><div class="row wrap"><strong>${e(redemption.name)}</strong><span class="badge neutral">${redemption.audience === "driver" ? "Conductor" : "Pasajero"}</span></div><small>${e(redemption.user_name || "Usuario")} · ${e(redemption.phone || "Sin teléfono")} · ${e(redemption.code)}</small><p>${e(redemption.claim_instructions || redemption.description || "Sin instrucciones de canje.")}</p>${redemption.claim_location ? `<small>${I("map-pin")} ${e(redemption.claim_location)}</small>` : ""}${redemption.redemption_reference ? `<small>Referencia: ${e(redemption.redemption_reference)}</small>` : ""}</div><span class="badge ${["requested", "fulfilled"].includes(redemption.status) ? "pending" : ""}">${e(rewardStatusName[redemption.status] || redemption.status)}</span><div class="row wrap reward-operation-actions"><button class="btn secondary" data-ops-reward-ticket="${e(redemption.id)}">Ver ticket ${I("barcode")}</button>${canPrepare ? `<button class="btn" data-reward-review="${e(redemption.id)}" data-result="fulfilled">Marcar lista</button>` : ""}${canRedeem ? `<button class="btn" data-reward-review="${e(redemption.id)}" data-result="redeemed">Registrar canje</button>` : ""}${canCancel ? `<button class="btn danger" data-reward-review="${e(redemption.id)}" data-result="cancelled">Cancelar</button>` : ""}</div></article>`;
 }
 function openRewardOperationReview(redemption, result) {
