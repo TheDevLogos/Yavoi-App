@@ -2119,9 +2119,14 @@ async function tripView(id) {
   const rewardPaymentRow = t.reward_discount_cents
     ? `<div class="receipt-row positive-points"><span>Recompensa Puntos Viajeros</span><strong>-${money(t.reward_discount_cents)}</strong></div>`
     : "";
+  const driverTripEarnings = Number(t.fare_cents || 0) - Number(t.commission_cents || 0) + Number(t.tip_cents || 0);
+  const driverPaymentRow = S.profile.role === "driver"
+    ? `<div class="receipt-row total driver-trip-earnings"><span>Tu ganancia</span><strong>${money(driverTripEarnings)}</strong></div><p class="hint">Calculada sobre la tarifa contractual; los descuentos financiados por Yavoi! no reducen esta ganancia.</p>`
+    : "";
   let paymentRows = serviceDetails + (t.payment_method === "card"
     ? `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · tarjeta</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div><p class="hint">Estado del pago: ${e({ paid: "Confirmado", pending: "En proceso", failed: "No aprobado", refund_pending: "Reembolso en proceso", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</p>`
     : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div>${Number(t.total_cents || 0) > 0 ? `<div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(t.total_cents ?? t.fare_cents, t.cash_tender_cents))}</strong></div>` : '<p class="hint">Viaje cubierto por tu recompensa. No entregues efectivo por la tarifa.</p>'}`);
+  if (t.status !== "cancelled") paymentRows += driverPaymentRow;
   if (t.status === "cancelled") {
     const feeStatus = cancellationPayment
       ? ({ pending: "Pendiente de confirmar", approved: "Confirmada", cancelled: "Condonada" }[cancellationPayment.status] || cancellationPayment.status)
