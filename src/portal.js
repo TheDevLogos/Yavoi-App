@@ -510,6 +510,9 @@ function clearSession() {
   S.trip = null;
   S.profile = null;
   S.driver = null;
+  S.origin = null;
+  S.destination = null;
+  S.latestPosition = null;
   S.quote = null;
   S.roadRoute = null;
   S.units = [];
@@ -811,8 +814,10 @@ function mapFrame(
   caption = "Busca una dirección con calle y número, o elige qué marcador colocar en el mapa.",
   routeMode = "",
 ) {
-  const legend = routeMode
-    ? `<div class="map-route-legend"><span class="suggested"><i></i>Ruta sugerida</span>${routeMode === "trip" ? '<span class="actual"><i></i>Recorrido real</span>' : ""}</div>`
+  const legend = routeMode === "trip"
+    ? `<div class="map-route-legend"><span class="suggested"><i></i>Ruta sugerida</span><span class="actual"><i></i>Recorrido real</span></div>`
+    : routeMode === "planning"
+      ? '<div class="map-route-legend hidden" id="planning-route-legend"><span class="suggested"><i></i>Ruta sugerida</span></div>'
     : "";
   return `<section class="map-panel"><div class="map-top">Delicias, Chihuahua</div>${legend}<div class="map-placement hidden" id="${id}-placement">${I("crosshair")}<span></span><button type="button" data-action="cancel-map-placement" aria-label="Cancelar selección">${I("x")}</button></div><button class="map-fullscreen" type="button" data-action="map-fullscreen" aria-label="Ver mapa en pantalla completa">${I("maximize-2")}<span>Ampliar</span></button><div class="map" id="${id}" aria-label="Mapa de Delicias"></div><div class="map-caption">${I("shield-check")}<span>${caption}</span></div></section>`;
 }
@@ -873,6 +878,9 @@ async function placeRidePoint(kind, point, { resolveAddress = false, focus = fal
   if (!preserveRoute) {
     S.routeVersion += 1;
     S.roadRoute = null;
+    $("#planning-route-legend")?.classList.add("hidden");
+    const caption = $(".map-caption span");
+    if (caption) caption.textContent = "El punto naranja marca tu partida. Elige un destino para ver la ruta sugerida.";
   }
   drawPoints(null, { fit: false });
   if (focus) S.map?.setView([chosen.lat, chosen.lng], 17);
@@ -952,6 +960,7 @@ async function loadRoadRoute(trip = null) {
     renderRouteGuide();
     updateRouteMonitor();
     if (!trip) {
+      $("#planning-route-legend")?.classList.remove("hidden");
       const caption = $(".map-caption span");
       if (caption) caption.textContent = `Ruta sugerida por calles · ${decimal(route.distance_km)} km · ${route.duration_minutes} min`;
     }
@@ -1253,12 +1262,6 @@ function updateTripMap() {
   if (!stale) rotateVehicle(S.tripVehicleMarker, heading);
   updateRouteMonitor();
 }
-function draftPoint(draft, prefix) {
-  const name = draft?.[prefix === "origin" ? "origin" : "destination"];
-  const lat = Number(draft?.[prefix === "origin" ? "origin_lat" : "dest_lat"]);
-  const lng = Number(draft?.[prefix === "origin" ? "origin_lng" : "dest_lng"]);
-  return name && Number.isFinite(lat) && Number.isFinite(lng) ? { name, lat, lng } : null;
-}
 function rideDraftPayload(form = $("#quote-form")) {
   if (!form) return null;
   const values = Object.fromEntries(new FormData(form));
@@ -1317,18 +1320,18 @@ function openSavedDestinationEditor() {
     });
     S.data.saved_places = [...saved.filter((item) => item.slot !== place.slot), place];
     closeModal();
-    riderHome();
+    riderHome({ preserveDestination: true });
     notify(`${labels[place.slot]} quedó disponible en el campo Destino.`);
   });
   $$('[data-delete-saved-place]', modal).forEach((item) => item.onclick = () => run(async () => {
     await rpc("delete_saved_place", { slot: item.dataset.deleteSavedPlace });
     S.data.saved_places = saved.filter((place) => place.slot !== item.dataset.deleteSavedPlace);
     closeModal();
-    riderHome();
+    riderHome({ preserveDestination: true });
     notify("Destino guardado eliminado.");
   }));
 }
-function riderHome() {
+function riderHome({ preserveDestination = false } = {}) {
   const current = S.data.trips.find(
     (trip) => active(trip) && !(trip.scheduled_at && ["scheduled", "payment_pending"].includes(trip.status)),
   );
@@ -1346,9 +1349,10 @@ function riderHome() {
     return;
   }
   const draft = S.data.ride_draft;
-  if (draft) {
-    S.destination = draftPoint(draft, "destination");
-  }
+  const chosenDestination = preserveDestination ? S.destination : null;
+  // Recupera preferencias del borrador, pero exige que el pasajero elija de nuevo
+  // el destino para evitar mostrar una ruta anterior al entrar en Pedir un viaje.
+  S.destination = chosenDestination;
   S.passengerOriginMode = "gps";
   S.passengerGpsLastApplied = 0;
   S.origin = S.latestPosition ? {
@@ -1376,9 +1380,9 @@ function riderHome() {
   const minSchedule = localDateTime(new Date(Date.now() + 15 * 60000));
   const maxSchedule = localDateTime(new Date(Date.now() + 30 * 86400000));
   shell(
-    `<div class="booking"><section class="panel booking-panel"><div class="row between booking-title"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Plan recuperado" : "Guardado automático"}</small></div><form id="quote-form">
+    `<div class="booking"><section class="panel booking-panel"><div class="row between booking-title"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Preferencias recuperadas" : "Guardado automático"}</small></div><form id="quote-form">
       <div class="address-field"><label class="input-point"><span class="address-caption">Punto de partida</span><span class="address-control"><img src="/assets/map-origin.svg" alt=""><input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search" placeholder="Escribe una dirección"></span></label></div>
-      <div class="address-field destination-address"><label class="input-point"><span class="address-caption">Destino</span><span class="address-control"><img src="/assets/map-destination.svg" alt=""><input name="destination" list="destinations" value="${e(S.destination?.name || draft?.destination || "")}" placeholder="Escribe calle, número o lugar" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search"><button type="button" id="destination-history-toggle" class="address-dropdown" aria-label="Mostrar los últimos destinos" aria-expanded="false">${I("chevron-down")}</button></span></label><div id="destination-history" class="address-history-menu hidden">${recent.length ? `<small>ÚLTIMOS DESTINOS</small>${recent.map((place, index) => `<button type="button" data-recent-destination="${index}">${I("history")}<span>${e(place.name)}</span></button>`).join("")}` : '<p>Aún no hay destinos recientes.</p>'}</div></div>
+      <div class="address-field destination-address"><label class="input-point"><span class="address-caption">Destino</span><span class="address-control"><img src="/assets/map-destination.svg" alt=""><input name="destination" list="destinations" value="" placeholder="Escribe calle, número o lugar" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search"><button type="button" id="destination-history-toggle" class="address-dropdown" aria-label="Mostrar los últimos destinos" aria-expanded="false">${I("chevron-down")}</button></span></label><div id="destination-history" class="address-history-menu hidden">${recent.length ? `<small>ÚLTIMOS DESTINOS</small>${recent.map((place, index) => `<button type="button" data-recent-destination="${index}">${I("history")}<span>${e(place.name)}</span></button>`).join("")}` : '<p>Aún no hay destinos recientes.</p>'}</div></div>
       <datalist id="destinations">${destinationChoices.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist>
       <div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Elegir origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Elegir destino</button><button type="button" id="save-destination">${I("bookmark-plus")} Guardar destino</button></div>
       <h3 class="service-picker-title">Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt="Vehículo Yavoi! ${e(category.name)}"></div><div class="category-copy"><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div>
@@ -1437,6 +1441,9 @@ function riderHome() {
       S[kind] = null;
       S.routeVersion += 1;
       S.roadRoute = null;
+      $("#planning-route-legend")?.classList.add("hidden");
+      const caption = $(".map-caption span");
+      if (caption) caption.textContent = "El punto naranja marca tu partida. Elige un destino para ver la ruta sugerida.";
       drawPoints(null, { fit: false });
       if (kind === "origin") S.passengerOriginMode = "manual";
       $("#destination-history")?.classList.add("hidden");
