@@ -6,6 +6,7 @@ const migration = await readFile(new URL("../supabase/migrations/20260922200351_
 const finance = await readFile(new URL("../src/operations-finance.js", import.meta.url), "utf8");
 const portal = await readFile(new URL("../portal.html", import.meta.url), "utf8");
 const walletMigration = await readFile(new URL("../supabase/migrations/20260923051243_driver_payment_aware_wallet.sql", import.meta.url), "utf8");
+const walletCorrection = await readFile(new URL("../supabase/migrations/20260923121727_correct_driver_electronic_balance.sql", import.meta.url), "utf8");
 
 test("referral point entries are accepted and invitees receive a controlled first-trip discount", () => {
   assert.match(migration, /'referral_registered','referral_first_trip','referral_welcome'/);
@@ -38,6 +39,7 @@ test("Operations uses existing views for referral alerts and weekly reimbursemen
   assert.match(finance, /Referido completó su primer viaje/);
   assert.match(finance, /review_driver_promotion_reimbursement/);
   assert.match(finance, /20% en su primer viaje, máximo \$40/);
+  assert.match(finance, /escapeHtml\(item\.driver_name/);
 });
 
 
@@ -50,4 +52,6 @@ test("driver wallet separates cash from platform-held electronic earnings", () =
   assert.match(walletMigration, /electronic_balance_cents/);
   assert.match(walletMigration, /'withdrawals_enabled',false/);
   assert.match(walletMigration, /when 'dashboard' then private\.dashboard_v17/);
+  assert.match(walletCorrection, /electronic_net:=electronic_gross-card_commission/);
+  assert.match(walletCorrection, /pay\.kind='tip' and pay\.provider='mercado_pago' and pay\.status='approved'/);
 });

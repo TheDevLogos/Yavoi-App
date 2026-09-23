@@ -2263,7 +2263,7 @@ function wallet() {
     .reduce((sum, trip) => sum + Number(trip.total_cents ?? trip.fare_cents ?? 0), 0));
   const electronicNet = Number(moneySummary.electronic_net_cents ?? driverTrips
     .filter((trip) => trip.payment_method === "card")
-    .reduce((sum, trip) => sum + Number(trip.fare_cents || 0) - Number(trip.commission_cents || 0) + Number(trip.tip_cents || 0), 0));
+    .reduce((sum, trip) => sum + Number(trip.total_cents || 0) - Number(trip.commission_cents || 0), 0));
   const promotionPending = Number(moneySummary.promotion_reimbursements_pending_cents ?? (S.data.promotion_reimbursements || [])
     .filter((item) => ["pending", "overdue"].includes(item.status))
     .reduce((sum, item) => sum + Number(item.reimbursement_cents || 0), 0));

@@ -888,6 +888,10 @@ test("Postgres security and complete ride lifecycle", async () => {
   const cardDriverData = await rpc("dashboard");
   assert.equal(cardDriverData.ledger.filter((l) => l.kind === "card_tip").length, 1);
   assert.ok(cardDriverData.reward_wallet.available_points >= 12);
+  assert.equal(cardDriverData.driver_money.electronic_gross_cents, cardTrip.total_cents);
+  assert.equal(cardDriverData.driver_money.electronic_net_cents, cardTrip.total_cents - cardDone.commission_cents);
+  assert.equal(cardDriverData.driver_money.promotion_reimbursements_pending_cents, cardTrip.reward_discount_cents);
+  assert.equal(cardDriverData.driver_money.electronic_balance_cents, cardTrip.fare_cents - cardDone.commission_cents + cardTrip.tip_cents);
   assert.equal((await rpc("trip", { trip_id: cardTrip.id })).route_history.length, 1);
 
   // Cancellation protection is calculated with server time, keeps both parties

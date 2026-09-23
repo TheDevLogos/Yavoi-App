@@ -156,6 +156,11 @@ export function reportSections(report = {}, type = "overview") {
         ["Transferencias de efectivo cobradas", money(commercial.cash_transfers_collected_cents), "Comisiones en efectivo ya transferidas"],
         ["Transferencias pendientes", money(commercial.cash_transfers_pending_cents), "Comisiones por recibir o revisar"],
         ["Ingreso Yavoi! cobrado", money(commercial.platform_revenue_collected_cents), "Electrónico + aportaciones + transferencias recibidas"],
+        ["Descuentos financiados por Yavoi!", money(commercial.promotion_discounts_cents), `${num(commercial.promotion_free_trips)} viajes gratis incluidos`],
+        ["Reembolsos pendientes a conductores", money(commercial.promotion_reimbursements_pending_cents), "Obligaciones promocionales sin transferir"],
+        ["Reembolsos transferidos a conductores", money(commercial.promotion_reimbursements_paid_cents), "Transferencias promocionales verificadas en el periodo"],
+        ["Contribución tras promociones", money(commercial.platform_contribution_after_promotions_cents), "Ingreso comercial generado menos descuentos del periodo"],
+        ["Caja tras reembolsos", money(commercial.platform_cash_after_promotion_reimbursements_cents), "Ingreso cobrado menos reembolsos transferidos en el periodo"],
       ],
     },
     {

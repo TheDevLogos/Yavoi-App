@@ -31,7 +31,7 @@ const report = {
     month: { trips: 26, completed: 24, gross_cents: 156000, platform_commission_cents: 31200 },
     year: { trips: 26, completed: 24, gross_cents: 156000, platform_commission_cents: 31200 },
   },
-  commercial_summary: { trip_commission_accrued_cents: 31200, electronic_commission_retained_cents: 18000, weekly_fees_collected_cents: 50000, cash_transfers_collected_cents: 13200, cash_transfers_pending_cents: 4000, platform_revenue_collected_cents: 81200 },
+  commercial_summary: { trip_commission_accrued_cents: 31200, electronic_commission_retained_cents: 18000, weekly_fees_collected_cents: 50000, cash_transfers_collected_cents: 13200, cash_transfers_pending_cents: 4000, platform_revenue_collected_cents: 81200, promotion_discounts_cents: 3000, promotion_free_trips: 1, promotion_reimbursements_pending_cents: 2000, promotion_reimbursements_paid_cents: 1000, platform_contribution_after_promotions_cents: 78200, platform_cash_after_promotion_reimbursements_cents: 80200 },
   drivers: [{ id: "driver-1", full_name: "Conductor Prueba", vehicle: "Nissan Versa", plate: "ABC123A", completed: 12, gross_cents: 78000, driver_earnings_cents: 62400, platform_commission_cents: 15600, rating: 4.9, ratings_count: 10, incidents: 0 }],
   billing_drivers: [{ id: "driver-1", full_name: "Conductor Prueba", billing_mode: "commission", weekly_fee_cents: 50000, cash_commission_bps: 2000, card_commission_bps: 2000, weekly_fees_collected_cents: 0, cash_transfers_collected_cents: 7200, cash_transfers_pending_cents: 4000, platform_revenue_collected_cents: 15600 }],
   incidents: [],
@@ -70,6 +70,8 @@ test("each report builds a useful table and a valid PDF", async () => {
   assert.ok(bytes.length > 5000);
   assert.equal(new TextDecoder().decode(bytes.slice(0, 4)), "%PDF");
   assert.equal(reportSections(report, "overview")[1].title, "Conciliación comercial de Yavoi!");
+  assert.ok(reportSections(report, "overview")[1].body.some((row) => row[0] === "Descuentos financiados por Yavoi!" && row[1] === "$30.00"));
+  assert.ok(reportSections(report, "overview")[1].body.some((row) => row[0] === "Caja tras reembolsos" && row[1] === "$802.00"));
   assert.equal(reportSections(report, "overview")[2].title, "Cumplimiento de transporte");
   assert.deepEqual(reportSections(report, "overview")[2].body[2], ["Recibos por correo", "23 enviados", "1 pendientes · 0 con error"]);
   assert.deepEqual(reportSections(report, "overview")[2].body[4], ["Aportación al Fondo de Movilidad", "$23.40", "Estimación del periodo con la tasa configurada"]);
