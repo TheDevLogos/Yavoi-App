@@ -425,6 +425,11 @@ test("expanded dispatch, seven alerts, fixed capacity, compact profiles and shif
 });
 
 test("driver income is compact and filterable by period and concept", () => {
+  assert.match(portal, /EFECTIVO COBRADO/);
+  assert.match(portal, /PAGOS ELECTRÓNICOS/);
+  assert.match(portal, /SALDO ELECTRÓNICO REGISTRADO/);
+  assert.match(portal, /retiro bancario automático todavía no está habilitado/);
+  assert.match(css, /\\.driver-money-summary/);
   assert.match(portal, /class="panel profile-section income-movements/);
   assert.match(portal, /data-ledger-period="today"/);
   assert.match(portal, /data-ledger-period="week"/);
