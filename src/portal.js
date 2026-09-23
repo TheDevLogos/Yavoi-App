@@ -3314,10 +3314,25 @@ async function inbox() {
 }
 function help() {
   const admin = S.profile.role === "admin";
+  const recentTrips = [...S.data.trips]
+    .sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0))
+    .slice(0, 3);
+  const topics = [
+    ["route", "Viajes y cancelaciones", "Revisa el recorrido, el estado y las condiciones de cada viaje.", "trips", "Abrir Mis viajes"],
+    ["wallet", admin ? "Pagos y cuotas" : S.profile.role === "driver" ? "Ingresos y cobros" : "Cobros y cartera", "Consulta importes, movimientos y pagos registrados.", admin ? "payments" : "wallet", "Revisar movimientos"],
+    ["shield-check", "Seguridad en el viaje", "Qué hacer antes, durante y después de una situación de riesgo.", "safety", "Ver recomendaciones"],
+    ["user-round", "Cuenta y documentos", "Consulta tus datos, acceso y documentos de la cuenta.", "profile", "Ir a Mi perfil"],
+    ["gift", "Recompensas y referidos", "Consulta beneficios, invitaciones y movimientos de recompensas.", admin ? "marketing" : "rewards", "Ver recompensas"],
+    ["inbox", "Mensajes de Yavoi!", "Lee comunicados y avisos relacionados con tu cuenta.", "inbox", "Abrir bandeja"],
+  ];
+  const tripCards = recentTrips.length
+    ? recentTrips.map((t) => `<article class="help-trip-card"><span class="help-trip-mark">${I("route")}</span><div class="help-trip-main"><strong>${e(t.destination || "Destino por confirmar")}</strong><small>${date(t.created_at)} · Folio ${e(t.id.slice(0, 8).toUpperCase())}</small><div class="help-trip-meta">${badge(t)}<span>${t.status === "cancelled" ? "Consulta cargos y condiciones en el detalle" : `${t.status === "completed" ? "Importe" : "Importe estimado"} ${money(t.total_cents ?? t.fare_cents)}`}</span></div></div><div class="help-trip-actions"><a class="link" href="#trip/${e(t.id)}">Ver viaje</a>${admin ? "" : `<button class="link" type="button" data-action="help-trip-report" data-trip-id="${e(t.id)}">Reportar este viaje</button>`}</div></article>`).join("")
+    : '<div class="empty"><p>Aún no hay viajes en tu historial. Cuando tengas uno, podrás consultarlo y reportar cualquier incidencia desde aquí.</p></div>';
+  const topicCards = topics.map(([icon, title, description, view, label]) => `<a class="help-topic" href="#${view}"><span class="help-topic-icon">${I(icon)}</span><span><strong>${title}</strong><small>${description}</small><em>${label} ${I("arrow-right")}</em></span></a>`).join("");
   shell(
-    `<div class="grid2"><section class="panel">${I("shield-check")}<h2 class="section-gap">Estamos para escucharte</h2><p>Registra un problema de viaje, tarifa, trato u objeto olvidado. Consulta el estado y la respuesta aquí.</p>${button("Registrar un reporte", "complaint", "", "message-square")}</section><section class="panel"><h2>¿Es una emergencia?</h2><p>Si estás en peligro inmediato, llama a los servicios de emergencia. Los reportes escritos no garantizan una respuesta inmediata.</p><a class="btn danger" href="tel:911">${I("phone")} Llamar al 911</a></section></div><section class="panel section-gap"><h2>${admin ? "Bandeja de atención" : "Mis reportes"}</h2>${S.data.complaints.length ? S.data.complaints.map((c) => `<article class="audit-item"><div class="row between"><strong>${e(c.subject)}</strong><span class="badge ${c.status === "resolved" ? "" : "pending"}">${{ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[c.status]}</span></div><p class="section-gap">${e(c.body)}</p>${c.response ? `<p class="hint">Respuesta: ${e(c.response)}</p>` : ""}<small>${date(c.created_at)} · ${e(c.id.slice(0, 8))}</small>${admin ? `<button class="link" data-report="${e(c.id)}">Atender reporte</button>` : ""}</article>`).join("") : '<div class="empty"><p>No tienes reportes registrados.</p></div>'}</section>`,
-    "Ayuda y seguridad",
-    "Un espacio para resolver dudas y dar seguimiento a cada reporte.",
+    `<section class="panel help-intro"><div><div class="eyebrow">CENTRO DE AYUDA YAVOI!</div><h2>¿En qué podemos ayudarte?</h2><p>Encuentra información de tu cuenta y tus viajes. Si algo salió mal, registra un reporte y consulta la respuesta en esta misma página.</p><div class="help-intro-actions">${button("Crear un reporte", "complaint", "", "message-square")}<button class="btn secondary" type="button" data-action="help-reports">Ver seguimiento</button></div></div><span class="help-intro-mark">${I("life-buoy")}</span></section><section class="panel section-gap"><div class="row between wrap help-section-head"><div><h2>${admin ? "Viajes recientes" : "Tus 3 viajes recientes"}</h2><p>Abre el resumen de Ver viaje para revisar ruta, estado, pago y condiciones registradas.</p></div><a class="link" href="#trips">Ver todos los viajes ${I("arrow-right")}</a></div><div class="help-trip-list">${tripCards}</div></section><section class="section-gap"><h2 class="help-topics-title">Explora los temas de ayuda</h2><div class="help-topic-grid">${topicCards}</div></section><section class="panel section-gap help-emergency"><span>${I("shield-alert")}</span><div><h2>¿Hay peligro inmediato?</h2><p>Busca un lugar seguro y llama al 911. Los reportes escritos sirven para seguimiento y no sustituyen una llamada de emergencia.</p></div><a class="btn danger" href="tel:911">${I("phone")} Llamar al 911</a></section><section class="panel section-gap" id="help-reports"><div class="row between wrap help-section-head"><div><h2>${admin ? "Bandeja de atención" : "Mis reportes"}</h2><p>${admin ? "Consulta y responde los reportes recibidos." : "Consulta el estado de tus reportes y las respuestas de Operaciones."}</p></div>${admin ? "" : button("Nuevo reporte", "complaint", "secondary", "plus")}</div>${S.data.complaints.length ? S.data.complaints.map((c) => `<article class="audit-item"><div class="row between wrap"><strong>${e(c.subject)}</strong><span class="badge ${c.status === "resolved" ? "" : "pending"}">${e({ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[c.status] || c.status)}</span></div><p class="section-gap">${e(c.body)}</p>${c.response ? `<p class="hint">Respuesta: ${e(c.response)}</p>` : ""}<div class="help-report-footer"><small>${date(c.created_at)} · Folio ${e(c.id.slice(0, 8).toUpperCase())}</small>${c.trip_id ? `<a class="link" href="#trip/${e(c.trip_id)}">Ver viaje relacionado</a>` : ""}${admin ? `<button class="link" data-report="${e(c.id)}">Atender reporte</button>` : ""}</div></article>`).join("") : `<div class="empty"><p>${admin ? "No hay reportes registrados." : "Aún no has creado reportes."}</p></div>`}</section>`,
+    "Ayuda",
+    "Resuelve dudas y da seguimiento a tus viajes y reportes.",
   );
   $$("[data-report]").forEach(
     (b) =>
@@ -4091,6 +4106,7 @@ async function updateDriverPresence(showConfirmation = true) {
 async function handleAction(action, b) {
   if (action === "logout") return signOut();
   if (action === "refresh") return run(S.view === "opsmap" ? refreshOperationsMap : refreshPage);
+  if (action === "help-reports") return $("#help-reports")?.scrollIntoView({ behavior: "smooth", block: "start" });
   if (action === "open-chat") {
     $("#trip-chat")?.scrollIntoView({ behavior: "smooth", block: "center" });
     setTimeout(() => $("#chat-form input")?.focus(), 450);
@@ -4214,11 +4230,14 @@ async function handleAction(action, b) {
     });
     return;
   }
-  if (action === "complaint" || action === "trip-report") {
-    const selectedTrip = action === "trip-report" ? S.trip?.trip?.id || "" : "";
+  if (action === "complaint" || action === "trip-report" || action === "help-trip-report") {
+    const selectedTrip = action === "help-trip-report"
+      ? S.data.trips.find((t) => t.id === b?.dataset.tripId)?.id || ""
+      : action === "trip-report" ? S.trip?.trip?.id || "" : "";
+    const safetyDefault = action === "trip-report";
     openModal(
       selectedTrip ? "Reportar este viaje" : "Cuéntanos qué ocurrió",
-      `<form id="complaint"><label>Viaje (opcional)<select name="trip_id"><option value="">Consulta general</option>${S.data.trips.map((t) => `<option value="${e(t.id)}" ${t.id === selectedTrip ? "selected" : ""}>${e(t.id.slice(0, 8))} · ${e(t.destination)}</option>`).join("")}</select></label><label>Motivo<select name="subject"><option>Problema con el viaje</option><option ${selectedTrip ? "selected" : ""}>Seguridad durante el viaje</option><option>Tarifa o efectivo</option><option>Objeto olvidado</option><option>Otro</option></select></label><label>Descripción<textarea name="body" required minlength="10" maxlength="2000" placeholder="Cuéntanos lo ocurrido."></textarea></label><label class="check"><input name="suspected_crime" type="checkbox">Puede tratarse de un delito y requiere aviso formal a la autoridad</label><p class="hint">Esta marca crea seguimiento prioritario en Operaciones. Ante peligro inmediato llama al 911.</p><button class="btn wide" type="submit">Enviar reporte</button></form>`,
+      `<form id="complaint"><label>Viaje (opcional)<select name="trip_id"><option value="">Consulta general</option>${S.data.trips.map((t) => `<option value="${e(t.id)}" ${t.id === selectedTrip ? "selected" : ""}>${e(t.id.slice(0, 8))} · ${e(t.destination)}</option>`).join("")}</select></label><label>Motivo<select name="subject"><option>Problema con el viaje</option><option ${safetyDefault ? "selected" : ""}>Seguridad durante el viaje</option><option>Cobro, reembolso o efectivo</option><option>Cancelación</option><option>Objeto olvidado</option><option>Cuenta o documentos</option><option>Recompensas o referidos</option><option>Problema con el mapa</option><option>Otro</option></select></label><label>Descripción<textarea name="body" required minlength="10" maxlength="2000" placeholder="Cuéntanos lo ocurrido."></textarea></label><label class="check"><input name="suspected_crime" type="checkbox">Puede tratarse de un delito y requiere aviso formal a la autoridad</label><p class="hint">Esta marca crea seguimiento prioritario en Operaciones. Ante peligro inmediato llama al 911.</p><button class="btn wide" type="submit">Enviar reporte</button></form>`,
     );
     bindForm("#complaint", async (v) => {
       await rpc("complaint", { ...v, suspected_crime: v.suspected_crime === "on" });

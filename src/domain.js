@@ -204,7 +204,7 @@ export const driverDossierStatus = (profile = {}, driver = {}, transportComplian
 export const allowedView = (role, view) =>
   navs[role]?.some(([v]) => v === view) ||
   view === "trip" ||
-  ["inbox", "safety"].includes(view) ||
+  ["help", "inbox", "safety"].includes(view) ||
   (role === "passenger" && view === "schedule-confirmation");
 export const normalizeHeading = (value) => {
   if (value === null || value === undefined || value === "") return null;
