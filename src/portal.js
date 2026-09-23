@@ -2247,19 +2247,20 @@ function wallet() {
     ? S.data.ledger.reduce((n, l) => n + l.amount_cents, 0)
     : completed.reduce((n, t) => n + (t.total_cents ?? t.fare_cents), 0);
   const driverTrips = driver ? completed.filter((trip) => trip.driver_id === S.user.id) : [];
-  const cashCollected = driverTrips
+  const moneySummary = S.data.driver_money || {};
+  const cashCollected = Number(moneySummary.cash_collected_cents ?? driverTrips
     .filter((trip) => trip.payment_method === "cash")
-    .reduce((sum, trip) => sum + Number(trip.total_cents ?? trip.fare_cents ?? 0), 0);
-  const electronicGross = driverTrips
+    .reduce((sum, trip) => sum + Number(trip.total_cents ?? trip.fare_cents ?? 0), 0));
+  const electronicGross = Number(moneySummary.electronic_gross_cents ?? driverTrips
     .filter((trip) => trip.payment_method === "card")
-    .reduce((sum, trip) => sum + Number(trip.total_cents ?? trip.fare_cents ?? 0), 0);
-  const electronicNet = driverTrips
+    .reduce((sum, trip) => sum + Number(trip.total_cents ?? trip.fare_cents ?? 0), 0));
+  const electronicNet = Number(moneySummary.electronic_net_cents ?? driverTrips
     .filter((trip) => trip.payment_method === "card")
-    .reduce((sum, trip) => sum + Number(trip.fare_cents || 0) - Number(trip.commission_cents || 0) + Number(trip.tip_cents || 0), 0);
-  const promotionPending = (S.data.promotion_reimbursements || [])
+    .reduce((sum, trip) => sum + Number(trip.fare_cents || 0) - Number(trip.commission_cents || 0) + Number(trip.tip_cents || 0), 0));
+  const promotionPending = Number(moneySummary.promotion_reimbursements_pending_cents ?? (S.data.promotion_reimbursements || [])
     .filter((item) => ["pending", "overdue"].includes(item.status))
-    .reduce((sum, item) => sum + Number(item.reimbursement_cents || 0), 0);
-  const withdrawable = electronicNet + promotionPending;
+    .reduce((sum, item) => sum + Number(item.reimbursement_cents || 0), 0));
+  const withdrawable = Number(moneySummary.electronic_balance_cents ?? electronicNet + promotionPending);
   const ledgerNames = { fare: "Tarifa cobrada", commission: "Comisión Yavoi!", cash_tip: "Propina en efectivo", card_tip: "Propina electrónica" };
   shell(
     `${driver ? driverBillingCard() : ""}<div class="balance ${driver ? "section-gap" : ""}"><small>${driver ? "INGRESO NETO REGISTRADO" : "TOTAL DE VIAJES COMPLETADOS"}</small><h2>${money(total)}</h2><p>${driver ? "Tarifas, menos la comisión aplicable a cada viaje, más todas tus propinas." : "Pagos registrados por viajes completados."}</p></div>${driver ? `<section class="driver-money-summary"><div><small>EFECTIVO COBRADO</small><strong>${money(cashCollected)}</strong><p>Lo recibiste directamente del pasajero.</p></div><div><small>PAGOS ELECTRÓNICOS</small><strong>${money(electronicGross)}</strong><p>${money(electronicNet)} netos después de comisión.</p></div><div><small>SALDO ELECTRÓNICO REGISTRADO</small><strong>${money(withdrawable)}</strong><p>${promotionPending ? `Incluye ${money(promotionPending)} de promociones Yavoi! por reembolsar.` : "Sin reembolsos promocionales pendientes."}</p></div></section><p class="hint wallet-payout-note">Este saldo es contable. El retiro bancario automático todavía no está habilitado; Operaciones debe conciliar o transferir los pagos electrónicos y reembolsos correspondientes.</p><details class="panel profile-section income-movements section-gap" open><summary><span>${I("list-filter")}<strong>Tus movimientos</strong></span><span class="badge neutral" id="ledger-count">${S.data.ledger.length}</span>${I("chevron-down")}</summary><div class="profile-section-body"><div class="income-filters"><div class="trip-quick-filters" aria-label="Filtrar movimientos por periodo"><button class="active" data-ledger-period="all">Todos</button><button data-ledger-period="today">Hoy</button><button data-ledger-period="week">Semana</button><button data-ledger-period="month">Mes</button></div><label>Tipo<select id="ledger-kind-filter"><option value="all">Todos los conceptos</option>${Object.entries(ledgerNames).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label></div><div id="ledger-rows">${driverLedgerRows(S.data.ledger, ledgerNames)}</div><div class="empty" id="ledger-filter-empty" ${S.data.ledger.length ? "hidden" : ""}><p>No hay movimientos para este filtro.</p></div></div></details><details class="panel profile-section section-gap income-section"><summary><span>${I("calculator")}<strong>Cómo se calcula</strong></span>${I("chevron-down")}</summary><div class="profile-section-body"><p>La tarifa y la propina se muestran por separado. Las propinas son 100% tuyas; el porcentaje comercial sólo se calcula sobre la tarifa del viaje.</p><p class="hint">En pagos electrónicos Yavoi! registra el monto neto. En efectivo, una comisión pendiente aparece en la liquidación semanal sólo cuando tu modalidad es por comisión.</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></div></details>` : `<div class="grid2"><section class="panel"><h2>Métodos de pago</h2><div class="row">${I("banknote")}<strong>Efectivo</strong><span class="badge">Disponible</span></div><p class="hint">Indica si necesitas cambio antes de solicitar. El conductor verá el monto con el que pagarás.</p><div class="row muted">${I("credit-card")}<strong>Tarjeta</strong><span class="badge neutral">Próximamente</span></div><p class="hint">No se guardan datos de tarjeta. Esta opción se activará al conectar un proveedor de pagos.</p></section><section class="panel"><h2>Cada peso, con claridad</h2><p>La tarifa se muestra antes de confirmar. La propina es voluntaria y puedes entregarla directamente en efectivo.</p><p class="hint">Cada cobro queda relacionado con el viaje y su recibo.</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></section></div>`}${driver ? driverSettlementsMarkup() : ""}`,
