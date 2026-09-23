@@ -364,10 +364,12 @@ function closeModal() {
   S.mpController = null;
   modal.close();
   modal.innerHTML = "";
+  modal.classList.remove("feature-card-dialog");
   if (S.profile?.role === "driver" && S.pendingOfferIds.size)
     setTimeout(() => safeRefresh(), 0);
 }
-function openModal(title, content) {
+function openModal(title, content, { variant = "" } = {}) {
+  modal.classList.toggle("feature-card-dialog", variant === "feature-card");
   modal.innerHTML = `<button class="close" type="button" aria-label="Cerrar">${I("x")}</button><h2 id="modal-title">${e(title)}</h2>${content}`;
   $(".close", modal).onclick = closeModal;
   if (!modal.open) modal.showModal();
@@ -2581,7 +2583,7 @@ function featureCardsMarkup(audience) {
 }
 function openFeatureCard(card) {
   const image = featureCardImageUrl(card.image_path);
-  openModal(card.title, `<article class="feature-card-modal">${image ? `<img src="${e(image)}" alt="Ilustración de ${e(card.title)}">` : ""}<div><div class="eyebrow">YAVOI! EN DELICIAS</div><h2>${e(card.title)}</h2><p>${e(card.body || card.summary)}</p><a class="btn wide" href="${e(card.cta_href || "#home")}">${e(card.cta_label || "Abrir opción")} ${I("arrow-right")}</a></div></article>`);
+  openModal(card.title, `<article class="feature-card-modal">${image ? `<img src="${e(image)}" alt="Ilustración de ${e(card.title)}">` : ""}<div><div class="eyebrow">YAVOI! EN DELICIAS</div><p>${e(card.body || card.summary)}</p><a class="btn wide" href="${e(card.cta_href || "#home")}">${e(card.cta_label || "Abrir opción")} ${I("arrow-right")}</a></div></article>`, { variant: "feature-card" });
 }
 function bindFeatureCards(audience) {
   const cards = featureCardsFor(audience);
