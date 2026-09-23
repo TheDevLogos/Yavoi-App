@@ -295,16 +295,47 @@ function announceOffers(offers) {
 function presentDriverOfferAlert(offer) {
   if (!offer || S.profile?.role !== "driver" || document.hidden || modal.open) return false;
   S.pendingOfferIds.delete(offer.offer_id);
+  const responseSeconds = 7;
   openModal(
-    "Nueva solicitud de viaje",
-    `<section class="driver-offer-alert" role="alert"><span class="badge pending">RESPONDE EN 60 SEGUNDOS</span><h3>Yavoi! ${e(S.categories.find((category) => category.id === offer.category)?.name || offer.category)}</h3><p>${e(offer.passenger_name)} solicita un viaje para ${e(offer.party_size)} persona${Number(offer.party_size) === 1 ? "" : "s"}.</p><div class="route-line">${I("circle-dot")}${e(offer.origin)}</div><div class="route-line destination">${I("map-pin")}${e(offer.destination)}</div><div class="driver-offer-alert-meta"><span>${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min</span><strong>Ganas ${money(offer.net_cents)}</strong></div><button class="btn wide" type="button" id="review-driver-offer">Revisar solicitud ${I("arrow-right")}</button><button class="link wide" type="button" id="dismiss-driver-offer">Cerrar aviso</button></section>`,
+    "Nueva solicitud",
+    `<section class="driver-offer-alert compact" role="alert" aria-live="assertive"><div class="driver-offer-alert-head"><span class="badge pending">NUEVO VIAJE</span><strong>Ganas ${money(offer.net_cents)}</strong></div><div class="offer-countdown" aria-label="Tiempo para responder"><span id="offer-countdown-bar"></span></div><div class="row between offer-countdown-copy"><small>Decide en <strong id="offer-countdown-seconds">${responseSeconds}</strong> s</small><small>${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min</small></div><div class="route-line">${I("circle-dot")}${e(offer.origin)}</div><div class="route-line destination">${I("map-pin")}${e(offer.destination)}</div><div class="driver-offer-legal"><span>Yavoi! ${e(S.categories.find((category) => category.id === offer.category)?.name || offer.category)}</span><span>${offer.party_size} pasajero${Number(offer.party_size) === 1 ? "" : "s"}</span><span>${offer.payment_method === "card" ? "Pago electrónico" : "Pago en efectivo"}</span></div><div class="offer-decisions compact"><button class="btn danger" type="button" id="reject-driver-offer">Rechazar ${I("x")}</button><button class="btn" type="button" id="accept-driver-offer">Aceptar ${I("check")}</button></div></section>`,
   );
-  $("#review-driver-offer").onclick = () => {
+  let remaining = responseSeconds;
+  const startedAt = performance.now();
+  const bar = $("#offer-countdown-bar");
+  const seconds = $("#offer-countdown-seconds");
+  const timer = setInterval(() => {
+    if (!modal.open || !$("#accept-driver-offer")) return clearInterval(timer);
+    const elapsed = (performance.now() - startedAt) / 1000;
+    remaining = Math.max(0, Math.ceil(responseSeconds - elapsed));
+    if (seconds) seconds.textContent = String(remaining);
+    if (bar) bar.style.transform = `scaleX(${Math.max(0, (responseSeconds - elapsed) / responseSeconds)})`;
+    if (elapsed < responseSeconds) return;
+    clearInterval(timer);
+    stopOfferRinging(offer.offer_id);
     closeModal();
-    location.hash = "home";
-    refreshPage().catch((error) => notify(errorMessage(error)));
-  };
-  $("#dismiss-driver-offer").onclick = () => closeModal();
+    run(async () => {
+      await rpc("reject_offer", { offer_id: offer.offer_id, reason: "Tiempo de respuesta de 7 segundos agotado" });
+      await refreshPage();
+      notify("Tiempo agotado. Yavoi! buscará la siguiente unidad disponible.");
+    });
+  }, 100);
+  $("#accept-driver-offer").onclick = () => run(async () => {
+    clearInterval(timer);
+    stopOfferRinging(offer.offer_id);
+    const trip = await rpc("accept", { offer_id: offer.offer_id });
+    if (trip.error) throw Error(trip.error);
+    closeModal();
+    location.hash = "trip/" + trip.id;
+  });
+  $("#reject-driver-offer").onclick = () => run(async () => {
+    clearInterval(timer);
+    stopOfferRinging(offer.offer_id);
+    await rpc("reject_offer", { offer_id: offer.offer_id, reason: "El conductor decidió no tomar la solicitud" });
+    closeModal();
+    await refreshPage();
+    notify("Solicitud rechazada. Yavoi! buscará la siguiente unidad disponible.");
+  });
   return true;
 }
 function presentPendingOffer(offers) {
@@ -1731,7 +1762,7 @@ async function driverHome() {
         .join("")
     : `<div class="empty">${I("navigation")}<h3>${driver.online ? "Esperando una solicitud compatible" : "Estás desconectado"}</h3><p>${driver.online ? "Tu presencia se renueva automáticamente. Cuando una solicitud llegue, verás sus datos aquí y recibirás un aviso si autorizaste las notificaciones." : "Conéctate para que el sistema pueda enviarte una solicitud por cercanía y disponibilidad."}</p></div>`;
   shell(
-    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Conéctate en tu turno asignado"}</h2><p>${e(shiftCommitment)}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">Tienes 60 segundos para revisar al pasajero, sus necesidades, el recorrido y el pago. La alerta sonará hasta 7 veces.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>${driverSafetyMarkup()}`,
+    `<div class="driver-banner"><div><div class="eyebrow">TU DISPONIBILIDAD</div><h2>${driver.online ? "Listo para tu próximo viaje" : "Conéctate en tu turno asignado"}</h2><p>${e(shiftCommitment)}</p></div>${availabilityActions}</div>${stats()}<section class="panel section-gap"><div class="row between offer-heading"><div><h2>Solicitud para ti</h2><p class="muted">La alerta rápida dura 7 segundos. Si necesitas más contexto, las solicitudes vigentes permanecen aquí hasta su vencimiento operativo.</p></div>${button("Actualizar", "refresh", "secondary", "refresh-cw")}</div>${offerCards}</section>${driverSafetyMarkup()}`,
     "Un buen día para conducir.",
     "Tu tiempo, tus viajes y tus ganancias en un mismo lugar.",
   );
