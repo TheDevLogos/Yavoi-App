@@ -1733,7 +1733,54 @@ function driverSafetyMarkup() {
 function driverLiveMapMarkup(driver) {
   const status = driver.online ? "Ubicación en vivo" : "Ubicación lista";
   const action = driver.online ? "Desconectarme" : "Conectarme";
-  return `<section class="driver-live-map section-gap"><div class="driver-live-map-heading"><div><div class="eyebrow">NAVEGACIÓN DE TU UNIDAD</div><h2>Tu posición en Delicias</h2><p>El mapa se actualiza automáticamente mientras esta pantalla esté abierta.</p></div><span class="driver-live-status ${driver.online ? "online" : ""}"><i></i>${status}</span></div>${mapFrame("driver-live-map", "Tu ubicación se mantiene actualizada para la operación.")}<div class="driver-live-controls"><button class="btn ${driver.online ? "secondary" : ""}" data-action="availability">${I("power")} ${action}</button></div></section>`;
+  return `<section class="driver-live-map section-gap"><div class="driver-live-map-heading"><div><div class="eyebrow">NAVEGACIÓN DE TU UNIDAD</div><h2>Tu posición en Delicias</h2><p>El mapa se actualiza automáticamente mientras esta pantalla esté abierta.</p></div><span class="driver-live-status ${driver.online ? "online" : ""}"><i></i>${status}</span></div>${mapFrame("driver-live-map", "Tu ubicación se mantiene actualizada para la operación.")}<div class="driver-live-controls"><button class="availability-hold ${driver.online ? "is-online" : "is-offline"}" type="button" data-hold-availability aria-label="Mantén pulsado dos segundos para ${action.toLowerCase()}">${I("power")}<span><small>Mantén 2 segundos</small><strong>${action}</strong></span><i class="availability-hold-progress" aria-hidden="true"></i></button></div></section>`;
+}
+function bindAvailabilityHold() {
+  const control = $("[data-hold-availability]");
+  if (!control) return;
+  let timer = null;
+  let frame = null;
+  let startedAt = 0;
+  let completed = false;
+  const reset = () => {
+    if (timer) clearTimeout(timer);
+    if (frame) cancelAnimationFrame(frame);
+    timer = null;
+    frame = null;
+    control.classList.remove("is-holding");
+    control.style.removeProperty("--hold-progress");
+  };
+  const animate = () => {
+    const progress = Math.min(1, (performance.now() - startedAt) / 2000);
+    control.style.setProperty("--hold-progress", progress);
+    if (progress < 1) frame = requestAnimationFrame(animate);
+  };
+  const begin = (event) => {
+    if (event.type === "pointerdown" && event.button !== 0) return;
+    if (timer || completed) return;
+    event.preventDefault();
+    startedAt = performance.now();
+    control.classList.add("is-holding");
+    animate();
+    timer = setTimeout(() => {
+      completed = true;
+      reset();
+      control.disabled = true;
+      run(() => handleAction("availability", control));
+    }, 2000);
+  };
+  const cancel = () => {
+    if (!completed) reset();
+  };
+  control.addEventListener("pointerdown", begin);
+  ["pointerup", "pointerleave", "pointercancel"].forEach((event) => control.addEventListener(event, cancel));
+  control.addEventListener("keydown", (event) => {
+    if ([" ", "Enter"].includes(event.key) && !event.repeat) begin(event);
+  });
+  control.addEventListener("keyup", (event) => {
+    if ([" ", "Enter"].includes(event.key)) cancel();
+  });
+  control.addEventListener("click", (event) => event.preventDefault());
 }
 function updateDriverHomeMap(position = S.latestPosition, { focus = true } = {}) {
   if (!S.map || !$("#driver-live-map") || !position?.coords) return;
@@ -1798,6 +1845,7 @@ async function driverHome() {
     "Tu tiempo, tus viajes y tus ganancias en un mismo lugar.",
   );
   startDriverHomeMap();
+  bindAvailabilityHold();
   presentPendingOffer(offers);
   bindFeatureCards("driver");
 }
