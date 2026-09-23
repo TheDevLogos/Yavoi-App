@@ -1733,7 +1733,7 @@ function driverSafetyMarkup() {
 function driverLiveMapMarkup(driver) {
   const status = driver.online ? "Ubicación en vivo" : "Ubicación lista";
   const action = driver.online ? "Desconectarme" : "Conectarme";
-  return `<section class="driver-live-map section-gap"><div class="driver-live-map-heading"><div><div class="eyebrow">NAVEGACIÓN DE TU UNIDAD</div><h2>Tu posición en Delicias</h2><p>El mapa se actualiza automáticamente mientras esta pantalla esté abierta.</p></div><span class="driver-live-status ${driver.online ? "online" : ""}"><i></i>${status}</span></div>${mapFrame("driver-live-map", "Tu ubicación se mantiene actualizada para la operación.")}<div class="driver-live-controls"><button class="availability-hold ${driver.online ? "is-online" : "is-offline"}" type="button" data-hold-availability aria-label="Mantén pulsado dos segundos para ${action.toLowerCase()}">${I("power")}<span><small>Mantén 2 segundos</small><strong>${action}</strong></span><i class="availability-hold-progress" aria-hidden="true"></i></button></div></section>`;
+  return `<section class="driver-live-map section-gap"><div class="driver-live-map-heading"><div><div class="eyebrow">NAVEGACIÓN DE TU UNIDAD</div><h2>Tu posición en Delicias</h2><p>El mapa se actualiza automáticamente mientras esta pantalla esté abierta.</p></div><span class="driver-live-status ${driver.online ? "online" : ""}"><i></i>${status}</span></div>${mapFrame("driver-live-map", "Tu ubicación se mantiene actualizada para la operación.")}<div class="driver-live-controls"><button class="availability-hold ${driver.online ? "is-online" : "is-offline"}" type="button" data-hold-availability aria-label="Mantén pulsado un segundo para ${action.toLowerCase()}"><img src="/assets/availability-power.svg" alt="" aria-hidden="true"><i class="availability-hold-progress" aria-hidden="true"></i></button></div></section>`;
 }
 function bindAvailabilityHold() {
   const control = $("[data-hold-availability]");
@@ -1751,7 +1751,7 @@ function bindAvailabilityHold() {
     control.style.removeProperty("--hold-progress");
   };
   const animate = () => {
-    const progress = Math.min(1, (performance.now() - startedAt) / 2000);
+    const progress = Math.min(1, (performance.now() - startedAt) / 1000);
     control.style.setProperty("--hold-progress", progress);
     if (progress < 1) frame = requestAnimationFrame(animate);
   };
@@ -1767,7 +1767,7 @@ function bindAvailabilityHold() {
       reset();
       control.disabled = true;
       run(toggleDriverAvailability);
-    }, 2000);
+    }, 1000);
   };
   const cancel = () => {
     if (!completed) reset();
@@ -4387,11 +4387,6 @@ async function toggleDriverAvailability() {
       await sendDriverPosition(position);
     } else stopDriverTracking();
     await loadSession();
-    notify(
-      goingOnline
-        ? "Ya estás disponible. Mantén Yavoi! abierto para recibir solicitudes."
-        : "Te desconectaste y ya no recibirás nuevas solicitudes.",
-    );
   } catch (error) {
     if (goingOnline) {
       await rpc("availability", { online: false }).catch(() => {});
