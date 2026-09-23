@@ -365,12 +365,13 @@ function closeModal() {
   S.mpController = null;
   modal.close();
   modal.innerHTML = "";
-  modal.classList.remove("feature-card-dialog");
+  modal.classList.remove("feature-card-dialog", "welcome-carousel-dialog");
   if (S.profile?.role === "driver" && S.pendingOfferIds.size)
     setTimeout(() => safeRefresh(), 0);
 }
 function openModal(title, content, { variant = "" } = {}) {
   modal.classList.toggle("feature-card-dialog", variant === "feature-card");
+  modal.classList.toggle("welcome-carousel-dialog", variant === "welcome-carousel");
   modal.innerHTML = `<button class="close" type="button" aria-label="Cerrar">${I("x")}</button><h2 id="modal-title">${e(title)}</h2>${content}`;
   $(".close", modal).onclick = closeModal;
   if (!modal.open) modal.showModal();
@@ -2909,8 +2910,50 @@ function maybeShowSchedulePromo() {
   $("#schedule-rewards").onclick = () => { closeModal(); location.hash = "rewards"; };
   return true;
 }
+function welcomeFeatureCards(audience) {
+  const preferred = audience === "driver"
+    ? ["driver-go-online", "driver-earnings", "driver-rewards"]
+    : ["passenger-reserve-ahead", "passenger-rewards", "passenger-track-trip"];
+  const available = featureCardsFor(audience);
+  const selected = preferred.map((id) => available.find((card) => card.id === id)).filter(Boolean);
+  return [...selected, ...available.filter((card) => !selected.some((item) => item.id === card.id))].slice(0, 3);
+}
+function maybeShowWelcomeCarousel() {
+  if (!S.profile || !S.user || S.profile.role === "admin" || modal.open) return false;
+  const audience = S.profile.role === "driver" ? "driver" : "passenger";
+  const key = `yavoi-welcome-carousel:${S.user.id}:${audience}`;
+  try {
+    if (sessionStorage.getItem(key)) return false;
+    sessionStorage.setItem(key, "shown");
+  } catch {}
+  const cards = welcomeFeatureCards(audience);
+  if (cards.length < 3) return false;
+  const roleTitle = audience === "driver" ? "Herramientas para tu jornada" : "Opciones para tu próximo viaje";
+  openModal(
+    roleTitle,
+    `<section class="welcome-feature-carousel" aria-label="Novedades de Yavoi!"><p class="welcome-feature-intro">Descubre tres opciones que ya tienes disponibles en Yavoi!.</p><div class="welcome-feature-slides">${cards.map((card, index) => { const image = featureCardImageUrl(card.image_path); return `<article class="welcome-feature-slide${index ? " hidden" : ""}" data-welcome-slide="${index}">${image ? `<img src="${e(image)}" alt="Ilustración de ${e(card.title)}">` : ""}<div class="welcome-feature-copy"><span>${index + 1} DE ${cards.length}</span><h3>${e(card.title)}</h3><p>${e(card.body || card.summary)}</p></div><a class="btn wide" data-welcome-action href="${e(card.cta_href || "#home")}">${e(card.cta_label || "Conocer opción")} ${I("arrow-right")}</a></article>`; }).join("")}</div><div class="welcome-feature-controls"><button type="button" class="welcome-feature-arrow" id="welcome-feature-prev" aria-label="Tarjeta anterior">${I("chevron-left")}</button><div class="welcome-feature-dots" aria-label="Seleccionar tarjeta">${cards.map((card, index) => `<button type="button" data-welcome-dot="${index}" aria-label="Ver ${e(card.title)}"></button>`).join("")}</div><button type="button" class="welcome-feature-arrow" id="welcome-feature-next" aria-label="Tarjeta siguiente">${I("chevron-right")}</button></div><button type="button" class="welcome-feature-close" id="welcome-feature-close">Cerrar</button></section>`,
+    { variant: "welcome-carousel" },
+  );
+  let current = 0;
+  const update = (next) => {
+    current = (next + cards.length) % cards.length;
+    $$('[data-welcome-slide]').forEach((slide) => slide.classList.toggle("hidden", Number(slide.dataset.welcomeSlide) !== current));
+    $$('[data-welcome-dot]').forEach((dot) => {
+      const active = Number(dot.dataset.welcomeDot) === current;
+      dot.classList.toggle("active", active);
+      dot.setAttribute("aria-current", active ? "true" : "false");
+    });
+  };
+  $("#welcome-feature-prev").onclick = () => update(current - 1);
+  $("#welcome-feature-next").onclick = () => update(current + 1);
+  $$("[data-welcome-dot]").forEach((dot) => dot.onclick = () => update(Number(dot.dataset.welcomeDot)));
+  $$("[data-welcome-action]").forEach((action) => action.onclick = closeModal);
+  $("#welcome-feature-close").onclick = closeModal;
+  update(0);
+  return true;
+}
 function maybeShowEngagementPromo() {
-  if (!maybeShowSchedulePromo() && !maybeShowCampaignPromo()) maybeShowRewardPromo();
+  maybeShowWelcomeCarousel();
 }
 async function upload(file, bucket) {
   if (!file || !file.size) return null;
