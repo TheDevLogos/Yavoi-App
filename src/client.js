@@ -8,5 +8,6 @@ export async function authProviderSettings(){
   return {google:!!settings.external?.google};
 }
 export async function rpc(command,payload={}){const {data,error}=await db.rpc('yavoi',{command,payload});if(error)throw new Error(error.message);if(data?.error)throw new Error(data.error);return data;}
+export async function inboxRpc(command,payload={}){const {data,error}=await db.rpc('yavoi_inbox',{command,payload});if(error)throw new Error(error.message);if(data?.error)throw new Error(data.error);return data;}
 export const money=cents=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format((cents||0)/100);
 export const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
