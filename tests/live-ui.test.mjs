@@ -219,7 +219,7 @@ test("passenger safety is integrated into each trip and cancellation is transpar
 test("Operations exposes both per-driver commercial modes", () => {
   assert.match(portal, /Aportación semanal/);
   assert.match(portal, /Comisión por viaje/);
-  assert.match(portal, /set_driver_billing/);
+  assert.match(portal, /set_driver_billing/);\n  assert.match(portal, /weekly_fee_cents \?\? 25000/);
   assert.match(portal, /submit_driver_settlement/);
   assert.match(portal, /review_driver_settlement/);
 });
