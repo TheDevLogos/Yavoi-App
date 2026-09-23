@@ -1733,7 +1733,7 @@ function driverSafetyMarkup() {
 function driverLiveMapMarkup(driver) {
   const status = driver.online ? "Ubicación en vivo" : "Ubicación lista";
   const action = driver.online ? "Desconectarme" : "Conectarme";
-  return `<section class="driver-live-map section-gap"><div class="driver-live-map-heading"><div><div class="eyebrow">NAVEGACIÓN DE TU UNIDAD</div><h2>Tu posición en Delicias</h2><p>El mapa se actualiza automáticamente mientras esta pantalla esté abierta.</p></div><span class="driver-live-status ${driver.online ? "online" : ""}"><i></i>${status}</span></div>${mapFrame("driver-live-map", "Tu ubicación se mantiene actualizada para la operación.")}<div class="driver-live-controls"><button class="availability-hold ${driver.online ? "is-online" : "is-offline"}" type="button" data-hold-availability aria-label="Mantén pulsado un segundo para ${action.toLowerCase()}"><img src="/assets/availability-power.svg" alt="" aria-hidden="true"><i class="availability-hold-progress" aria-hidden="true"></i></button></div></section>`;
+  return `<section class="driver-live-map section-gap"><div class="driver-live-map-heading"><div><div class="eyebrow">NAVEGACIÓN DE TU UNIDAD</div><h2>Tu posición en Delicias</h2><p>El mapa se actualiza automáticamente mientras esta pantalla esté abierta.</p></div><span class="driver-live-status ${driver.online ? "online" : ""}"><i></i>${status}</span></div>${mapFrame("driver-live-map", "Tu ubicación se mantiene actualizada para la operación.")}<div class="driver-live-controls"><button class="availability-hold ${driver.online ? "is-online" : "is-offline"}" type="button" data-hold-availability aria-label="Mantén pulsado un segundo para ${action.toLowerCase()}">${I("power")}<span><small>Mantén 1 segundo</small><strong>${action}</strong></span><i class="availability-hold-progress" aria-hidden="true"></i></button></div></section>`;
 }
 function bindAvailabilityHold() {
   const control = $("[data-hold-availability]");
@@ -1781,6 +1781,7 @@ function bindAvailabilityHold() {
     if ([" ", "Enter"].includes(event.key)) cancel();
   });
   control.addEventListener("click", (event) => event.preventDefault());
+  control.addEventListener("contextmenu", (event) => event.preventDefault());
 }
 function updateDriverHomeMap(position = S.latestPosition, { focus = true } = {}) {
   if (!S.map || !$("#driver-live-map") || !position?.coords) return;
