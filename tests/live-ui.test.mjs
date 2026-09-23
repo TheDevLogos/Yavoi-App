@@ -424,6 +424,14 @@ test("expanded dispatch, seven alerts, fixed capacity, compact profiles and shif
   assert.match(css, /\.shift-grid/);
 });
 
+test("passenger price and driver contractual earnings stay distinct on trip detail", () => {
+  assert.match(portal, /const driverTripEarnings = Number\(t\.fare_cents/);
+  assert.match(portal, /Tu ganancia/);
+  assert.match(portal, /descuentos financiados por Yavoi! no reducen esta ganancia/);
+  assert.match(portal, /Total · tarjeta/);
+  assert.match(portal, /Total · efectivo/);
+});
+
 test("driver income is compact and filterable by period and concept", () => {
   assert.match(portal, /EFECTIVO COBRADO/);
   assert.match(portal, /PAGOS ELECTRÓNICOS/);
