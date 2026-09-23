@@ -203,7 +203,8 @@ test("trip communication, ratings and mobile identity remain visible", () => {
 });
 
 test("passenger safety is integrated into each trip and cancellation is transparent", () => {
-  assert.doesNotMatch(domain, /passenger:[^\n]+\["help"/);
+  assert.doesNotMatch(domain, /passenger:[^
+]+\["help"/);
   assert.match(portal, /Reportar este viaje/);
   assert.match(portal, /Reportar este servicio/);
   assert.match(portal, /Emergencias 911/);
@@ -219,7 +220,8 @@ test("passenger safety is integrated into each trip and cancellation is transpar
 test("Operations exposes both per-driver commercial modes", () => {
   assert.match(portal, /Aportación semanal/);
   assert.match(portal, /Comisión por viaje/);
-  assert.match(portal, /set_driver_billing/);\n  assert.match(portal, /weekly_fee_cents \?\? 25000/);
+  assert.match(portal, /set_driver_billing/);
+  assert.match(portal, /weekly_fee_cents \?\? 25000/);
   assert.match(portal, /submit_driver_settlement/);
   assert.match(portal, /review_driver_settlement/);
 });
@@ -386,7 +388,12 @@ test("drivers receive an audible, visible and recoverable offer alert", () => {
   assert.match(portal, /function playOfferSound\(\)/);
   assert.match(portal, /navigator\.vibrate/);
   assert.match(portal, /function presentDriverOfferAlert\(offer\)/);
-  assert.match(portal, /const responseSeconds = 7/);\n  assert.match(portal, /id="accept-driver-offer"/);\n  assert.match(portal, /id="reject-driver-offer"/);\n  assert.match(portal, /offer-countdown-bar/);\n  assert.match(portal, /offer-operational-expiry/);\n  assert.match(portal, /Tiempo de respuesta de 7 segundos agotado/);
+  assert.match(portal, /const responseSeconds = 7/);
+  assert.match(portal, /id="accept-driver-offer"/);
+  assert.match(portal, /id="reject-driver-offer"/);
+  assert.match(portal, /offer-countdown-bar/);
+  assert.match(portal, /offer-operational-expiry/);
+  assert.match(portal, /Tiempo de respuesta de 7 segundos agotado/);
   assert.match(portal, /function syncDriverOffers/);
   assert.match(portal, /setInterval\(\(\) => syncDriverOffers\(\)\.catch\(\(\) => \{\}\), 8000\)/);
   assert.match(portal, /S\.pendingOfferIds\.add\(payload\.new\.id\)/);
@@ -494,7 +501,8 @@ test("Operations manages scheduled trips from a calendar with WhatsApp and timed
 test("Operations audit loads once and exports service and driver metrics", () => {
   assert.match(portal, /async function audit\(\)/);
   assert.match(portal, /await loadOperationsReport\(\);\s*renderAuditReport\(\);/);
-  const auditBody = portal.match(/async function audit\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  const auditBody = portal.match(/async function audit\(\) \{([\s\S]*?)
+\}/)?.[1] || "";
   assert.doesNotMatch(auditBody, /run\(/);
   assert.match(portal, /Servicios por categoría/);
   assert.match(scheduleCalendarMigration, /private\.operations_report_v2/);
