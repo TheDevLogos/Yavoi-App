@@ -500,8 +500,8 @@ test("Operations manages scheduled trips from a calendar with WhatsApp and timed
 test("Operations audit loads once and exports service and driver metrics", () => {
   assert.match(portal, /async function audit\(\)/);
   assert.match(portal, /await loadOperationsReport\(\);\s*renderAuditReport\(\);/);
-  const auditBody = portal.match(/async function audit\(\) \{([\s\S]*?)
-\}/)?.[1] || "";
+  const auditStart = portal.indexOf("async function audit() {");
+  const auditBody = auditStart >= 0 ? portal.slice(auditStart, portal.indexOf("\n}", auditStart) + 2) : "";
   assert.doesNotMatch(auditBody, /run\(/);
   assert.match(portal, /Servicios por categoría/);
   assert.match(scheduleCalendarMigration, /private\.operations_report_v2/);
