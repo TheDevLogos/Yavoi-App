@@ -386,7 +386,7 @@ test("drivers receive an audible, visible and recoverable offer alert", () => {
   assert.match(portal, /function playOfferSound\(\)/);
   assert.match(portal, /navigator\.vibrate/);
   assert.match(portal, /function presentDriverOfferAlert\(offer\)/);
-  assert.match(portal, /RESPONDE EN 60 SEGUNDOS/);
+  assert.match(portal, /const responseSeconds = 7/);\n  assert.match(portal, /id="accept-driver-offer"/);\n  assert.match(portal, /id="reject-driver-offer"/);\n  assert.match(portal, /offer-countdown-bar/);\n  assert.match(portal, /Tiempo de respuesta de 7 segundos agotado/);
   assert.match(portal, /function syncDriverOffers/);
   assert.match(portal, /setInterval\(\(\) => syncDriverOffers\(\)\.catch\(\(\) => \{\}\), 8000\)/);
   assert.match(portal, /S\.pendingOfferIds\.add\(payload\.new\.id\)/);
