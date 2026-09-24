@@ -1,5 +1,5 @@
 import "./portal.css";
-import L from "leaflet";
+import Leaflet from "leaflet";
 import { createIcons, icons } from "lucide";
 import { authProviderSettings, db, rpc, inboxRpc } from "./client.js";
 import { createGoogleNonce, loadGoogleIdentity, validGoogleClientId } from "./google-auth.js";
@@ -49,6 +49,9 @@ const GOOGLE_CLIENT_ID = String(
   import.meta.env.VITE_GOOGLE_CLIENT_ID ||
     "903354099441-4la2ivgqknn9q8kj1ghku6caebc1a4ar.apps.googleusercontent.com",
 ).trim();
+const GOOGLE_MAPS_BROWSER_KEY = String(import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY || "").trim();
+const GOOGLE_MAP_ID = String(import.meta.env.VITE_GOOGLE_MAP_ID || "").trim();
+let L = Leaflet;
 const DELICIAS_MAP_CENTER = [DEFAULT_ORIGIN.lat, DEFAULT_ORIGIN.lng];
 const OPERATIONS_EMPTY_ZOOM = 13;
 const button = (text, action, kind = "", icon = "arrow-right") =>
@@ -126,6 +129,8 @@ const S = {
   driverDraftTimer: null,
   passengerOriginMode: "gps",
   passengerGpsLastApplied: 0,
+  addressSessions: {},
+  addressSuggestionTimers: {},
 };
 const referralFromUrl = String(new URLSearchParams(location.search).get("ref") || "").trim().toUpperCase();
 if (/^YV[A-F0-9]{8}$/.test(referralFromUrl)) {
@@ -136,6 +141,79 @@ if (/^YV[A-F0-9]{8}$/.test(referralFromUrl)) {
 }
 const modal = $("#modal");
 let toastTimer, pollTimer;
+let googleMapsPromise;
+function loadGoogleMaps() {
+  if (!GOOGLE_MAPS_BROWSER_KEY) return Promise.resolve(false);
+  if (window.google?.maps) return Promise.resolve(true);
+  if (googleMapsPromise) return googleMapsPromise;
+  googleMapsPromise = new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_BROWSER_KEY)}&v=weekly&language=es&region=MX`;
+    script.async = true;
+    script.onload = () => resolve(Boolean(window.google?.maps));
+    script.onerror = () => resolve(false);
+    document.head.append(script);
+  });
+  return googleMapsPromise;
+}
+function googleMapsFacade() {
+  const maps = window.google.maps;
+  const toPoint = (value) => Array.isArray(value) ? { lat: Number(value[0]), lng: Number(value[1]) } : { lat: Number(value.lat), lng: Number(value.lng) };
+  class Marker {
+    constructor(point, options = {}) {
+      this.point = toPoint(point); this.options = options; this.handlers = {}; this.raw = null;
+    }
+    addTo(map) {
+      if (map instanceof Group) { map.addLayer(this); return this; }
+      const iconUrl = this.options.icon?.iconUrl || this.options.icon?.html?.match(/src="([^"]+)"/)?.[1];
+      this.raw = new maps.Marker({
+        map: map.raw, position: this.point, draggable: Boolean(this.options.draggable), opacity: this.options.opacity,
+        icon: iconUrl ? { url: iconUrl, scaledSize: new maps.Size(42, 42), anchor: new maps.Point(21, 21) } : undefined,
+        zIndex: this.options.zIndexOffset,
+      });
+      Object.entries(this.handlers).forEach(([event, handler]) => maps.event.addListener(this.raw, event, (payload) => handler(event === "dragend" ? { target: this } : { latlng: payload?.latLng ? { lat: payload.latLng.lat(), lng: payload.latLng.lng() } : payload })));
+      return this;
+    }
+    remove() { this.raw?.setMap(null); }
+    bindTooltip(value) { this.tooltip = value; if (this.raw) this.raw.setTitle(String(value).replace(/<[^>]+>/g, "")); return this; }
+    on(event, handler) { this.handlers[event] = handler; if (this.raw) maps.event.addListener(this.raw, event, (payload) => handler(event === "dragend" ? { target: this } : payload)); return this; }
+    getLatLng() { const p = this.raw?.getPosition(); return p ? { lat: p.lat(), lng: p.lng() } : this.point; }
+    setLatLng(point) { this.point = toPoint(point); this.raw?.setPosition(this.point); return this; }
+    setOpacity(value) { this.raw?.setOpacity(value); return this; }
+    getElement() { return null; }
+  }
+  class Polyline {
+    constructor(points, options = {}) { this.raw = new maps.Polyline({ path: points.map(toPoint), strokeColor: options.color, strokeOpacity: options.opacity ?? 1, strokeWeight: options.weight ?? 5, map: null }); }
+    addTo(map) { if (map instanceof Group) { map.addLayer(this); return this; } this.raw.setMap(map.raw); return this; }
+    remove() { this.raw.setMap(null); }
+  }
+  class Group {
+    constructor() { this.items = new Set(); this.map = null; }
+    addTo(map) { this.map = map; return this; }
+    addLayer(item) { this.items.add(item); item.addTo?.(this.map); return this; }
+    removeLayer(item) { item?.remove?.(); this.items.delete(item); }
+  }
+  class Map {
+    constructor(id, options = {}) {
+      this.raw = new maps.Map(document.getElementById(id), { center: { lat: DELICIAS_MAP_CENTER[0], lng: DELICIAS_MAP_CENTER[1] }, zoom: 14, mapId: GOOGLE_MAP_ID || undefined, gestureHandling: "greedy", streetViewControl: false, mapTypeControl: false, fullscreenControl: false, zoomControl: options.zoomControl !== false });
+      this.zoomControl = { setPosition() {} }; this.handlers = {};
+    }
+    setView(point, zoom) { this.raw.setCenter(toPoint(point)); if (zoom != null) this.raw.setZoom(zoom); return this; }
+    getZoom() { return this.raw.getZoom() || 14; }
+    getContainer() { return this.raw.getDiv(); }
+    on(event, handler) { const name = event === "zoomend" ? "zoom_changed" : event; maps.event.addListener(this.raw, name, (payload) => handler(event === "click" ? { latlng: { lat: payload.latLng.lat(), lng: payload.latLng.lng() } } : payload)); return this; }
+    distance(a, b) { return maps.geometry?.spherical?.computeDistanceBetween ? maps.geometry.spherical.computeDistanceBetween(new maps.LatLng(toPoint(a)), new maps.LatLng(toPoint(b))) : Leaflet.latLng(toPoint(a)).distanceTo(Leaflet.latLng(toPoint(b))); }
+    fitBounds(points, options = {}) { const bounds = new maps.LatLngBounds(); points.forEach((point) => bounds.extend(toPoint(point))); this.raw.fitBounds(bounds, options.padding ? { padding: options.padding[0] } : undefined); if (options.maxZoom && this.getZoom() > options.maxZoom) this.raw.setZoom(options.maxZoom); }
+    invalidateSize() { maps.event.trigger(this.raw, "resize"); }
+    remove() { maps.event.clearInstanceListeners(this.raw); this.raw.getDiv().replaceChildren(); }
+  }
+  return { map: (id, options) => new Map(id, options), marker: (point, options) => new Marker(point, options), polyline: (points, options) => new Polyline(points, options), layerGroup: () => new Group(), icon: (options) => options, divIcon: (options) => options, tileLayer: () => ({ addTo: () => {} }) };
+}
+async function useGoogleMaps() {
+  if (!await loadGoogleMaps()) return false;
+  L = googleMapsFacade();
+  return true;
+}
 const socialIcons = {
   google: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285f4" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.4a4.7 4.7 0 0 1-2 3v2.5h3.3c1.9-1.8 2.9-4.4 2.9-7.4Z"/><path fill="#34a853" d="M12 22c2.7 0 5-.9 6.7-2.4l-3.3-2.5c-.9.6-2 1-3.4 1a5.9 5.9 0 0 1-5.5-4.1H3.1v2.6A10 10 0 0 0 12 22Z"/><path fill="#fbbc05" d="M6.5 14a6 6 0 0 1 0-3.9V7.4H3.1A10 10 0 0 0 3.1 16.6L6.5 14Z"/><path fill="#ea4335" d="M12 5.9c1.6 0 3 .5 4.1 1.6l3.1-3.1A10 10 0 0 0 3.1 7.4l3.4 2.7A5.9 5.9 0 0 1 12 5.9Z"/></svg>`,
 };
@@ -322,14 +400,27 @@ function presentDriverOfferAlert(offer) {
       notify("Tiempo agotado. Yavoi! buscará la siguiente unidad disponible.");
     });
   }, 100);
-  $("#accept-driver-offer").onclick = () => run(async () => {
+  $("#accept-driver-offer").onclick = () => {
+    // Opening the window within the tap keeps Android and iOS from blocking
+    // the handoff to turn-by-turn navigation after the server accepts the trip.
+    const navigationWindow = window.open("", "_blank");
+    run(async () => {
     clearInterval(timer);
     stopOfferRinging(offer.offer_id);
-    const trip = await rpc("accept", { offer_id: offer.offer_id });
-    if (trip.error) throw Error(trip.error);
-    closeModal();
-    location.hash = "trip/" + trip.id;
-  });
+    try {
+      const trip = await rpc("accept", { offer_id: offer.offer_id });
+      if (trip.error) throw Error(trip.error);
+      const navigationUrl = googleNavigationUrl({ ...trip, status: "accepted" });
+      if (navigationUrl && navigationWindow) navigationWindow.location.replace(navigationUrl);
+      else navigationWindow?.close();
+      closeModal();
+      location.hash = "trip/" + trip.id;
+    } catch (error) {
+      navigationWindow?.close();
+      throw error;
+    }
+    });
+  };
   $("#reject-driver-offer").onclick = () => run(async () => {
     clearInterval(timer);
     stopOfferRinging(offer.offer_id);
@@ -931,6 +1022,53 @@ async function searchAddress(kind) {
     });
   });
 }
+function resetAddressSession(kind) {
+  S.addressSessions[kind] = crypto.randomUUID();
+  clearTimeout(S.addressSuggestionTimers[kind]);
+}
+function addressSuggestions(kind) {
+  return $(`#${kind}-suggestions`);
+}
+function hideAddressSuggestions(kind) {
+  const menu = addressSuggestions(kind);
+  menu?.classList.add("hidden");
+  if (menu) menu.innerHTML = "";
+}
+async function showAddressSuggestions(kind) {
+  const input = $(`[name=${kind}]`);
+  const query = input?.value.trim() || "";
+  const menu = addressSuggestions(kind);
+  if (!menu || query.length < 3) return hideAddressSuggestions(kind);
+  const sessionToken = S.addressSessions[kind] || (S.addressSessions[kind] = crypto.randomUUID());
+  const requested = query;
+  try {
+    const result = await mapService({ type: "autocomplete", query, session_token: sessionToken });
+    if (!input.isConnected || input.value.trim() !== requested) return;
+    const suggestions = Array.isArray(result.results) ? result.results : [];
+    if (!suggestions.length) return hideAddressSuggestions(kind);
+    menu.innerHTML = `<small>SUGERENCIAS EN DELICIAS</small>${suggestions.map((place, index) => `<button type="button" data-address-suggestion="${index}">${I("map-pin")}<span><strong>${e(place.name)}</strong><small>${e(place.details)}</small></span></button>`).join("")}`;
+    menu.classList.remove("hidden");
+    iconsNow();
+    $$('[data-address-suggestion]', menu).forEach((button) => button.onclick = async () => {
+      const suggestion = suggestions[Number(button.dataset.addressSuggestion)];
+      if (!suggestion) return;
+      menu.classList.add("hidden");
+      try {
+        const place = await mapService({ type: "place", place_id: suggestion.place_id, session_token: sessionToken });
+        await placeRidePoint(kind, place, { focus: true });
+        resetAddressSession(kind);
+      } catch (error) {
+        notify(errorMessage(error));
+      }
+    });
+  } catch {
+    hideAddressSuggestions(kind);
+  }
+}
+function scheduleAddressSuggestions(kind) {
+  clearTimeout(S.addressSuggestionTimers[kind]);
+  S.addressSuggestionTimers[kind] = setTimeout(() => showAddressSuggestions(kind), 260);
+}
 async function loadRoadRoute(trip = null) {
   const savedRoute = trip && S.trip?.route_plan?.coordinates?.length > 1 ? S.trip.route_plan : null;
   if (savedRoute) {
@@ -1128,7 +1266,9 @@ function rotateVehicle(marker, heading) {
   const image = marker.getElement()?.querySelector("img");
   if (image) image.style.transform = `rotate(${heading}deg)`;
 }
-function startMap(trip = null) {
+async function startMap(trip = null) {
+  if (!$("#ride-map")) return;
+  await useGoogleMaps();
   if (!$("#ride-map")) return;
   S.map = L.map("ride-map", { zoomControl: true, scrollWheelZoom: false }).setView(
     [28.19065, -105.47045],
@@ -1371,8 +1511,8 @@ function riderHome({ preserveDestination = false } = {}) {
   const maxSchedule = localDateTime(new Date(Date.now() + 30 * 86400000));
   shell(
     `<div class="booking"><section class="panel booking-panel"><div class="row between booking-title"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Preferencias recuperadas" : "Guardado automático"}</small></div><form id="quote-form">
-      <div class="address-field"><label class="input-point"><span class="address-caption">Punto de partida</span><span class="address-control"><img src="/assets/map-origin.svg" alt=""><input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search" placeholder="Escribe una dirección"></span></label></div>
-      <div class="address-field destination-address"><label class="input-point"><span class="address-caption">Destino</span><span class="address-control"><img src="/assets/map-destination.svg" alt=""><input name="destination" list="destinations" value="" placeholder="Escribe calle, número o lugar" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search"><button type="button" id="destination-history-toggle" class="address-dropdown" aria-label="Mostrar los últimos destinos" aria-expanded="false">${I("chevron-down")}</button></span></label><div id="destination-history" class="address-history-menu hidden">${recent.length ? `<small>ÚLTIMOS DESTINOS</small>${recent.map((place, index) => `<button type="button" data-recent-destination="${index}">${I("history")}<span>${e(place.name)}</span></button>`).join("")}` : '<p>Aún no hay destinos recientes.</p>'}</div></div>
+      <div class="address-field"><label class="input-point"><span class="address-caption">Punto de partida</span><span class="address-control"><img src="/assets/map-origin.svg" alt=""><input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search" placeholder="Escribe una dirección"></span></label><div id="origin-suggestions" class="address-history-menu hidden"></div></div>
+      <div class="address-field destination-address"><label class="input-point"><span class="address-caption">Destino</span><span class="address-control"><img src="/assets/map-destination.svg" alt=""><input name="destination" list="destinations" value="" placeholder="Escribe calle, número o lugar" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search"><button type="button" id="destination-history-toggle" class="address-dropdown" aria-label="Mostrar los últimos destinos" aria-expanded="false">${I("chevron-down")}</button></span></label><div id="destination-history" class="address-history-menu hidden">${recent.length ? `<small>ÚLTIMOS DESTINOS</small>${recent.map((place, index) => `<button type="button" data-recent-destination="${index}">${I("history")}<span>${e(place.name)}</span></button>`).join("")}` : '<p>Aún no hay destinos recientes.</p>'}</div><div id="destination-suggestions" class="address-history-menu hidden"></div></div>
       <datalist id="destinations">${destinationChoices.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist>
       <div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Elegir origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Elegir destino</button><button type="button" id="save-destination">${I("bookmark-plus")} Guardar destino</button></div>
       <h3 class="service-picker-title">Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt="Vehículo Yavoi! ${e(category.name)}"></div><div class="category-copy"><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div>
@@ -1436,7 +1576,10 @@ function riderHome({ preserveDestination = false } = {}) {
       drawPoints(null, { fit: false });
       if (kind === "origin") S.passengerOriginMode = "manual";
       $("#destination-history")?.classList.add("hidden");
+      hideAddressSuggestions(kind);
+      resetAddressSession(kind);
     });
+    input.addEventListener("input", () => scheduleAddressSuggestions(kind));
     input.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
@@ -1463,6 +1606,7 @@ function riderHome({ preserveDestination = false } = {}) {
   historyToggle.onclick = () => {
     const opening = historyMenu.classList.contains("hidden");
     historyMenu.classList.toggle("hidden", !opening);
+    hideAddressSuggestions("destination");
     historyToggle.setAttribute("aria-expanded", String(opening));
   };
   $$('[data-recent-destination]', historyMenu).forEach((item) => item.onclick = () => {
@@ -1792,7 +1936,9 @@ function updateDriverHomeMap(position = S.latestPosition) {
   }
   rotateVehicle(S.driverLiveMarker, heading);
 }
-function startDriverHomeMap() {
+async function startDriverHomeMap() {
+  if (!$("#driver-live-map")) return;
+  await useGoogleMaps();
   if (!$("#driver-live-map")) return;
   S.map = L.map("driver-live-map", {
     zoomControl: true,
@@ -1846,7 +1992,7 @@ async function driverHome() {
     "Un buen día para conducir.",
     "Tu tiempo, tus viajes y tus ganancias en un mismo lugar.",
   );
-  startDriverHomeMap();
+  await startDriverHomeMap();
   bindAvailabilityHold();
   presentPendingOffer(offers);
   bindFeatureCards("driver");
@@ -2320,7 +2466,7 @@ async function tripView(id) {
     "Tu viaje Yavoi!",
     "Folio " + e(t.id.slice(0, 8).toUpperCase()) + " · " + date(t.created_at),
   );
-  startMap(t);
+  await startMap(t);
   bindForm("#start-trip", async (v) => {
     await rpc("transition", { trip_id: t.id, status: "in_progress", pin: v.pin });
     await tripView(t.id);
@@ -3765,7 +3911,9 @@ function updateOperationsMapLayers({ fit = false } = {}) {
   }
   S.opsHadLiveUnits = hasLiveUnits;
 }
-function startOperationsMap() {
+async function startOperationsMap() {
+  if (!$("#operations-map")) return;
+  await useGoogleMaps();
   if (!$("#operations-map")) return;
   S.opsHadLiveUnits = null;
   S.map = L.map("operations-map", { zoomControl: true, scrollWheelZoom: true }).setView(
@@ -3813,7 +3961,7 @@ async function operationsMapView() {
     "Disponibilidad, ubicación, viaje activo y recorrido GPS de toda la flotilla.",
   );
   S.opsListSignature = operationsListSignature(units);
-  startOperationsMap();
+  await startOperationsMap();
 }
 function adminHome() {
   shell(

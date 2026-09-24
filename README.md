@@ -48,7 +48,7 @@ La presencia de un conductor vence a los 90 segundos sin señal. Esto impide nue
 
 La tarifa se calcula en PostgreSQL y se conserva en la cotización durante cinco minutos. Usa inicio del servicio, kilómetros estimados, minutos estimados, tarifa mínima, zona y accesibilidad. No cobra reservación. La recogida lejana sólo se agrega cuando el pasajero elige una unidad ubicada a más de 7 km, y se cobra únicamente el excedente. La asignación automática sigue priorizando la unidad compatible más cercana.
 
-La búsqueda de calles y lugares usa un servicio protegido del backend con caché. El mapa traza la ruta vial y el servidor conserva su propio cálculo de tarifa para impedir que un cliente altere el precio.
+Los mapas de pasajero, conductor, viaje y Operaciones usan Google Maps JavaScript API. La búsqueda de calles, lugares y puntos al tocar el mapa pasa por un servicio protegido con caché: `GOOGLE_MAPS_API_KEY` en Supabase habilita Places API (New), Geocoding API y Routes API. El servidor conserva su propio cálculo de tarifa para impedir que un cliente altere el precio.
 
 ## Desarrollo y validación
 
@@ -72,5 +72,6 @@ Las migraciones versionadas están en `supabase/migrations`. La integración con
 7. Completar la guía [Activar Google](docs/oauth-providers.md). El Client ID público ya está integrado; falta guardar el Client Secret sólo en Supabase y habilitar el proveedor.
 8. Seguir la [matriz de cumplimiento de transporte](docs/cumplimiento-ley-transporte-chihuahua-2026-09-15.md) y formalizar con la autoridad los canales de reportes mensuales e incidentes.
 9. Completar la guía [Activar recibos de viaje por Gmail](docs/gmail-trip-receipts.md) antes de habilitar el envío automático en Operaciones.
+10. Para Maps, habilitar **Maps JavaScript API**, **Places API (New)**, **Routes API** y **Geocoding API** en Google Cloud. En Vercel guardar `VITE_GOOGLE_MAPS_BROWSER_KEY` (restringida por referentes HTTP) y `VITE_GOOGLE_MAP_ID`. En Supabase guardar una segunda clave, restringida a Places, Routes y Geocoding, como secreto `GOOGLE_MAPS_API_KEY`; después volver a desplegar la función `maps`.
 
 Diseño y desarrollo: **TheDevLogos Creación Inteligente**.

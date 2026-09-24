@@ -83,6 +83,143 @@ function localAddressQuery(query: string) {
     : `${query}, Delicias, Chihuahua, México`;
 }
 
+const googleMapsKey = () => String(Deno.env.get("GOOGLE_MAPS_API_KEY") || "").trim();
+const googleHeaders = (key: string, fields: string) => ({
+  "content-type": "application/json",
+  "x-goog-api-key": key,
+  "x-goog-fieldmask": fields,
+});
+
+function googlePlaceResult(item: Record<string, unknown>) {
+  const location = item.location && typeof item.location === "object" ? item.location as Record<string, unknown> : {};
+  const components = Array.isArray(item.addressComponents) ? item.addressComponents as Record<string, unknown>[] : [];
+  const hasStreetNumber = components.some((component) => Array.isArray(component.types) && component.types.includes("street_number"));
+  return {
+    name: String(item.formattedAddress || (item.displayName as Record<string, unknown>)?.text || "Ubicación seleccionada").slice(0, 200),
+    details: String((item.displayName as Record<string, unknown>)?.text || item.formattedAddress || "").slice(0, 280),
+    lat: Number(location.latitude),
+    lng: Number(location.longitude),
+    type: "place",
+    precision: hasStreetNumber ? "exact" : "place",
+  };
+}
+
+async function googleAutocomplete(query: string, sessionToken: string) {
+  const apiKey = googleMapsKey();
+  if (!apiKey) return null;
+  const upstream = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+    method: "POST",
+    headers: googleHeaders(apiKey, "suggestions.placePrediction.placeId,suggestions.placePrediction.text.text,suggestions.placePrediction.structuredFormat.mainText.text,suggestions.placePrediction.structuredFormat.secondaryText.text"),
+    body: JSON.stringify({
+      input: query,
+      includedRegionCodes: ["mx"],
+      languageCode: "es",
+      regionCode: "MX",
+      sessionToken,
+      locationRestriction: { rectangle: { low: { latitude: 28.0, longitude: -105.7 }, high: { latitude: 28.4, longitude: -105.2 } } },
+    }),
+  });
+  if (!upstream.ok) throw new Error("Google Maps no pudo sugerir direcciones.");
+  const raw = await upstream.json();
+  const results = (Array.isArray(raw.suggestions) ? raw.suggestions : []).map((suggestion: Record<string, unknown>) => {
+    const prediction = suggestion.placePrediction && typeof suggestion.placePrediction === "object" ? suggestion.placePrediction as Record<string, unknown> : {};
+    const format = prediction.structuredFormat && typeof prediction.structuredFormat === "object" ? prediction.structuredFormat as Record<string, unknown> : {};
+    return {
+      place_id: String(prediction.placeId || ""),
+      name: String((format.mainText as Record<string, unknown>)?.text || (prediction.text as Record<string, unknown>)?.text || "Ubicación"),
+      details: String((format.secondaryText as Record<string, unknown>)?.text || "Delicias, Chihuahua"),
+    };
+  }).filter((item: { place_id: string }) => item.place_id);
+  return { results };
+}
+
+async function googlePlaceDetails(placeId: string, sessionToken: string) {
+  const apiKey = googleMapsKey();
+  if (!apiKey) return null;
+  const upstream = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
+    headers: { ...googleHeaders(apiKey, "displayName,formattedAddress,location,addressComponents"), "x-goog-fieldmask": "displayName,formattedAddress,location,addressComponents", "x-goog-session-token": sessionToken },
+  });
+  if (!upstream.ok) throw new Error("Google Maps no pudo abrir esta dirección.");
+  return googlePlaceResult(await upstream.json());
+}
+
+async function googleReverse(lat: number, lng: number) {
+  const apiKey = googleMapsKey();
+  if (!apiKey) return null;
+  const params = new URLSearchParams({
+    latlng: `${lat},${lng}`,
+    language: "es",
+    region: "mx",
+    key: apiKey,
+  });
+  const upstream = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?${params}`);
+  if (!upstream.ok) throw new Error("Google Maps no pudo identificar este punto.");
+  const raw = await upstream.json();
+  const first = Array.isArray(raw.results) ? raw.results[0] as Record<string, unknown> : null;
+  if (!first) return null;
+  const location = first.geometry && typeof first.geometry === "object"
+    ? (first.geometry as Record<string, unknown>).location as Record<string, unknown>
+    : null;
+  return {
+    name: String(first.formatted_address || "Ubicación seleccionada").slice(0, 200),
+    details: String(first.formatted_address || "").slice(0, 280),
+    lat: Number(location?.lat) || lat,
+    lng: Number(location?.lng) || lng,
+  };
+}
+
+function decodeGooglePolyline(value: string) {
+  const points: number[][] = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < value.length) {
+    let shift = 0, result = 0, byte = 0;
+    do { byte = value.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < value.length);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+    shift = 0; result = 0;
+    do { byte = value.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < value.length);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+    points.push([lng / 1e5, lat / 1e5]);
+  }
+  return points;
+}
+
+async function googleRoute(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }) {
+  const apiKey = googleMapsKey();
+  if (!apiKey) return null;
+  const upstream = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+    method: "POST",
+    headers: googleHeaders(apiKey, "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.navigationInstruction.instructions,routes.legs.steps.distanceMeters"),
+    body: JSON.stringify({
+      origin: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
+      destination: { location: { latLng: { latitude: destination.lat, longitude: destination.lng } } },
+      travelMode: "DRIVE",
+      routingPreference: "TRAFFIC_AWARE",
+      languageCode: "es-MX",
+      units: "METRIC",
+    }),
+  });
+  if (!upstream.ok) throw new Error("Google Maps no pudo calcular la ruta.");
+  const raw = await upstream.json();
+  const route = Array.isArray(raw.routes) ? raw.routes[0] as Record<string, unknown> : null;
+  const encoded = String((route?.polyline as Record<string, unknown>)?.encodedPolyline || "");
+  const coordinates = decodeGooglePolyline(encoded);
+  if (!route || coordinates.length < 2) throw new Error("Google Maps no encontró una ruta vial.");
+  const steps = ((route.legs as Record<string, unknown>[] || []).flatMap((leg) => Array.isArray(leg.steps) ? leg.steps : []) as Record<string, unknown>[]).slice(0, 120);
+  return {
+    distance_km: Math.round(Number(route.distanceMeters || 0) / 10) / 100,
+    duration_minutes: Math.max(1, Math.ceil(Number(String(route.duration || "0").replace("s", "")) / 60)),
+    coordinates: coordinates.slice(0, 4000),
+    instructions: steps.map((step) => ({
+      type: "continue",
+      modifier: "straight",
+      street: String((step.navigationInstruction as Record<string, unknown>)?.instructions || "Continúa por la ruta indicada").slice(0, 160),
+      distance_m: Math.max(0, Math.round(Number(step.distanceMeters) || 0)),
+      duration_seconds: 0,
+    })),
+    route_quality: "google_routes",
+  };
+}
+
 Deno.serve(async (req: Request) => {
   const origin = originFor(req);
   if (!origin) return json({ error: "Origen no permitido." }, 403, "null");
@@ -97,6 +234,23 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const type = body?.type;
     let key = "";
+    if (type === "autocomplete") {
+      const query = String(body.query || "").trim().replace(/\s+/g, " ");
+      const sessionToken = String(body.session_token || "").trim();
+      if (query.length < 3 || query.length > 160 || !/^[a-zA-Z0-9-]{16,64}$/.test(sessionToken)) return json({ error: "Datos de búsqueda no válidos." }, 400, origin);
+      const { data: permitted } = await serviceClient.rpc("yavoi_map_rate_limit", { target_user: authData.user.id });
+      if (!permitted) return json({ error: "Espera un segundo antes de buscar otra dirección." }, 429, origin);
+      const payload = await googleAutocomplete(query, sessionToken);
+      return json(payload || { results: [] }, 200, origin);
+    }
+    if (type === "place") {
+      const placeId = String(body.place_id || "").trim();
+      const sessionToken = String(body.session_token || "").trim();
+      if (!placeId || placeId.length > 240 || !/^[a-zA-Z0-9-]{16,64}$/.test(sessionToken)) return json({ error: "Dirección no válida." }, 400, origin);
+      const payload = await googlePlaceDetails(placeId, sessionToken);
+      if (!payload || !insideCoverage(payload.lat, payload.lng)) return json({ error: "No encontramos esa dirección dentro de la zona de servicio." }, 404, origin);
+      return json(payload, 200, origin);
+    }
     if (type === "search") {
       const query = String(body.query || "").trim().replace(/\s+/g, " ");
       if (query.length < 3 || query.length > 160) return json({ error: "Escribe al menos tres caracteres." }, 400, origin);
@@ -132,16 +286,19 @@ Deno.serve(async (req: Request) => {
       const lat = Number(body?.lat);
       const lng = Number(body?.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng) || !insideCoverage(lat, lng)) return json({ error: "Punto fuera de cobertura." }, 400, origin);
-      key = `reverse:v1:${lat.toFixed(5)}:${lng.toFixed(5)}`;
+      key = `reverse:v2:${lat.toFixed(5)}:${lng.toFixed(5)}`;
       const { data: cached } = await serviceClient.rpc("yavoi_map_cache_get", { key_value: key });
       if (cached) return json(cached, 200, origin);
       const { data: permitted } = await serviceClient.rpc("yavoi_map_rate_limit", { target_user: authData.user.id });
       if (!permitted) return json({ error: "Espera un segundo antes de consultar otro punto." }, 429, origin);
-      const params = new URLSearchParams({ format: "jsonv2", lat: String(lat), lon: String(lng), zoom: "18", addressdetails: "1" });
-      const upstream = await fetch(`https://nominatim.openstreetmap.org/reverse?${params}`, { headers: nominatimHeaders() });
-      if (!upstream.ok) throw new Error("El buscador de direcciones no respondió.");
-      const raw = await upstream.json();
-      const payload = { name: addressLabel(raw).slice(0, 200), details: String(raw.display_name || "").slice(0, 280), lat, lng };
+      let payload = await googleReverse(lat, lng);
+      if (!payload) {
+        const params = new URLSearchParams({ format: "jsonv2", lat: String(lat), lon: String(lng), zoom: "18", addressdetails: "1" });
+        const upstream = await fetch(`https://nominatim.openstreetmap.org/reverse?${params}`, { headers: nominatimHeaders() });
+        if (!upstream.ok) throw new Error("El buscador de direcciones no respondió.");
+        const raw = await upstream.json();
+        payload = { name: addressLabel(raw).slice(0, 200), details: String(raw.display_name || "").slice(0, 280), lat, lng };
+      }
       await serviceClient.rpc("yavoi_map_cache_put", { key_value: key, payload_value: payload, ttl_seconds: 604800 });
       return json(payload, 200, origin);
     }
@@ -153,6 +310,14 @@ Deno.serve(async (req: Request) => {
       key = `route:v2:${values.map((value) => value.toFixed(5)).join(":")}`;
       const { data: cached } = await serviceClient.rpc("yavoi_map_cache_get", { key_value: key });
       if (cached) return json(cached, 200, origin);
+      const google = await googleRoute(
+        { lat: values[0], lng: values[1] },
+        { lat: values[2], lng: values[3] },
+      );
+      if (google) {
+        await serviceClient.rpc("yavoi_map_cache_put", { key_value: key, payload_value: google, ttl_seconds: 86400 });
+        return json(google, 200, origin);
+      }
       const routeBase = Deno.env.get("ROUTING_BASE_URL") || "https://router.project-osrm.org";
       const upstream = await fetch(`${routeBase}/route/v1/driving/${values[1]},${values[0]};${values[3]},${values[2]}?overview=full&geometries=geojson&steps=true&alternatives=true`);
       if (!upstream.ok) throw new Error("El servicio de rutas no respondió.");
