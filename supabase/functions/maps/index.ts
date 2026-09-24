@@ -186,38 +186,46 @@ function decodeGooglePolyline(value: string) {
 async function googleRoute(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }) {
   const apiKey = googleMapsKey();
   if (!apiKey) return null;
-  const upstream = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
-    method: "POST",
-    headers: googleHeaders(apiKey, "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.navigationInstruction.instructions,routes.legs.steps.distanceMeters"),
-    body: JSON.stringify({
-      origin: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
-      destination: { location: { latLng: { latitude: destination.lat, longitude: destination.lng } } },
-      travelMode: "DRIVE",
-      routingPreference: "TRAFFIC_AWARE",
-      languageCode: "es-MX",
-      units: "METRIC",
-    }),
-  });
-  if (!upstream.ok) throw new Error("Google Maps no pudo calcular la ruta.");
-  const raw = await upstream.json();
-  const route = Array.isArray(raw.routes) ? raw.routes[0] as Record<string, unknown> : null;
-  const encoded = String((route?.polyline as Record<string, unknown>)?.encodedPolyline || "");
-  const coordinates = decodeGooglePolyline(encoded);
-  if (!route || coordinates.length < 2) throw new Error("Google Maps no encontró una ruta vial.");
-  const steps = ((route.legs as Record<string, unknown>[] || []).flatMap((leg) => Array.isArray(leg.steps) ? leg.steps : []) as Record<string, unknown>[]).slice(0, 120);
-  return {
-    distance_km: Math.round(Number(route.distanceMeters || 0) / 10) / 100,
-    duration_minutes: Math.max(1, Math.ceil(Number(String(route.duration || "0").replace("s", "")) / 60)),
-    coordinates: coordinates.slice(0, 4000),
-    instructions: steps.map((step) => ({
-      type: "continue",
-      modifier: "straight",
-      street: String((step.navigationInstruction as Record<string, unknown>)?.instructions || "Continúa por la ruta indicada").slice(0, 160),
-      distance_m: Math.max(0, Math.round(Number(step.distanceMeters) || 0)),
-      duration_seconds: 0,
-    })),
-    route_quality: "google_routes",
-  };
+  try {
+    const upstream = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+      method: "POST",
+      headers: googleHeaders(apiKey, "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.navigationInstruction.instructions,routes.legs.steps.distanceMeters"),
+      body: JSON.stringify({
+        origin: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
+        destination: { location: { latLng: { latitude: destination.lat, longitude: destination.lng } } },
+        travelMode: "DRIVE",
+        routingPreference: "TRAFFIC_AWARE",
+        languageCode: "es-MX",
+        units: "METRIC",
+      }),
+    });
+    if (!upstream.ok) {
+      console.error("Google Routes fallback", upstream.status, await upstream.text());
+      return null;
+    }
+    const raw = await upstream.json();
+    const route = Array.isArray(raw.routes) ? raw.routes[0] as Record<string, unknown> : null;
+    const encoded = String((route?.polyline as Record<string, unknown>)?.encodedPolyline || "");
+    const coordinates = decodeGooglePolyline(encoded);
+    if (!route || coordinates.length < 2) return null;
+    const steps = ((route.legs as Record<string, unknown>[] || []).flatMap((leg) => Array.isArray(leg.steps) ? leg.steps : []) as Record<string, unknown>[]).slice(0, 120);
+    return {
+      distance_km: Math.round(Number(route.distanceMeters || 0) / 10) / 100,
+      duration_minutes: Math.max(1, Math.ceil(Number(String(route.duration || "0").replace("s", "")) / 60)),
+      coordinates: coordinates.slice(0, 4000),
+      instructions: steps.map((step) => ({
+        type: "continue",
+        modifier: "straight",
+        street: String((step.navigationInstruction as Record<string, unknown>)?.instructions || "Continúa por la ruta indicada").slice(0, 160),
+        distance_m: Math.max(0, Math.round(Number(step.distanceMeters) || 0)),
+        duration_seconds: 0,
+      })),
+      route_quality: "google_routes",
+    };
+  } catch (error) {
+    console.error("Google Routes fallback", error);
+    return null;
+  }
 }
 
 Deno.serve(async (req: Request) => {
