@@ -3,6 +3,59 @@ import 'leaflet/dist/leaflet.css';
 import { fallbackStreetRoute, routeKey, routeMeasurements, routePosition, travelledPoints } from './src/landing-route.js';
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
+const GOOGLE_MAPS_BROWSER_KEY = String(import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY || '').trim();
+const GOOGLE_MAP_ID = String(import.meta.env.VITE_GOOGLE_MAP_ID || '').trim();
+let Maps = L;
+let googleMapsLoader;
+
+function loadLandingGoogleMaps() {
+  if (!GOOGLE_MAPS_BROWSER_KEY) return Promise.resolve(false);
+  if (window.google?.maps) return Promise.resolve(true);
+  if (googleMapsLoader) return googleMapsLoader;
+  googleMapsLoader = new Promise(resolve => {
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_BROWSER_KEY)}&v=weekly&language=es&region=MX`;
+    script.async = true;
+    script.onload = () => resolve(Boolean(window.google?.maps));
+    script.onerror = () => resolve(false);
+    document.head.append(script);
+  });
+  return googleMapsLoader;
+}
+
+function googleLandingAdapter() {
+  const maps = window.google.maps;
+  const point = value => Array.isArray(value) ? { lat:Number(value[0]), lng:Number(value[1]) } : { lat:Number(value.lat), lng:Number(value.lng) };
+  class Marker {
+    constructor(value, options = {}) { this.value = point(value); this.options = options; this.raw = null; }
+    addTo(map) { this.raw = new maps.Marker({ map:map.raw, position:this.value, opacity:this.options.opacity, zIndex:this.options.zIndexOffset, icon:this.options.icon?.iconUrl || this.options.icon?.html?.match(/src="([^"]+)"/)?.[1] ? { url:this.options.icon?.iconUrl || this.options.icon?.html?.match(/src="([^"]+)"/)?.[1], scaledSize:new maps.Size(42, 42), anchor:new maps.Point(21, 21) } : undefined }); return this; }
+    setLatLng(value) { this.value = point(value); this.raw?.setPosition(this.value); return this; }
+    setOpacity(value) { this.raw?.setOpacity(value); return this; }
+    bindTooltip(value) { this.raw?.setTitle(String(value)); return this; }
+    getElement() { return null; }
+    remove() { this.raw?.setMap(null); }
+  }
+  class Polyline {
+    constructor(values, options = {}) { this.raw = new maps.Polyline({ path:values.map(point), strokeColor:options.color, strokeOpacity:options.opacity ?? 1, strokeWeight:options.weight ?? 5, map:null }); }
+    addTo(map) { if (map instanceof Group) { map.addLayer(this); return this; } this.raw.setMap(map.raw); return this; }
+    setLatLngs(values) { this.raw.setPath(values.map(point)); return this; }
+    remove() { this.raw.setMap(null); }
+  }
+  class Group {
+    constructor(items = []) { this.items = items; this.map = null; }
+    addTo(map) { this.map = map; this.items.forEach(item => item.addTo(map)); return this; }
+    addLayer(item) { this.items.push(item); if (this.map) item.addTo(this.map); return this; }
+    remove() { this.items.forEach(item => item.remove?.()); }
+  }
+  class MapAdapter {
+    constructor(id, options = {}) { this.raw = new maps.Map(document.getElementById(id), { center:{ lat:28.1902, lng:-105.4701 }, zoom:14, mapId:GOOGLE_MAP_ID || undefined, gestureHandling:options.dragging === false ? 'none' : 'cooperative', disableDoubleClickZoom:options.doubleClickZoom === false, streetViewControl:false, mapTypeControl:false, fullscreenControl:false, zoomControl:options.zoomControl !== false }); this.zoomControl = { setPosition() {} }; }
+    setView(value, zoom) { this.raw.setCenter(point(value)); this.raw.setZoom(zoom); return this; }
+    fitBounds(values, options = {}) { const bounds = new maps.LatLngBounds(); values.forEach(value => bounds.extend(point(value))); this.raw.fitBounds(bounds, options.padding ? { padding:options.padding[0] } : undefined); if (options.maxZoom && this.raw.getZoom() > options.maxZoom) this.raw.setZoom(options.maxZoom); return this; }
+    removeLayer(layer) { layer?.remove?.(); }
+    invalidateSize() { maps.event.trigger(this.raw, 'resize'); }
+  }
+  return { map:(id, options) => new MapAdapter(id, options), marker:(value, options) => new Marker(value, options), polyline:(values, options) => new Polyline(values, options), layerGroup:items => new Group(items), icon:options => options, divIcon:options => options, tileLayer:() => ({ addTo:() => {} }) };
+}
 
 const toast = $('#toast');
 let toastTimer;
@@ -81,20 +134,20 @@ async function roadRoute(a, b) {
 const carSvg = `<div class="map-car-marker" aria-label="Unidad Yavoi"><img src="/assets/map-car-top.svg" alt=""></div>`;
 
 function carIcon() {
-  return L.divIcon({ className:'', html:carSvg, iconSize:[46,62], iconAnchor:[23,31] });
+  return Maps.divIcon({ className:'', html:carSvg, iconSize:[46,62], iconAnchor:[23,31] });
 }
 
 function baseMap(id, zoom = 14, interactive = true) {
   const element = document.getElementById(id);
-  if (!element || typeof L === 'undefined') return null;
-  const map = L.map(id, {
+  if (!element || typeof Maps === 'undefined') return null;
+  const map = Maps.map(id, {
     zoomControl: interactive,
     scrollWheelZoom: false,
     dragging: interactive,
     doubleClickZoom: interactive,
     attributionControl: true
   }).setView(DELICIAS, zoom);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  Maps.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom:19,
     attribution:'&copy; OpenStreetMap'
   }).addTo(map);
@@ -104,13 +157,13 @@ function baseMap(id, zoom = 14, interactive = true) {
 
 function drawRoute(map, points, color = '#123a5b', weight = 6) {
   if (!map) return null;
-  const casing = L.polyline(points, { color:'#fff', weight:weight + 5, opacity:.92, lineCap:'round', lineJoin:'round', interactive:false });
-  const route = L.polyline(points, { color, weight, opacity:.92, lineCap:'round', lineJoin:'round', interactive:false });
-  return L.layerGroup([casing, route]).addTo(map);
+  const casing = Maps.polyline(points, { color:'#fff', weight:weight + 5, opacity:.92, lineCap:'round', lineJoin:'round', interactive:false });
+  const route = Maps.polyline(points, { color, weight, opacity:.92, lineCap:'round', lineJoin:'round', interactive:false });
+  return Maps.layerGroup([casing, route]).addTo(map);
 }
 
 function drawTravelledRoute(map, point) {
-  return L.polyline([point, point], {
+  return Maps.polyline([point, point], {
     color:'#ff6a0a',
     weight:6,
     opacity:1,
@@ -130,10 +183,10 @@ function fitRouteForPhone(map, points) {
 
 function addEndpoints(map, points) {
   if (!map || !points?.length) return [];
-  const startIcon = L.icon({ iconUrl:'/assets/map-origin.svg', iconSize:[42,50], iconAnchor:[21,46], tooltipAnchor:[0,-43] });
-  const endIcon = L.icon({ iconUrl:'/assets/map-destination.svg', iconSize:[42,50], iconAnchor:[21,46], tooltipAnchor:[0,-43] });
-  const start = L.marker(points[0], { icon:startIcon, zIndexOffset:1000 }).bindTooltip('Punto de partida').addTo(map);
-  const end = L.marker(points[points.length - 1], { icon:endIcon, zIndexOffset:1000 }).bindTooltip('Destino').addTo(map);
+  const startIcon = Maps.icon({ iconUrl:'/assets/map-origin.svg', iconSize:[42,50], iconAnchor:[21,46], tooltipAnchor:[0,-43] });
+  const endIcon = Maps.icon({ iconUrl:'/assets/map-destination.svg', iconSize:[42,50], iconAnchor:[21,46], tooltipAnchor:[0,-43] });
+  const start = Maps.marker(points[0], { icon:startIcon, zIndexOffset:1000 }).bindTooltip('Punto de partida').addTo(map);
+  const end = Maps.marker(points[points.length - 1], { icon:endIcon, zIndexOffset:1000 }).bindTooltip('Destino').addTo(map);
   return [start, end];
 }
 
@@ -197,7 +250,7 @@ async function setupLoopMap(id, start, end, duration, progressCallback = null) {
   drawRoute(map, points);
   addEndpoints(map, points);
   map.fitBounds(points, { padding:[36,36] });
-  const marker = L.marker(points[0], { icon:carIcon(), zIndexOffset:1000 }).addTo(map);
+  const marker = Maps.marker(points[0], { icon:carIcon(), zIndexOffset:1000 }).addTo(map);
   const traceLine = drawTravelledRoute(map, points[0]);
   animateMarker(marker, points, { duration, loop:true, progressCallback, traceLine });
   return { map, marker };
@@ -213,7 +266,7 @@ let driverApproachPoints = [], driverTripRoadPoints = [];
 let riderRouteVersion = 0;
 
 async function initializeMaps() {
-  if (typeof L === 'undefined') {
+  if (typeof Maps === 'undefined') {
     showToast('Los mapas requieren conexión a internet para mostrar OpenStreetMap.');
     return;
   }
@@ -241,7 +294,10 @@ async function initializeMaps() {
   ({ map:securityMap, marker:securityCar } = securityResult);
 }
 
-initializeMaps().catch(() => showToast('No pudimos iniciar una de las rutas demostrativas. Intenta recargar la página.'));
+(async () => {
+  if (await loadLandingGoogleMaps()) Maps = googleLandingAdapter();
+  await initializeMaps();
+})().catch(() => showToast('No pudimos iniciar una de las rutas demostrativas. Intenta recargar la página.'));
 
 function currentRiderSelection() {
   const originKey = $('#riderOrigin')?.value || 'hotel_baeza';
@@ -273,7 +329,7 @@ async function prepareRiderRoute() {
   riderRouteLine = drawRoute(riderMap, points);
   riderEndpointLayers = addEndpoints(riderMap, points);
   fitRouteForPhone(riderMap, [...approach, ...points]);
-  riderCar = L.marker(approach[0], { icon:carIcon(), zIndexOffset:1000, opacity:0 }).addTo(riderMap);
+  riderCar = Maps.marker(approach[0], { icon:carIcon(), zIndexOffset:1000, opacity:0 }).addTo(riderMap);
   riderTraceLine = drawTravelledRoute(riderMap, points[0]);
   updateRiderEstimate(points);
 }
@@ -401,7 +457,7 @@ async function prepareDriverRoute() {
   driverRouteLine = drawRoute(driverMap, full);
   driverEndpointLayers = addEndpoints(driverMap, full);
   fitRouteForPhone(driverMap, full);
-  driverCar = L.marker(approach[0], { icon:carIcon(), zIndexOffset:1000 }).addTo(driverMap);
+  driverCar = Maps.marker(approach[0], { icon:carIcon(), zIndexOffset:1000 }).addTo(driverMap);
   driverTraceLine = drawTravelledRoute(driverMap, approach[0]);
 }
 

@@ -186,6 +186,7 @@ function googleMapsFacade() {
     constructor(points, options = {}) { this.raw = new maps.Polyline({ path: points.map(toPoint), strokeColor: options.color, strokeOpacity: options.opacity ?? 1, strokeWeight: options.weight ?? 5, map: null }); }
     addTo(map) { if (map instanceof Group) { map.addLayer(this); return this; } this.raw.setMap(map.raw); return this; }
     remove() { this.raw.setMap(null); }
+    setLatLngs(points) { this.raw.setPath(points.map(toPoint)); return this; }
   }
   class Group {
     constructor() { this.items = new Set(); this.map = null; }
@@ -195,7 +196,7 @@ function googleMapsFacade() {
   }
   class Map {
     constructor(id, options = {}) {
-      this.raw = new maps.Map(document.getElementById(id), { center: { lat: DELICIAS_MAP_CENTER[0], lng: DELICIAS_MAP_CENTER[1] }, zoom: 14, mapId: GOOGLE_MAP_ID || undefined, gestureHandling: "greedy", streetViewControl: false, mapTypeControl: false, fullscreenControl: false, zoomControl: options.zoomControl !== false });
+      this.raw = new maps.Map(document.getElementById(id), { center: { lat: DELICIAS_MAP_CENTER[0], lng: DELICIAS_MAP_CENTER[1] }, zoom: 14, mapId: GOOGLE_MAP_ID || undefined, gestureHandling: options.touchZoom === "center" ? "cooperative" : "greedy", streetViewControl: false, mapTypeControl: false, fullscreenControl: false, zoomControl: options.zoomControl !== false });
       this.zoomControl = { setPosition() {} }; this.handlers = {};
     }
     setView(point, zoom) { this.raw.setCenter(toPoint(point)); if (zoom != null) this.raw.setZoom(zoom); return this; }
@@ -206,6 +207,7 @@ function googleMapsFacade() {
     fitBounds(points, options = {}) { const bounds = new maps.LatLngBounds(); points.forEach((point) => bounds.extend(toPoint(point))); this.raw.fitBounds(bounds, options.padding ? { padding: options.padding[0] } : undefined); if (options.maxZoom && this.getZoom() > options.maxZoom) this.raw.setZoom(options.maxZoom); }
     invalidateSize() { maps.event.trigger(this.raw, "resize"); }
     remove() { maps.event.clearInstanceListeners(this.raw); this.raw.getDiv().replaceChildren(); }
+    removeLayer(layer) { layer?.remove?.(); return this; }
   }
   return { map: (id, options) => new Map(id, options), marker: (point, options) => new Marker(point, options), polyline: (points, options) => new Polyline(points, options), layerGroup: () => new Group(), icon: (options) => options, divIcon: (options) => options, tileLayer: () => ({ addTo: () => {} }) };
 }
