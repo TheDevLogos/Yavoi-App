@@ -141,6 +141,7 @@ if (/^YV[A-F0-9]{8}$/.test(referralFromUrl)) {
 }
 const modal = $("#modal");
 let toastTimer, pollTimer;
+let driverNavigationWindow;
 let googleMapsPromise;
 function loadGoogleMaps() {
   if (!GOOGLE_MAPS_BROWSER_KEY) return Promise.resolve(false);
@@ -405,20 +406,20 @@ function presentDriverOfferAlert(offer) {
   $("#accept-driver-offer").onclick = () => {
     // Opening the window within the tap keeps Android and iOS from blocking
     // the handoff to turn-by-turn navigation after the server accepts the trip.
-    const navigationWindow = window.open("", "_blank");
     run(async () => {
     clearInterval(timer);
     stopOfferRinging(offer.offer_id);
     try {
       const trip = await rpc("accept", { offer_id: offer.offer_id });
       if (trip.error) throw Error(trip.error);
-      const navigationUrl = googleNavigationUrl({ ...trip, status: "accepted" });
-      if (navigationUrl && navigationWindow) navigationWindow.location.replace(navigationUrl);
-      else navigationWindow?.close();
+      const queued = Boolean(trip.queued_after_trip_id);
+      if (!queued) openDriverNavigation({ ...trip, status: "accepted" });
       closeModal();
-      location.hash = "trip/" + trip.id;
+      if (queued) {
+        notify("Siguiente viaje aceptado. La navegación actual continúa hasta terminar el servicio en curso.");
+        await syncDriverOffers({ present: false });
+      } else location.hash = "trip/" + trip.id;
     } catch (error) {
-      navigationWindow?.close();
       throw error;
     }
     });
@@ -1206,6 +1207,12 @@ function googleNavigationUrl(trip) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "";
   const params = new URLSearchParams({ api: "1", destination: `${lat},${lng}`, travelmode: "driving", dir_action: "navigate" });
   return `https://www.google.com/maps/dir/?${params}`;
+}
+function openDriverNavigation(trip) {
+  const url = googleNavigationUrl(trip);
+  if (!url) return null;
+  driverNavigationWindow = window.open(url, "yavoi-driver-navigation");
+  return driverNavigationWindow;
 }
 async function refreshAvailableUnits({ fit = true } = {}) {
   if (!S.map || S.profile?.role !== "passenger" || !S.origin) return;
@@ -2471,6 +2478,8 @@ async function tripView(id) {
   await startMap(t);
   bindForm("#start-trip", async (v) => {
     await rpc("transition", { trip_id: t.id, status: "in_progress", pin: v.pin });
+    // Reuse the same named Maps window/tab, replacing pickup guidance with delivery.
+    openDriverNavigation({ ...t, status: "in_progress" });
     await tripView(t.id);
   });
   bindForm("#chat-form", async (v, f) => {
@@ -2501,6 +2510,11 @@ async function refreshTrip() {
     return;
   }
   S.trip = next;
+  if (S.profile?.role === "driver" && next.trip.status === "in_progress") {
+    // A driver can keep one following trip. Offers remain visible without
+    // interrupting navigation or rebuilding the current trip screen.
+    syncDriverOffers({ present: true }).catch(() => {});
+  }
   syncTripSummary(next.trip);
   const chat = $("#chat");
   if (chat) {
@@ -4772,6 +4786,14 @@ async function handleAction(action, b) {
         console.error("Automatic trip receipt delivery failed", error);
         notify("Viaje completado. El recibo quedó en cola y Operaciones puede reintentar el envío sin perder sus datos.");
       }
+      const dashboard = await rpc("dashboard");
+      S.data = dashboard;
+      const following = dashboard.trips.find((trip) => trip.driver_id === S.user.id && trip.status === "accepted");
+      if (following) {
+        notify("Tu siguiente viaje está listo. Actualizamos la navegación al punto de recolección.");
+        openDriverNavigation(following);
+        await tripView(following.id);
+      }
     });
     return;
   }
@@ -4985,6 +5007,12 @@ function startUpdates() {
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "trip_events" }, (payload) => {
       if (payload.new?.actor_id === S.user.id) return safeRefresh();
       const event = payload.new?.event;
+      if (event === "arrived_automatically" && payload.new?.actor_id !== S.user.id) {
+        serviceNotification("Tu unidad ya llegó", "El conductor está en el punto de recolección. Confirma la unidad antes de compartir tu PIN.", {
+          tag: `yavoi-arrived-${payload.new.trip_id}`,
+          target: `trip/${payload.new.trip_id}`,
+        });
+      }
       if (["cancelled", "cancellation_fee_paid", "cancellation_fee_waived"].includes(event)) {
         const body = event === "cancelled"
           ? `La otra parte canceló el servicio. Abre el viaje para revisar motivo, cuota y reembolso.`
