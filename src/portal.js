@@ -115,6 +115,7 @@ const S = {
   offerAudioContext: null,
   offerAudioArmed: false,
   offerRingTimers: new Map(),
+  offerMap: null,
   initialLocationRequested: false,
   initialLocationPromise: null,
   draftTimer: null,
@@ -340,19 +341,19 @@ function playOfferSound() {
   const audio = S.offerAudioContext;
   if (!S.offerAudioArmed || !audio || audio.state !== "running") return false;
   const now = audio.currentTime;
-  [0, 0.23, 0.46, 0.76].forEach((offset, index) => {
+  [0, 0.34, 0.68, 1.02, 1.36].forEach((offset, index) => {
     const tone = audio.createOscillator();
     const gain = audio.createGain();
-    tone.type = index === 2 ? "triangle" : "sine";
-    tone.frequency.setValueAtTime(index % 2 ? 740 : 880, now + offset);
+    tone.type = index % 2 ? "triangle" : "square";
+    tone.frequency.setValueAtTime(index % 2 ? 740 : 920, now + offset);
     gain.gain.setValueAtTime(0.0001, now + offset);
-    gain.gain.exponentialRampToValueAtTime(0.95, now + offset + 0.018);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.2);
+    gain.gain.exponentialRampToValueAtTime(0.8, now + offset + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.3);
     tone.connect(gain).connect(audio.destination);
     tone.start(now + offset);
-    tone.stop(now + offset + 0.22);
+    tone.stop(now + offset + 0.32);
   });
-  navigator.vibrate?.([150, 70, 150, 70, 150, 70, 260]);
+  navigator.vibrate?.([220, 70, 220, 70, 220, 70, 360]);
   return true;
 }
 function stopOfferRinging(offerId) {
@@ -367,12 +368,12 @@ function startOfferRinging(offer) {
   if (!offer?.offer_id || S.offerRingTimers.has(offer.offer_id)) return;
   let repetitions = 0;
   const ring = () => {
-    if (repetitions >= 7) return stopOfferRinging(offer.offer_id);
+    if (repetitions >= 20) return stopOfferRinging(offer.offer_id);
     repetitions += 1;
     playOfferSound();
   };
   ring();
-  S.offerRingTimers.set(offer.offer_id, setInterval(ring, 2000));
+  S.offerRingTimers.set(offer.offer_id, setInterval(ring, 3000));
 }
 function announceOffers(offers) {
   const newOffers = offers.filter((offer) => !S.knownOfferIds.has(offer.offer_id));
@@ -392,11 +393,13 @@ function announceOffers(offers) {
 function presentDriverOfferAlert(offer) {
   if (!offer || S.profile?.role !== "driver" || document.hidden || modal.open) return false;
   S.pendingOfferIds.delete(offer.offer_id);
-  const responseSeconds = 7;
+  const expiresAt = Date.parse(offer.expires_at || "");
+  const responseSeconds = Number.isFinite(expiresAt) ? Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000)) : 60;
   openModal(
     "Nueva solicitud",
-    `<section class="driver-offer-alert compact" role="alert" aria-live="assertive"><div class="driver-offer-alert-head"><span class="badge pending">NUEVO VIAJE</span><strong>Ganas ${money(offer.net_cents)}</strong></div><div class="offer-countdown" aria-label="Tiempo para responder"><span id="offer-countdown-bar"></span></div><div class="row between offer-countdown-copy"><small>Decide en <strong id="offer-countdown-seconds">${responseSeconds}</strong> s</small><small>${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min</small></div><div class="route-line">${I("circle-dot")}${e(offer.origin)}</div><div class="route-line destination">${I("map-pin")}${e(offer.destination)}</div><div class="driver-offer-legal"><span>Yavoi! ${e(S.categories.find((category) => category.id === offer.category)?.name || offer.category)}</span><span>${offer.party_size} pasajero${Number(offer.party_size) === 1 ? "" : "s"}</span><span>${offer.payment_method === "card" ? "Pago electrónico" : "Pago en efectivo"}</span></div><div class="offer-decisions compact"><button class="btn danger" type="button" id="reject-driver-offer">Rechazar ${I("x")}</button><button class="btn" type="button" id="accept-driver-offer">Aceptar ${I("check")}</button></div></section>`,
+    `<section class="driver-offer-alert compact" role="alert" aria-live="assertive"><div class="driver-offer-alert-head"><span class="badge pending">NUEVO VIAJE</span><strong>Ganas ${money(offer.net_cents)}</strong></div><div class="offer-countdown" aria-label="Tiempo para responder"><span id="offer-countdown-bar"></span></div><div class="row between offer-countdown-copy"><small>Decide en <strong id="offer-countdown-seconds">${responseSeconds}</strong> s</small><small>${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min</small></div><div id="offer-route-map" class="offer-route-map" aria-label="Mapa del recorrido programado"></div><div class="route-line">${I("circle-dot")}${e(offer.origin)}</div><div class="route-line destination">${I("map-pin")}${e(offer.destination)}</div><div class="driver-offer-legal"><span>Yavoi! ${e(S.categories.find((category) => category.id === offer.category)?.name || offer.category)}</span><span>${offer.party_size} pasajero${Number(offer.party_size) === 1 ? "" : "s"}</span><span>${offer.payment_method === "card" ? "Pago electrónico" : "Pago en efectivo"}</span></div><div class="offer-decisions compact"><button class="btn danger" type="button" id="reject-driver-offer">Rechazar ${I("x")}</button><button class="btn" type="button" id="accept-driver-offer">Aceptar ${I("check")}</button></div></section>`,
   );
+  renderOfferRouteMap(offer).catch(() => {});
   let remaining = responseSeconds;
   const startedAt = performance.now();
   const bar = $("#offer-countdown-bar");
@@ -412,14 +415,13 @@ function presentDriverOfferAlert(offer) {
     stopOfferRinging(offer.offer_id);
     closeModal();
     run(async () => {
-      await rpc("reject_offer", { offer_id: offer.offer_id, reason: "Tiempo de respuesta de 7 segundos agotado" });
-      await refreshPage();
-      notify("Tiempo agotado. Yavoi! buscará la siguiente unidad disponible.");
+      await rpc("reject_offer", { offer_id: offer.offer_id, reason: "Tiempo de respuesta agotado" });
+      await syncDriverOffers({ present: true });
+      notify("Tiempo agotado. Yavoi! continúa buscando una unidad disponible.");
     });
   }, 100);
   $("#accept-driver-offer").onclick = () => {
-    // Opening the window within the tap keeps Android and iOS from blocking
-    // the handoff to turn-by-turn navigation after the server accepts the trip.
+    const navigationWindow = driverActiveTrip() ? null : window.open("about:blank", "yavoi-driver-navigation");
     run(async () => {
     clearInterval(timer);
     stopOfferRinging(offer.offer_id);
@@ -427,13 +429,15 @@ function presentDriverOfferAlert(offer) {
       const trip = await rpc("accept", { offer_id: offer.offer_id });
       if (trip.error) throw Error(trip.error);
       const queued = Boolean(trip.queued_after_trip_id);
-      if (!queued) openDriverNavigation({ ...trip, status: "accepted" });
+      if (!queued) openDriverNavigation({ ...trip, status: "accepted" }, navigationWindow);
+      else navigationWindow?.close();
       closeModal();
       if (queued) {
         notify("Siguiente viaje aceptado. La navegación actual continúa hasta terminar el servicio en curso.");
         await syncDriverOffers({ present: false });
       } else location.hash = "trip/" + trip.id;
     } catch (error) {
+      navigationWindow?.close();
       throw error;
     }
     });
@@ -447,6 +451,31 @@ function presentDriverOfferAlert(offer) {
     notify("Solicitud rechazada. Yavoi! buscará la siguiente unidad disponible.");
   });
   return true;
+}
+async function renderOfferRouteMap(offer) {
+  const host = $("#offer-route-map");
+  const origin = { lat: Number(offer.origin_lat), lng: Number(offer.origin_lng) };
+  const destination = { lat: Number(offer.dest_lat), lng: Number(offer.dest_lng) };
+  if (!host || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lng) || !Number.isFinite(destination.lat) || !Number.isFinite(destination.lng)) {
+    if (host) host.innerHTML = `<span>${I("map")} Vista de ruta disponible al aceptar</span>`;
+    iconsNow();
+    return;
+  }
+  const route = offer.planned_route?.coordinates?.length > 1
+    ? offer.planned_route
+    : await mapService({ type: "route", origin, destination });
+  if (!host.isConnected) return;
+  S.offerMap?.remove?.();
+  S.offerMap = L.map("offer-route-map", { zoomControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false, touchZoom: false, attributionControl: false })
+    .setView([origin.lat, origin.lng], 14);
+  const points = route.coordinates.map(([lng, lat]) => [Number(lat), Number(lng)]);
+  L.polyline(points, { color: "#fff", weight: 9, opacity: 0.96, lineCap: "round", lineJoin: "round" }).addTo(S.offerMap);
+  L.polyline(points, { color: "#ff6a0a", weight: 6, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(S.offerMap);
+  L.polyline(points, { color: "#153e63", weight: 3, opacity: 0.98, lineCap: "round", lineJoin: "round" }).addTo(S.offerMap);
+  L.marker([origin.lat, origin.lng], { icon: pointIcon(false), zIndexOffset: 12 }).addTo(S.offerMap);
+  L.marker([destination.lat, destination.lng], { icon: pointIcon(true), zIndexOffset: 12 }).addTo(S.offerMap);
+  S.offerMap.fitBounds(points, { padding: [18, 18], maxZoom: 15 });
+  setTimeout(() => S.offerMap?.invalidateSize?.(), 80);
 }
 function presentPendingOffer(offers) {
   const pending = offers.find((offer) => S.pendingOfferIds.has(offer.offer_id));
@@ -472,6 +501,8 @@ async function syncDriverOffers({ present = true } = {}) {
 function closeModal() {
   S.mpController?.unmount?.();
   S.mpController = null;
+  S.offerMap?.remove?.();
+  S.offerMap = null;
   modal.close();
   modal.innerHTML = "";
   modal.classList.remove("feature-card-dialog", "welcome-carousel-dialog");
@@ -1242,10 +1273,12 @@ function googleNavigationUrl(trip) {
   const params = new URLSearchParams({ api: "1", destination: `${lat},${lng}`, travelmode: "driving", dir_action: "navigate" });
   return `https://www.google.com/maps/dir/?${params}`;
 }
-function openDriverNavigation(trip) {
+function openDriverNavigation(trip, navigationWindow = null) {
   const url = googleNavigationUrl(trip);
   if (!url) return null;
-  driverNavigationWindow = window.open(url, "yavoi-driver-navigation");
+  driverNavigationWindow = navigationWindow || driverNavigationWindow;
+  if (driverNavigationWindow && !driverNavigationWindow.closed) driverNavigationWindow.location.href = url;
+  else driverNavigationWindow = window.open(url, "yavoi-driver-navigation");
   return driverNavigationWindow;
 }
 async function refreshAvailableUnits({ fit = true } = {}) {
@@ -4866,10 +4899,11 @@ async function handleAction(action, b) {
         : `<div class="hint">${I("shield-check")} ${e(terms.explanation)}</div>`;
       openModal(
         "Revisa antes de cancelar",
-        `<form id="cancel">${feeNotice}${terms.payment_method === "card" && Number(terms.refund_cents || 0) > 0 ? `<div class="receipt-row"><span>Reembolso estimado a tu tarjeta</span><strong>${money(terms.refund_cents)}</strong></div>` : ""}<label>Motivo de cancelación<select name="reason_code" required><option value="">Selecciona un motivo</option>${reasonOptions}</select></label><label>Describe el motivo<textarea name="reason" required minlength="5" maxlength="500"></textarea></label><label class="check"><input type="checkbox" required>Entiendo el importe, el reembolso y que ambas partes recibirán el aviso.</label><button class="btn danger wide" type="submit">Confirmar cancelación</button></form>`,
+        `<form id="cancel">${feeNotice}${terms.payment_method === "card" && Number(terms.refund_cents || 0) > 0 ? `<div class="receipt-row"><span>Reembolso estimado a tu tarjeta</span><strong>${money(terms.refund_cents)}</strong></div>` : ""}<label>Motivo de cancelación<select name="reason_code" required><option value="">Selecciona un motivo</option>${reasonOptions}</select></label><label class="check"><input type="checkbox" required>Entiendo el importe, el reembolso y que ambas partes recibirán el aviso.</label><button class="btn danger wide" type="submit">Confirmar cancelación</button></form>`,
       );
       bindForm("#cancel", async (v) => {
-        const cancelled = await rpc("transition", { trip_id: t.id, status: "cancelled", reason_code: v.reason_code, reason: v.reason });
+        const reason = cancellationReasons.find(([value]) => value === v.reason_code)?.[1] || "Otro motivo";
+        const cancelled = await rpc("transition", { trip_id: t.id, status: "cancelled", reason_code: v.reason_code, reason });
         let refundPending = false;
         if (cancelled.refund_payment_id) {
           const { data, error } = await db.functions.invoke("mercado-pago-payment", { body: { action: "refund", payment_id: cancelled.refund_payment_id } });
