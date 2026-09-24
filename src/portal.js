@@ -73,6 +73,7 @@ const S = {
   tripHistoryLine: null,
   tripSuggestedLine: null,
   tripSuggestedCasing: null,
+  tripSuggestedAccent: null,
   mapLiveLayer: null,
   opsMarkers: new Map(),
   opsRoutes: new Map(),
@@ -179,8 +180,21 @@ function googleMapsFacade() {
     bindTooltip(value) { this.tooltip = value; if (this.raw) this.raw.setTitle(String(value).replace(/<[^>]+>/g, "")); return this; }
     on(event, handler) { this.handlers[event] = handler; if (this.raw) maps.event.addListener(this.raw, event, (payload) => handler(event === "dragend" ? { target: this } : payload)); return this; }
     getLatLng() { const p = this.raw?.getPosition(); return p ? { lat: p.lat(), lng: p.lng() } : this.point; }
-    setLatLng(point) { this.point = toPoint(point); this.raw?.setPosition(this.point); return this; }
+    setLatLng(point) {
+      const next = toPoint(point); const previous = this.raw?.getPosition(); this.point = next;
+      if (!this.raw || !previous) { this.raw?.setPosition(next); return this; }
+      const start = { lat: previous.lat(), lng: previous.lng() }; const startedAt = performance.now(); const id = (this.animationId || 0) + 1;
+      this.animationId = id;
+      const move = (now) => {
+        if (this.animationId !== id || !this.raw) return;
+        const progress = Math.min(1, (now - startedAt) / 700); const eased = 1 - Math.pow(1 - progress, 3);
+        this.raw.setPosition({ lat: start.lat + ((next.lat - start.lat) * eased), lng: start.lng + ((next.lng - start.lng) * eased) });
+        if (progress < 1) requestAnimationFrame(move);
+      };
+      requestAnimationFrame(move); return this;
+    }
     setOpacity(value) { this.raw?.setOpacity(value); return this; }
+    setTooltipContent(value) { return this.bindTooltip(value); }
     getElement() { return null; }
   }
   class Polyline {
@@ -593,6 +607,7 @@ function teardownMap() {
   S.tripHistoryLine = null;
   S.tripSuggestedLine = null;
   S.tripSuggestedCasing = null;
+  S.tripSuggestedAccent = null;
   S.mapLiveLayer = null;
   S.opsMarkers.clear();
   S.opsRoutes.clear();
@@ -950,6 +965,25 @@ function recentDestinations() {
   } catch {
     return [];
   }
+}
+function frequentDestinationKey() {
+  return `yavoi:frequent-destinations:${S.user?.id || "guest"}`;
+}
+function localFrequentDestinations() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(frequentDestinationKey()) || "[]");
+    return Array.isArray(stored)
+      ? stored.filter((place) => place?.slot && place?.label && place?.address && Number.isFinite(Number(place.lat)) && Number.isFinite(Number(place.lng))).slice(0, 9)
+      : [];
+  } catch { return []; }
+}
+function saveLocalFrequentDestination(place) {
+  const next = [place, ...localFrequentDestinations().filter((item) => item.slot !== place.slot)].slice(0, 9);
+  try { localStorage.setItem(frequentDestinationKey(), JSON.stringify(next)); } catch {}
+  return next;
+}
+function deleteLocalFrequentDestination(slot) {
+  try { localStorage.setItem(frequentDestinationKey(), JSON.stringify(localFrequentDestinations().filter((item) => item.slot !== slot))); } catch {}
 }
 function rememberDestination(point) {
   if (!point?.name || !Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return;
@@ -1312,6 +1346,7 @@ function drawPoints(t = null, { fit = true } = {}) {
   S.tripHistoryLine = null;
   S.tripSuggestedLine = null;
   S.tripSuggestedCasing = null;
+  S.tripSuggestedAccent = null;
   const points = t
     ? [
         { lat: t.origin_lat, lng: t.origin_lng },
@@ -1330,9 +1365,11 @@ function drawPoints(t = null, { fit = true } = {}) {
   });
   if (points.every(Boolean) && S.roadRoute?.coordinates?.length > 1) {
     const routeCoordinates = S.roadRoute.coordinates.map(([lng, lat]) => [lat, lng]);
-    S.tripSuggestedCasing = L.polyline(routeCoordinates, { color: "#fff", weight: t ? 10 : 9, opacity: 0.96, lineCap: "round", lineJoin: "round" }).addTo(S.map);
+    S.tripSuggestedCasing = L.polyline(routeCoordinates, { color: "#fff", weight: t ? 12 : 11, opacity: 0.96, lineCap: "round", lineJoin: "round" }).addTo(S.map);
     S.markers.push(S.tripSuggestedCasing);
-    const suggestedLine = L.polyline(routeCoordinates, { color: "#153e63", weight: t ? 6 : 5, opacity: 0.9, lineCap: "round", lineJoin: "round" }).addTo(S.map);
+    S.tripSuggestedAccent = L.polyline(routeCoordinates, { color: "#ff6a0a", weight: t ? 8 : 7, opacity: 0.94, lineCap: "round", lineJoin: "round" }).addTo(S.map);
+    S.markers.push(S.tripSuggestedAccent);
+    const suggestedLine = L.polyline(routeCoordinates, { color: "#153e63", weight: t ? 4 : 3, opacity: 0.98, lineCap: "round", lineJoin: "round" }).addTo(S.map);
     S.tripSuggestedLine = suggestedLine;
     S.markers.push(suggestedLine);
   }
@@ -1445,13 +1482,22 @@ function scheduleRideDraft() {
 }
 function openSavedDestinationEditor() {
   const labels = { home: "Casa", work: "Trabajo", school: "Escuela" };
-  const saved = S.data.saved_places || [];
+  const saved = [...(S.data.saved_places || []), ...localFrequentDestinations()];
   openModal(
     "Destinos frecuentes",
-    `<form id="saved-destination-form"><p>${S.destination ? `Guarda <strong>${e(S.destination.name)}</strong> para elegirlo después escribiendo Casa, Trabajo o Escuela.` : "Selecciona primero un destino buscando la dirección o colocando el marcador."}</p><label>Guardar como<select name="slot" required><option value="home">Casa</option><option value="work">Trabajo</option><option value="school">Escuela</option></select></label><button class="btn wide" type="submit" ${S.destination ? "" : "disabled"}>Guardar ubicación ${I("bookmark-check")}</button></form>${saved.length ? `<div class="saved-place-list">${saved.map((place) => `<div><span>${I(place.slot === "home" ? "house" : place.slot === "work" ? "briefcase-business" : "school")}<strong>${e(labels[place.slot])}</strong><small>${e(place.address)}</small></span><button type="button" class="icon-btn" data-delete-saved-place="${e(place.slot)}" aria-label="Eliminar ${e(labels[place.slot])}">${I("trash-2")}</button></div>`).join("")}</div>` : ""}`,
+    `<form id="saved-destination-form"><p>${S.destination ? `Guarda <strong>${e(S.destination.name)}</strong> para seleccionarlo fácilmente en Destino.` : "Selecciona primero un destino buscando la dirección o colocando el marcador."}</p><label>Guardar como<select name="slot" required><option value="home">Casa</option><option value="work">Trabajo</option><option value="school">Escuela</option><option value="custom">Otro destino frecuente</option></select></label><label id="custom-destination-label" class="hidden">Nombre del destino<input name="label" maxlength="32" placeholder="Ejemplo: Gimnasio"></label><button class="btn wide" type="submit" ${S.destination ? "" : "disabled"}>Guardar ubicación ${I("bookmark-check")}</button></form>${saved.length ? `<div class="saved-place-list">${saved.map((place) => `<div><span>${I(place.slot === "home" ? "house" : place.slot === "work" ? "briefcase-business" : place.slot === "school" ? "school" : "map-pin")}<strong>${e(place.label || labels[place.slot] || "Destino frecuente")}</strong><small>${e(place.address)}</small></span><button type="button" class="icon-btn" data-delete-saved-place="${e(place.slot)}" aria-label="Eliminar ${e(place.label || labels[place.slot] || "destino")}">${I("trash-2")}</button></div>`).join("")}</div>` : ""}`,
   );
+  const slotSelect = $('[name=slot]', modal);
+  slotSelect?.addEventListener("change", () => $("#custom-destination-label", modal)?.classList.toggle("hidden", slotSelect.value !== "custom"));
   bindForm("#saved-destination-form", async (values) => {
     if (!S.destination) throw Error("Selecciona primero el destino que quieres guardar.");
+    if (values.slot === "custom") {
+      const label = String(values.label || "").trim();
+      if (label.length < 2) throw Error("Escribe un nombre para este destino frecuente.");
+      const place = { slot: `local-${crypto.randomUUID()}`, label, address: S.destination.name, lat: S.destination.lat, lng: S.destination.lng };
+      saveLocalFrequentDestination(place);
+      closeModal(); riderHome({ preserveDestination: true }); notify(`${label} quedó disponible en el campo Destino.`); return;
+    }
     const place = await rpc("save_saved_place", {
       slot: values.slot,
       address: S.destination.name.replace(/^(Casa|Trabajo|Escuela):\s*/i, ""),
@@ -1464,8 +1510,12 @@ function openSavedDestinationEditor() {
     notify(`${labels[place.slot]} quedó disponible en el campo Destino.`);
   });
   $$('[data-delete-saved-place]', modal).forEach((item) => item.onclick = () => run(async () => {
-    await rpc("delete_saved_place", { slot: item.dataset.deleteSavedPlace });
-    S.data.saved_places = saved.filter((place) => place.slot !== item.dataset.deleteSavedPlace);
+    const slot = item.dataset.deleteSavedPlace;
+    if (slot.startsWith("local-")) deleteLocalFrequentDestination(slot);
+    else {
+      await rpc("delete_saved_place", { slot });
+      S.data.saved_places = (S.data.saved_places || []).filter((place) => place.slot !== slot);
+    }
     closeModal();
     riderHome({ preserveDestination: true });
     notify("Destino guardado eliminado.");
@@ -1502,9 +1552,9 @@ function riderHome({ preserveDestination = false } = {}) {
   } : null;
   const cats = S.categories.filter((category) => category.active);
   const savedPlaceLabels = { home: "Casa", work: "Trabajo", school: "Escuela" };
-  const savedDestinations = (S.data.saved_places || []).map((place) => ({
+  const savedDestinations = [...(S.data.saved_places || []), ...localFrequentDestinations()].map((place) => ({
     ...place,
-    name: `${savedPlaceLabels[place.slot] || "Guardado"}: ${place.address}`,
+    name: `${place.label || savedPlaceLabels[place.slot] || "Guardado"}: ${place.address}`,
   }));
   const recent = recentDestinations();
   const destinationChoices = [...recent, ...savedDestinations, ...places].filter((place, index, all) =>
@@ -1521,7 +1571,7 @@ function riderHome({ preserveDestination = false } = {}) {
   shell(
     `<div class="booking"><section class="panel booking-panel"><div class="row between booking-title"><h2>Planea tu viaje</h2><small id="draft-state">${draft ? "Preferencias recuperadas" : "Guardado automático"}</small></div><form id="quote-form">
       <div class="address-field"><label class="input-point"><span class="address-caption">Punto de partida</span><span class="address-control"><img src="/assets/map-origin.svg" alt=""><input name="origin" value="${e(S.origin?.name || draft?.origin || "")}" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search" placeholder="Escribe una dirección"></span></label><div id="origin-suggestions" class="address-history-menu hidden"></div></div>
-      <div class="address-field destination-address"><label class="input-point"><span class="address-caption">Destino</span><span class="address-control"><img src="/assets/map-destination.svg" alt=""><input name="destination" list="destinations" value="" placeholder="Escribe calle, número o lugar" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search"><button type="button" id="destination-history-toggle" class="address-dropdown" aria-label="Mostrar los últimos destinos" aria-expanded="false">${I("chevron-down")}</button></span></label><div id="destination-history" class="address-history-menu hidden">${recent.length ? `<small>ÚLTIMOS DESTINOS</small>${recent.map((place, index) => `<button type="button" data-recent-destination="${index}">${I("history")}<span>${e(place.name)}</span></button>`).join("")}` : '<p>Aún no hay destinos recientes.</p>'}</div><div id="destination-suggestions" class="address-history-menu hidden"></div></div>
+      <div class="address-field destination-address"><label class="input-point"><span class="address-caption">Destino</span><span class="address-control"><img src="/assets/map-destination.svg" alt=""><input name="destination" list="destinations" value="" placeholder="Escribe calle, número o lugar" required maxlength="200" autocomplete="street-address" inputmode="search" enterkeyhint="search"><button type="button" id="destination-history-toggle" class="address-dropdown" aria-label="Mostrar destinos guardados y recientes" aria-expanded="false">${I("chevron-down")}</button></span></label><div id="destination-history" class="address-history-menu hidden">${savedDestinations.length ? `<small>DESTINOS GUARDADOS</small>${savedDestinations.map((place, index) => `<button type="button" data-saved-destination="${index}">${I("bookmark")}<span>${e(place.name)}</span></button>`).join("")}` : ""}${recent.length ? `<small>ÚLTIMOS DESTINOS</small>${recent.map((place, index) => `<button type="button" data-recent-destination="${index}">${I("history")}<span>${e(place.name)}</span></button>`).join("")}` : (savedDestinations.length ? "" : '<p>Aún no hay destinos guardados.</p>')}</div><div id="destination-suggestions" class="address-history-menu hidden"></div></div>
       <datalist id="destinations">${destinationChoices.map((place) => `<option value="${e(place.name)}">`).join("")}</datalist>
       <div class="origin-tools"><button type="button" id="gps-origin">${I("locate-fixed")} Mi ubicación</button><button type="button" id="map-origin"><img src="/assets/map-origin.svg" alt=""> Elegir origen</button><button type="button" id="map-destination"><img src="/assets/map-destination.svg" alt=""> Elegir destino</button><button type="button" id="save-destination">${I("bookmark-plus")} Guardar destino</button></div>
       <h3 class="service-picker-title">Elige cómo moverte</h3><div class="category-grid">${cats.map((category) => `<label class="category-option"><div class="car"><img src="${serviceAsset(category.id)}" alt="Vehículo Yavoi! ${e(category.name)}"></div><div class="category-copy"><strong>Yavoi! ${e(category.name)}</strong><small>${category.seats} plazas · ${money(category.km_cents)}/km estimado</small></div><span class="rate">Desde ${money(category.minimum_cents)}</span><input type="radio" name="category" value="${e(category.id)}" ${category.id === selectedCategory ? "checked" : ""} required></label>`).join("")}</div>
@@ -1622,6 +1672,11 @@ function riderHome({ preserveDestination = false } = {}) {
     historyMenu.classList.add("hidden");
     historyToggle.setAttribute("aria-expanded", "false");
     placeRidePoint("destination", recent[Number(item.dataset.recentDestination)], { focus: true });
+  });
+  $$('[data-saved-destination]', historyMenu).forEach((item) => item.onclick = () => {
+    historyMenu.classList.add("hidden");
+    historyToggle.setAttribute("aria-expanded", "false");
+    placeRidePoint("destination", savedDestinations[Number(item.dataset.savedDestination)], { focus: true });
   });
   $(".destination-address").addEventListener("focusout", () => setTimeout(() => {
     if (!$(".destination-address").contains(document.activeElement)) {
