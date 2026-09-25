@@ -368,12 +368,13 @@ function startOfferRinging(offer) {
   if (!offer?.offer_id || S.offerRingTimers.has(offer.offer_id)) return;
   let repetitions = 0;
   const ring = () => {
-    if (repetitions >= 20) return stopOfferRinging(offer.offer_id);
+    // La alarma solamente debe ocupar la ventana de decisión de ocho segundos.
+    if (repetitions >= 3) return stopOfferRinging(offer.offer_id);
     repetitions += 1;
     playOfferSound();
   };
   ring();
-  S.offerRingTimers.set(offer.offer_id, setInterval(ring, 3000));
+  S.offerRingTimers.set(offer.offer_id, setInterval(ring, 2500));
 }
 function announceOffers(offers) {
   const newOffers = offers.filter((offer) => !S.knownOfferIds.has(offer.offer_id));
@@ -394,7 +395,7 @@ function presentDriverOfferAlert(offer) {
   if (!offer || S.profile?.role !== "driver" || document.hidden || modal.open) return false;
   S.pendingOfferIds.delete(offer.offer_id);
   const expiresAt = Date.parse(offer.expires_at || "");
-  const responseSeconds = Number.isFinite(expiresAt) ? Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000)) : 60;
+  const responseSeconds = Number.isFinite(expiresAt) ? Math.max(1, Math.min(8, Math.ceil((expiresAt - Date.now()) / 1000))) : 8;
   openModal(
     "Nueva solicitud",
     `<section class="driver-offer-alert compact" role="alert" aria-live="assertive"><div class="driver-offer-alert-head"><span class="badge pending">NUEVO VIAJE</span><strong>Ganas ${money(offer.net_cents)}</strong></div><div class="offer-countdown" aria-label="Tiempo para responder"><span id="offer-countdown-bar"></span></div><div class="row between offer-countdown-copy"><small>Decide en <strong id="offer-countdown-seconds">${responseSeconds}</strong> s</small><small>${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min</small></div><div id="offer-route-map" class="offer-route-map" aria-label="Mapa del recorrido programado"></div><div class="route-line">${I("circle-dot")}${e(offer.origin)}</div><div class="route-line destination">${I("map-pin")}${e(offer.destination)}</div><div class="driver-offer-legal"><span>Yavoi! ${e(S.categories.find((category) => category.id === offer.category)?.name || offer.category)}</span><span>${offer.party_size} pasajero${Number(offer.party_size) === 1 ? "" : "s"}</span><span>${offer.payment_method === "card" ? "Pago electrónico" : "Pago en efectivo"}</span></div><div class="offer-decisions compact"><button class="btn danger" type="button" id="reject-driver-offer">Rechazar ${I("x")}</button><button class="btn" type="button" id="accept-driver-offer">Aceptar ${I("check")}</button></div></section>`,
@@ -859,7 +860,10 @@ async function loadSession() {
     if (data.currentLevel !== "aal2") return mfaGate();
   }
   await loadAvatar(S.profile.avatar_path);
-  S.data = await rpc("dashboard");
+  [S.data, S.ridePreferences] = await Promise.all([
+    rpc("dashboard"),
+    S.profile.role === "passenger" ? rpc("ride_preferences") : Promise.resolve(null),
+  ]);
   S.auditReport = null;
   S.scheduleData = null;
   await renderRoute();
@@ -2455,7 +2459,10 @@ function syncTripSummary(trip) {
 }
 async function tripView(id) {
   S.trip = await rpc("trip", { trip_id: id });
-  const { trip: t, driver, passenger, location: loc, pin, my_rating } = S.trip;
+  const { trip: t, driver, passenger, location: loc, my_rating } = S.trip;
+  // The optional secure-start setting is enforced by the server. We do not
+  // expose a reusable trip code in either profile by default.
+  const pin = null;
   syncTripSummary(t);
   await Promise.all([
     loadAvatar(driver?.avatar_path),
@@ -2480,7 +2487,9 @@ async function tripView(id) {
       : t.status === "accepted" && conductor
       ? button("Ya llegué al punto", "arrive", "wide", "map-pin")
       : t.status === "arrived" && conductor
-        ? `<form id="start-trip"><label>PIN del pasajero<input name="pin" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" minlength="4" maxlength="4" required placeholder="4 dígitos"></label><button class="btn wide" type="submit">Iniciar viaje ${I("navigation")}</button></form>`
+        ? S.trip.pin_required
+          ? `<form id="start-trip"><label>Código de inicio activado por el pasajero<input name="pin" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" minlength="4" maxlength="4" required placeholder="4 dígitos"></label><button class="btn wide" type="submit">Iniciar viaje ${I("navigation")}</button></form>`
+          : button("Iniciar viaje", "start-trip", "wide", "navigation")
         : t.status === "in_progress" && conductor
           ? button("Llegamos al destino", "finish", "wide", "flag")
           : "";
@@ -2489,7 +2498,7 @@ async function tripView(id) {
       : t.status === "requested" ? "Buscamos un conductor disponible que cumpla tus preferencias."
         : t.status === "scheduled" ? (t.driver_id ? "Operaciones reservó una unidad. El conductor recibirá el recordatorio antes de tu salida." : "Tu solicitud se asignará cerca de la hora programada.")
           : t.status === "accepted" ? "Verifica la fotografía, el color, el modelo y las placas antes de abordar."
-            : t.status === "arrived" ? "Comparte el PIN sólo cuando estés frente al conductor correcto."
+            : t.status === "arrived" ? (S.trip.pin_required ? "Comparte el código de inicio sólo cuando estés frente al conductor correcto." : "El conductor puede iniciar el viaje cuando estén listos.")
               : t.status === "in_progress" ? "Sigue el recorrido en el mapa y comunícate con tu conductor."
                 : t.status === "completed" ? "Gracias por viajar con Yavoi! Tu opinión nos ayuda a mejorar."
                   : `La solicitud fue cancelada${t.cancelled_by_role ? ` por ${t.cancelled_by_role === "passenger" ? "el pasajero" : t.cancelled_by_role === "driver" ? "el conductor" : "Operaciones"}` : ""}.`;
@@ -2564,12 +2573,14 @@ async function tripView(id) {
     "Folio " + e(t.id.slice(0, 8).toUpperCase()) + " · " + date(t.created_at),
   );
   await startMap(t);
-  bindForm("#start-trip", async (v) => {
-    await rpc("transition", { trip_id: t.id, status: "in_progress", pin: v.pin });
+  const startTrip = async (v = {}) => {
+    await rpc("transition", { trip_id: t.id, status: "in_progress", ...(v.pin ? { pin: v.pin } : {}) });
     // Reuse the same named Maps window/tab, replacing pickup guidance with delivery.
     openDriverNavigation({ ...t, status: "in_progress" });
     await tripView(t.id);
-  });
+  };
+  bindForm("#start-trip", startTrip);
+  $('[data-action="start-trip"]')?.addEventListener("click", () => run(() => startTrip()));
   bindForm("#chat-form", async (v, f) => {
     await rpc("message", { trip_id: t.id, body: v.body });
     f.reset();
@@ -3454,8 +3465,11 @@ function profile() {
     : "";
   const score = Number(S.data.rating || 0);
   const profileShortcuts = `<section class="profile-shortcuts" aria-label="Opciones principales del perfil"><div class="profile-score">${I("star")}<span><small>CALIFICACIÓN VIGENTE</small><strong>${score > 0 ? `${decimal(score)}/5` : "Aún sin calificaciones"}</strong></span></div><div class="profile-shortcut-grid"><a class="profile-shortcut" href="#help">${I("life-buoy")}<span><strong>Ayuda</strong><small>Viajes, pagos y soporte</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#wallet">${I("wallet")}<span><strong>Mi Cartera</strong><small>${driver ? "Ingresos y liquidaciones" : "Pagos y viajes"}</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#safety">${I("shield-check")}<span><strong>Seguridad</strong><small>Consejos y qué hacer</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#inbox">${I("inbox")}<span><strong>Bandeja de Entrada</strong><small>Avisos y mensajes de Yavoi!</small></span>${I("arrow-right")}</a></div></section>`;
+  const ridePreferencesMarkup = passenger
+    ? `<section class="ride-preferences"><div>${I("sliders-horizontal")}<span><strong>Preferencias de viaje</strong><small>${S.ridePreferences?.pickup_pin_enabled ? "Código de inicio activado" : "Inicio de viaje sin código"}</small></span></div><button class="btn secondary" type="button" data-action="ride-preferences">Configurar</button></section>`
+    : "";
   shell(
-    `<section class="panel"><div class="profile-head">${avatar(p.full_name, p.avatar_path, "big")}<div><h2>${e(p.full_name)}</h2><p>${e(S.user.email)} · ${e(roles[p.role])}</p><small>El tipo de cuenta se protege en el servidor.</small></div></div>${profileShortcuts}${passenger ? passengerProgressMarkup(p) : ""}${lockNotice}${personalForm}</section>${driverDossier}${driver ? weeklyProfileMarkup() : ""}<section class="panel section-gap"><h2>Acceso y seguridad</h2><p>Tu sesión es personal. Puedes cambiar tu contraseña o cerrar sesión en todos tus dispositivos.</p><div class="row wrap">${button("Cambiar contraseña", "password", "secondary", "key-round")}${button("Cerrar mis sesiones", "logout", "secondary", "log-out")}</div>${p.role === "admin" ? '<p class="hint">Operaciones exige autenticación en dos pasos. Conserva acceso a tu aplicación autenticadora.</p>' : ""}</section>`,
+    `<section class="panel"><div class="profile-head">${avatar(p.full_name, p.avatar_path, "big")}<div><h2>${e(p.full_name)}</h2><p>${e(S.user.email)} · ${e(roles[p.role])}</p><small>El tipo de cuenta se protege en el servidor.</small></div></div>${profileShortcuts}${ridePreferencesMarkup}${passenger ? passengerProgressMarkup(p) : ""}${lockNotice}${personalForm}</section>${driverDossier}${driver ? weeklyProfileMarkup() : ""}<section class="panel section-gap"><h2>Acceso y seguridad</h2><p>Tu sesión es personal. Puedes cambiar tu contraseña o cerrar sesión en todos tus dispositivos.</p><div class="row wrap">${button("Cambiar contraseña", "password", "secondary", "key-round")}${button("Cerrar mis sesiones", "logout", "secondary", "log-out")}</div>${p.role === "admin" ? '<p class="hint">Operaciones exige autenticación en dos pasos. Conserva acceso a tu aplicación autenticadora.</p>' : ""}</section>`,
     "Mi perfil",
     "Tu información, tu unidad y las opciones de tu cuenta.",
   );
@@ -4603,9 +4617,9 @@ function positionPayload(position) {
   };
 }
 function driverActiveTrip() {
-  return S.data.trips.find(
-    (trip) => trip.driver_id === S.user?.id && ["accepted", "arrived", "in_progress"].includes(trip.status),
-  );
+  const mine = S.data.trips.filter((trip) => trip.driver_id === S.user?.id);
+  return mine.find((trip) => trip.status === "in_progress")
+    || mine.find((trip) => ["accepted", "arrived"].includes(trip.status));
 }
 async function sendDriverPosition(position = S.latestPosition) {
   if (!position || !S.driver?.online || S.profile?.role !== "driver" || S.presenceSending) return;
@@ -4616,6 +4630,14 @@ async function sendDriverPosition(position = S.latestPosition) {
       ...positionPayload(position),
       ...(trip ? { trip_id: trip.id } : {}),
     });
+    if (result?.destination_reached && trip) {
+      driverNavigationWindow?.close?.();
+      driverNavigationWindow = null;
+      location.hash = "trip/" + trip.id;
+      await tripView(trip.id);
+      await handleAction("finish");
+      return;
+    }
     if (result?.shift_ended) {
       S.driver.online = false;
       stopDriverTracking();
@@ -4692,6 +4714,17 @@ async function toggleDriverAvailability() {
   }
 }
 async function handleAction(action, b) {
+  if (action === "ride-preferences") {
+    const enabled = Boolean(S.ridePreferences?.pickup_pin_enabled);
+    openModal("Preferencias de viaje", `<form id="ride-preferences-form"><p>Personaliza cómo inicia tu viaje. La verificación con código queda desactivada por defecto para mantener el abordaje ágil.</p><label class="check"><input type="checkbox" name="pickup_pin_enabled" ${enabled ? "checked" : ""}>Solicitar código de 4 dígitos antes de iniciar el viaje</label><p class="hint">Al activarlo, el código sólo aparece durante el viaje correspondiente y el conductor debe capturarlo antes de comenzar.</p><button class="btn wide" type="submit">Guardar preferencias ${I("check")}</button></form>`);
+    bindForm("#ride-preferences-form", async (values) => {
+      S.ridePreferences = await rpc("ride_preferences", { pickup_pin_enabled: values.pickup_pin_enabled === "on" });
+      closeModal();
+      profile();
+      notify("Preferencias de viaje actualizadas.");
+    });
+    return;
+  }
   if (action === "logout") return signOut();
   if (action === "refresh") return run(S.view === "opsmap" ? refreshOperationsMap : refreshPage);
   if (action === "help-reports") return $("#help-reports")?.scrollIntoView({ behavior: "smooth", block: "start" });
