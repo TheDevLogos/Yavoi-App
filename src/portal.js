@@ -1966,7 +1966,7 @@ function driverSafetyMarkup() {
   return `<section class="panel section-gap driver-safety"><div><div class="eyebrow">AYUDA Y SEGURIDAD</div><h2>Asistencia desde Conducir</h2><p>Registra un incidente para seguimiento de Operaciones. Si existe peligro inmediato, llama directamente a emergencias.</p></div><div class="driver-safety-buttons">${button("Crear reporte", "complaint", "secondary", "message-square-warning")}<a class="btn danger" href="tel:911">${I("phone-call")} Emergencias 911</a></div>${reports.length ? `<details><summary>Mis reportes recientes</summary>${reports.map((report) => `<article class="audit-item"><div class="row between"><strong>${e(report.subject)}</strong><span class="badge ${report.status === "resolved" ? "" : "pending"}">${e({ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[report.status] || report.status)}</span></div><small>${date(report.created_at)} · ${e(report.id.slice(0, 8))}</small>${report.response ? `<p class="hint">Respuesta: ${e(report.response)}</p>` : ""}</article>`).join("")}</details>` : ""}</section>`;
 }
 function driverLiveMapMarkup(driver) {
-  const status = "Ubicación en vivo";
+  const status = driver.online ? "Ubicación en vivo" : "Ubicación pausada";
   const action = driver.online ? "Desconectarme" : "Conectarme";
   return `<section class="driver-live-map section-gap"><div class="driver-live-map-heading"><span class="driver-live-status ${driver.online ? "online" : ""}"><i></i>${status}</span></div>${mapFrame("driver-live-map", "Tu ubicación se mantiene actualizada para la operación.")}<div class="driver-live-controls"><button class="availability-hold ${driver.online ? "is-online" : "is-offline"}" type="button" data-hold-availability aria-label="Mantén pulsado un segundo para ${action.toLowerCase()}">${I("power")}<span><small>Mantén 1 segundo</small><strong>${action}</strong></span><i class="availability-hold-progress" aria-hidden="true"></i></button></div></section>`;
 }
@@ -1977,6 +1977,7 @@ function bindAvailabilityHold() {
   let frame = null;
   let startedAt = 0;
   let completed = false;
+  let positionRequest = null;
   const reset = () => {
     if (timer) clearTimeout(timer);
     if (frame) cancelAnimationFrame(frame);
@@ -1994,6 +1995,13 @@ function bindAvailabilityHold() {
     if (event.type === "pointerdown" && event.button !== 0) return;
     if (timer || completed) return;
     event.preventDefault();
+    // Safari only grants audio and location access from the initial touch. Start
+    // both here, then use the result after the one-second confirmation gesture.
+    if (!S.driver?.online) {
+      armOfferSound().catch(() => {});
+      positionRequest = browserPosition();
+    }
+    if (event.pointerId != null) control.setPointerCapture?.(event.pointerId);
     startedAt = performance.now();
     control.classList.add("is-holding");
     animate();
@@ -2001,14 +2009,26 @@ function bindAvailabilityHold() {
       completed = true;
       reset();
       control.disabled = true;
-      run(toggleDriverAvailability);
+      control.setAttribute("aria-busy", "true");
+      run(() => toggleDriverAvailability({ positionRequest })).finally(() => {
+        // If permissions or the server reject the operation, allow another try
+        // without forcing the driver to refresh the page.
+        control.disabled = false;
+        control.removeAttribute("aria-busy");
+        completed = false;
+      });
     }, 1000);
   };
   const cancel = () => {
     if (!completed) reset();
   };
-  control.addEventListener("pointerdown", begin);
-  ["pointerup", "pointerleave", "pointercancel"].forEach((event) => control.addEventListener(event, cancel));
+  control.addEventListener("pointerdown", begin, { passive: false });
+  ["pointerup", "pointercancel"].forEach((event) => control.addEventListener(event, cancel));
+  // Older iPhones do not dispatch Pointer Events reliably inside fixed controls.
+  if (!window.PointerEvent)
+    control.addEventListener("touchstart", begin, { passive: false });
+  if (!window.PointerEvent)
+    ["touchend", "touchcancel"].forEach((event) => control.addEventListener(event, cancel));
   control.addEventListener("keydown", (event) => {
     if ([" ", "Enter"].includes(event.key) && !event.repeat) begin(event);
   });
@@ -4705,13 +4725,11 @@ async function updateDriverPresence(showConfirmation = true) {
   if (showConfirmation)
     notify("Ubicación actualizada. Permanecerás activo mientras esta página siga abierta.");
 }
-async function toggleDriverAvailability() {
+async function toggleDriverAvailability({ positionRequest = null } = {}) {
   const goingOnline = !S.driver.online;
-  if (goingOnline) {
-    await armOfferSound();
-    if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission();
-  }
-  const position = goingOnline ? await browserPosition() : null;
+  // Notification permission is optional and must never stop a driver from
+  // connecting. Safari may ignore it outside an explicit notification setting.
+  const position = goingOnline ? await (positionRequest || browserPosition()) : null;
   try {
     await rpc("availability", { online: goingOnline });
     S.driver.online = goingOnline;
