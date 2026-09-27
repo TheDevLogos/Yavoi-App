@@ -304,8 +304,13 @@ test("Postgres security and complete ride lifecycle", async () => {
       phone: `639123456${index + 9}`,
       avatar_path: avatarPath,
     });
+    await expectError(() => rpc("driver_profile", documents), /Política de Privacidad/);
     const submitted = await rpc("driver_profile", {
       ...documents,
+      accept_privacy_policy: true,
+      privacy_policy_version: "2026-09-11",
+      accept_terms: true,
+      terms_version: "2026-09-11",
     });
     assert.equal(submitted.complete, true);
     assert.equal(submitted.profile_locked, true);

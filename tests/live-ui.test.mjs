@@ -295,13 +295,19 @@ test("passengers see the suggested route, live trace and actionable deviation st
   assert.match(css, /\.route-monitor\.deviation/);
 });
 
-test("driver registration requires the five documents reviewed by Operations", () => {
+test("driver registration requires photo, four documents and the two Yavoi agreements", async () => {
+  const policyMigration = await readFile(new URL("../supabase/migrations/20260927080000_driver_policy_acceptance.sql", import.meta.url), "utf8");
   assert.match(domain, /Identificación oficial INE/);
   assert.match(domain, /Tarjeta de circulación vigente/);
   assert.match(domain, /Póliza de seguro vigente/);
   assert.match(portal, /Documentos para autorización/);
   assert.match(portal, /Registro oficial por Operaciones/);
   assert.match(portal, /driver_type/);
+  assert.match(portal, /Acepto la Política de Privacidad/);
+  assert.match(portal, /Acepto los Términos de Servicio/);
+  assert.match(portal, /accept_privacy_policy: v\.accept_driver_privacy === "on"/);
+  assert.match(policyMigration, /privacy_policy_accepted_at is not null/);
+  assert.match(policyMigration, /terms_accepted_at is not null/);
 });
 
 test("scheduled rides persist the planned route and present reminders, assignment and navigation", () => {

@@ -132,14 +132,22 @@ export const passengerProfileStatus = (profile = {}) => {
 export const driverDossierStatus = (profile = {}, driver = {}) => {
   const isComplete = (value) =>
     typeof value === "boolean" ? value : String(value ?? "").trim().length > 0;
-  // El conductor sólo entrega los cinco documentos. Operaciones registra y
-  // valida después los datos oficiales de la unidad y del marco de transporte.
+  // La fotografía se guarda en el perfil y el conductor carga cuatro
+  // documentos. Operaciones registra después los datos oficiales de la unidad.
   const requirements = [
     ["Fotografía", profile.avatar_path || driver.avatar_path],
     ["Identificación oficial INE", driver.government_id_path],
     ["Licencia de conducir", driver.license_path],
     ["Tarjeta de circulación vigente", driver.vehicle_registration_path],
     ["Póliza de seguro vigente", driver.insurance_path],
+    [
+      "Política de Privacidad aceptada",
+      profile.privacy_policy_accepted_at && profile.privacy_policy_version === PRIVACY_POLICY_VERSION,
+    ],
+    [
+      "Términos de Servicio aceptados",
+      profile.terms_accepted_at && profile.terms_version === TERMS_VERSION,
+    ],
   ];
   const completed = requirements.filter(([, value]) => isComplete(value)).length;
   return {

@@ -107,8 +107,16 @@ test("service categories use dedicated professional vehicle assets", () => {
   assert.equal(serviceAsset("pickup"), "/assets/services/pickup.webp");
   assert.equal(serviceAsset("unknown"), "/assets/services/basic.webp");
 });
-test("driver dossier progress requires only the five documents reviewed by Operations", () => {
-  const profile = { full_name: "Conductor Prueba", phone: "6391234567", avatar_path: "avatar.png" };
+test("driver dossier progress requires photo, four documents and two Yavoi policies", () => {
+  const profile = {
+    full_name: "Conductor Prueba",
+    phone: "6391234567",
+    avatar_path: "avatar.png",
+    privacy_policy_accepted_at: "2026-09-11T12:00:00Z",
+    privacy_policy_version: "2026-09-11",
+    terms_accepted_at: "2026-09-11T12:00:00Z",
+    terms_version: "2026-09-11",
+  };
   const complete = {
     government_id_path: "id.pdf",
     license_path: "license.pdf",
@@ -116,8 +124,8 @@ test("driver dossier progress requires only the five documents reviewed by Opera
     vehicle_registration_path: "registration.pdf",
   };
   assert.deepEqual(driverDossierStatus(profile, complete), {
-    completed: 5,
-    total: 5,
+    completed: 7,
+    total: 7,
     percent: 100,
     missing: [],
   });
@@ -125,8 +133,8 @@ test("driver dossier progress requires only the five documents reviewed by Opera
     ...complete,
     license_path: null,
   });
-  assert.equal(partial.completed, 4);
-  assert.equal(partial.percent, 80);
+  assert.equal(partial.completed, 6);
+  assert.equal(partial.percent, 86);
   assert.deepEqual(partial.missing, ["Licencia de conducir"]);
 });
 test("passenger profile progress requires identity, photo and legal acceptance", () => {
