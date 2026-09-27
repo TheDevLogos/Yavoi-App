@@ -128,6 +128,7 @@ const S = {
   scheduleConfirmation: null,
   routeRenderTimer: null,
   driverNavigationMode: "",
+  driverSessionInitialized: false,
   referralCode: "",
   driverDraftTimer: null,
   passengerOriginMode: "gps",
@@ -684,6 +685,7 @@ function clearSession() {
   clearInterval(pollTimer);
   clearInterval(S.offerSyncTimer);
   S.offerSyncTimer = null;
+  S.driverSessionInitialized = false;
 }
 function authPage(view = "login", message = "") {
   clearSession();
@@ -836,7 +838,11 @@ async function loadSession() {
     return authPage(new URLSearchParams(location.search).get("signup") === "1" ? "signup" : "login");
   }
   S.user = user;
-  const b = await rpc("bootstrap");
+  // A new app launch always starts an idle driver disconnected.  This is sent
+  // only once per browser session, so refreshing data after the driver chooses
+  // to connect never reverses that deliberate action.
+  const b = await rpc("bootstrap", S.driverSessionInitialized ? {} : { driver_launch: true });
+  S.driverSessionInitialized = true;
   S.profile = b.profile;
   S.driver = b.driver;
   S.transportComplianceAvailable = b.transport_compliance_version === "2026-09-15";
@@ -1955,7 +1961,7 @@ function driverSafetyMarkup() {
   return `<section class="panel section-gap driver-safety"><div><div class="eyebrow">AYUDA Y SEGURIDAD</div><h2>Asistencia desde Conducir</h2><p>Registra un incidente para seguimiento de Operaciones. Si existe peligro inmediato, llama directamente a emergencias.</p></div><div class="driver-safety-buttons">${button("Crear reporte", "complaint", "secondary", "message-square-warning")}<a class="btn danger" href="tel:911">${I("phone-call")} Emergencias 911</a></div>${reports.length ? `<details><summary>Mis reportes recientes</summary>${reports.map((report) => `<article class="audit-item"><div class="row between"><strong>${e(report.subject)}</strong><span class="badge ${report.status === "resolved" ? "" : "pending"}">${e({ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[report.status] || report.status)}</span></div><small>${date(report.created_at)} · ${e(report.id.slice(0, 8))}</small>${report.response ? `<p class="hint">Respuesta: ${e(report.response)}</p>` : ""}</article>`).join("")}</details>` : ""}</section>`;
 }
 function driverLiveMapMarkup(driver) {
-  const status = driver.online ? "Ubicación en vivo" : "Ubicación pausada";
+  const status = driver.online ? "Ubicación en vivo" : "Desconectado";
   const action = driver.online ? "Desconectarme" : "Conectarme";
   const notices = typeof Notification !== "undefined" && Notification.permission === "granted";
   return `<section class="driver-live-map section-gap"><div class="driver-live-map-heading"><span class="driver-live-status ${driver.online ? "online" : ""}"><i></i>${status}</span></div>${mapFrame("driver-live-map", "Tu ubicación se mantiene actualizada para la operación.")}<div class="driver-live-controls"><button class="availability-hold ${driver.online ? "is-online" : "is-offline"}" type="button" data-hold-availability aria-label="Mantén pulsado un segundo para ${action.toLowerCase()}">${I("power")}<span><small>Mantén 1 segundo</small><strong>${action}</strong></span><i class="availability-hold-progress" aria-hidden="true"></i></button></div><button class="driver-notification-control ${notices ? "ready" : ""}" type="button" data-action="notifications">${I(notices ? "bell-ring" : "bell")} ${notices ? "Alertas activas" : "Activar alertas de viajes"}</button></section>`;

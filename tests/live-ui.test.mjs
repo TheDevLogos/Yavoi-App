@@ -422,6 +422,17 @@ test("expanded dispatch, brief alerts, fixed capacity, compact profiles and shif
   assert.match(css, /\.shift-grid/);
 });
 
+test("drivers open disconnected and only retain availability while completing an active service", async () => {
+  const launchMigration = await readFile(new URL("../supabase/migrations/20260927073000_driver_launches_offline.sql", import.meta.url), "utf8");
+  assert.match(portal, /driverSessionInitialized: false/);
+  assert.match(portal, /rpc\("bootstrap", S\.driverSessionInitialized \? \{\} : \{ driver_launch: true \}\)/);
+  assert.match(portal, /const status = driver\.online \? "Ubicación en vivo" : "Desconectado"/);
+  assert.match(launchMigration, /create or replace function private\.bootstrap_v5/);
+  assert.match(launchMigration, /status in \('accepted','arrived','in_progress'\)/);
+  assert.match(launchMigration, /set online=false,shift_connected_at=null/);
+  assert.match(launchMigration, /when 'bootstrap' then private\.bootstrap_v5\(payload\)/);
+});
+
 test("passenger price and driver contractual earnings stay distinct on trip detail", () => {
   assert.match(portal, /const driverTripEarnings = Number\(t\.fare_cents/);
   assert.match(portal, /Tu ganancia/);
