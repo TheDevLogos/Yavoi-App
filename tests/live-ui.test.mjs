@@ -59,11 +59,12 @@ test("driver dossier drafts preserve fields, checks and successful uploads", () 
   assert.match(referralMigration, /when 'driver_profile' then private\.driver_profile_v9/);
 });
 
-test("passenger and driver trip histories collapse and filter by person or date", () => {
-  assert.match(portal, /class="panel profile-section trip-history-section" open/);
+test("passenger and driver trip histories show filters and reveal the remaining trips on demand", () => {
+  assert.match(portal, /class="panel trip-history-section"/);
+  assert.match(portal, /id="trip-expand"/);
   assert.match(portal, /data-trip-period="today"/);
   assert.match(portal, /data-trip-period="week"/);
-  assert.match(portal, /data-trip-person=/);
+  assert.match(portal, /id="filter-person"/);
   assert.match(portal, /function tripPersonName\(trip\)/);
   assert.match(tripHistoryMigration, /passenger\.full_name as passenger_name/);
   assert.match(tripHistoryMigration, /driver\.full_name as driver_name/);
@@ -142,25 +143,22 @@ test("vehicle markers use service-specific silhouettes and adapt to map zoom", (
   assert.match(css, /\.leaflet-marker-icon\.vehicle-icon-wrap\{transition:none!important/);
 });
 
-test("passenger unit search expands progressively and protects driver identity until acceptance", () => {
-  assert.match(portal, /dentro de \$\{radius\} km/);
-  assert.match(portal, /Sólo mostramos el tipo de servicio antes de confirmar/);
-  assert.match(portal, /No encontramos Yavoi! \$\{serviceName\} dentro de 3 km/);
+test("passenger unit search protects driver identity until acceptance", () => {
+  assert.match(portal, /Unidad más cercana/);
   assert.match(portal, /Yavoi! \$\{e\(unitServiceName\)\} · \$\{index === 0/);
   assert.doesNotMatch(portal, /bindTooltip\(`\$\{index === 0 \? "Recomendada por cercanía"[\s\S]*pickup_km/);
   assert.match(portal, /Los datos personales del conductor se muestran cuando acepte el viaje/);
   assert.match(portal, /refreshAvailableUnits\(\{ fit: false \}\)/);
 });
 
-test("street routing provides a visual guide and opens driving navigation", () => {
+test("street routing preserves the route while driver navigation stays in Yavoi", () => {
   assert.match(mapsFunction, /steps=true&alternatives=true/);
   assert.match(mapsFunction, /instructions/);
   assert.match(mapsFunction, /route:v2:/);
-  assert.match(portal, /guía por calles/i);
-  assert.match(portal, /routeStepText/);
-  assert.match(portal, /dir_action: "navigate"/);
-  assert.match(portal, /Navegar al destino/);
-  assert.match(css, /\.route-guide-summary/);
+  assert.match(portal, /function openDriverNavigation\(trip\)/);
+  assert.match(portal, /function driverMapNavigationMarkup\(trip, conductor\)/);
+  assert.match(portal, /Navegación en Yavoi!/);
+  assert.match(css, /\.in-app-navigation/);
 });
 
 test("passengers can search local exact addresses and place or drag either map point", () => {
@@ -189,7 +187,7 @@ test("Operations modules share compact searchable and collapsible organization",
   assert.match(css, /\.operations-layout-tools/);
   assert.match(css, /\.ops-section>summary/);
   assert.match(css, /\.role-admin \.workspace main/);
-  assert.match(portal, /class="offer dossier-card driver-admin-card"/);
+  assert.match(portal, /class="offer dossier-card driver-admin-card \$\{d\.driver_type/);
   assert.match(portal, /item\.matches\("details"\)/);
 });
 
@@ -291,20 +289,19 @@ test("passengers see the suggested route, live trace and actionable deviation st
   assert.match(portal, /function distanceToRouteMeters/);
   assert.match(portal, /Desviación pronunciada detectada/);
   assert.match(portal, /Preguntar al conductor por el chat/);
-  assert.match(portal, /Ruta sugerida y guía por calles/);
+  assert.match(portal, /Ruta sugerida/);
   assert.match(portal, /S\.tripHistoryLine = L\.polyline/);
   assert.match(portal, /updateRouteMonitor\(\)/);
   assert.match(css, /\.route-monitor\.deviation/);
 });
 
-test("vehicle front photo is required, private and shown only after assignment", () => {
-  assert.match(domain, /Fotografía frontal del vehículo y placa/);
-  assert.match(portal, /yavoi-vehicle-photos/);
-  assert.match(portal, /vehicle_front_path/);
-  assert.match(portal, /Fotografía frontal del vehículo con placa visible/);
-  assert.match(portal, /Unidad verificada · confirma que la placa visible coincida/);
-  assert.match(portal, /data-vehicle-photo/);
-  assert.doesNotMatch(portal, /Sólo mostramos el tipo de servicio antes de confirmar[\s\S]{0,300}vehicle_front_path/);
+test("driver registration requires the five documents reviewed by Operations", () => {
+  assert.match(domain, /Identificación oficial INE/);
+  assert.match(domain, /Tarjeta de circulación vigente/);
+  assert.match(domain, /Póliza de seguro vigente/);
+  assert.match(portal, /Documentos para autorización/);
+  assert.match(portal, /Registro oficial por Operaciones/);
+  assert.match(portal, /driver_type/);
 });
 
 test("scheduled rides persist the planned route and present reminders, assignment and navigation", () => {
@@ -386,35 +383,32 @@ test("drivers receive an audible, visible and recoverable offer alert", () => {
   assert.match(portal, /function playOfferSound\(\)/);
   assert.match(portal, /navigator\.vibrate/);
   assert.match(portal, /function presentDriverOfferAlert\(offer\)/);
-  assert.match(portal, /const responseSeconds = 7/);
+  assert.match(portal, /Math\.min\(8/);
   assert.match(portal, /id="accept-driver-offer"/);
   assert.match(portal, /id="reject-driver-offer"/);
   assert.match(portal, /offer-countdown-bar/);
-  assert.match(portal, /offer-operational-expiry/);
-  assert.match(portal, /Tiempo de respuesta de 7 segundos agotado/);
   assert.match(portal, /function syncDriverOffers/);
   assert.match(portal, /setInterval\(\(\) => syncDriverOffers\(\)\.catch\(\(\) => \{\}\), 8000\)/);
   assert.match(portal, /S\.pendingOfferIds\.add\(payload\.new\.id\)/);
   assert.match(portal, /syncDriverOffers\(\)\.catch\(\(\) => \{\}\);[\s\S]{0,80}safeRefresh\(\)/);
   assert.match(portal, /document\.addEventListener\("visibilitychange"/);
-  assert.match(portal, /Probar alarma/);
+  assert.match(portal, /Alertas activas/);
   assert.match(css, /\.driver-offer-alert/);
 });
 
-test("expanded dispatch, seven alerts, fixed capacity, compact profiles and shifts work together", () => {
+test("expanded dispatch, brief alerts, fixed capacity, compact profiles and shifts work together", () => {
   assert.match(dispatchShiftMigration, /not exact_near as fallback_all/);
   assert.match(dispatchShiftMigration, /private\.available_units_v4/);
   assert.match(dispatchShiftMigration, /private\.driver_candidate_eligible_v1/);
   assert.match(dispatchShiftMigration, /'night','Noche','22:00','05:00'/);
   assert.match(dispatchShiftMigration, /private\.presence_v4/);
-  assert.match(portal, /if \(repetitions >= 7\)/);
+  assert.match(portal, /if \(repetitions >= 3\)/);
   assert.match(portal, /newOffers\.forEach\(startOfferRinging\)/);
-  assert.match(portal, /id="service-capacity"/);
   assert.doesNotMatch(portal, /name="party_size" type="number"/);
   assert.doesNotMatch(portal, /Teléfono de emergencia<input/);
   assert.match(portal, /name="avatar_camera"[\s\S]{0,120}capture="user"/);
   assert.match(portal, /máximo 4 MB/);
-  assert.match(portal, /name="accept_all_policies"/);
+  assert.match(portal, /Documentos para autorización/);
   assert.match(portal, /class="profile-section personal-details"/);
   assert.doesNotMatch(portal, /id="service-shift"/);
   assert.match(portal, /data-driver-shift/);
@@ -425,7 +419,6 @@ test("expanded dispatch, seven alerts, fixed capacity, compact profiles and shif
   assert.match(operationsShiftMigration, /private\.set_driver_shift_v1/);
   assert.match(operationsShiftMigration, /when 'set_driver_shift' then private\.set_driver_shift_v1/);
   assert.match(operationsShiftMigration, /Desconecta la unidad antes de cambiar el turno/);
-  assert.match(css, /\.compact-agreements/);
   assert.match(css, /\.shift-grid/);
 });
 
@@ -460,7 +453,7 @@ test("fast booking, recurring schedules, GPS and flexible street names are harde
   assert.doesNotMatch(portal, /La búsqueda comienza en 1 km/);
   assert.match(portal, /function requestInitialLocation\(\)/);
   assert.match(portal, /requestInitialLocation\(\);/);
-  assert.match(portal, /gain\.gain\.exponentialRampToValueAtTime\(0\.95/);
+  assert.match(portal, /gain\.gain\.exponentialRampToValueAtTime\(0\.8/);
   assert.match(mapsFunction, /addressQueryVariants/);
   assert.match(mapsFunction, /1\/2/);
   assert.match(mapsFunction, /y\\s\+media/);
@@ -515,7 +508,7 @@ test("terminal trips release navigation and every trip renders both route layers
   assert.match(portal, /function requestRouteRender\(\)/);
   assert.match(portal, /if \(S\.busy\) return requestRouteRender\(\)/);
   assert.match(portal, /const routePlan = trip \? S\.trip\?\.route_plan : S\.roadRoute/);
-  assert.match(portal, /mapFrame\("ride-map", e\(geo\), "trip"\)/);
+  assert.match(portal, /mapFrame\("ride-map", e\(geo\), "trip", driverMapNavigationMarkup\(t, conductor\)\)/);
   assert.match(portal, /Ruta sugerida/);
   assert.match(portal, /Recorrido real/);
   assert.match(portal, /rpc\("capture_trip_route"/);

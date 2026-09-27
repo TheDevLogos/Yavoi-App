@@ -34,7 +34,7 @@ test("PWA manifest and platform icons are complete", async () => {
 });
 
 test("installed PWA checks for releases and reloads after the new worker takes control", () => {
-  assert.match(serviceWorker, /yavoi-shell-v5/);
+  assert.match(serviceWorker, /yavoi-shell-v6/);
   assert.match(landing, /updateViaCache:'none'/);
   assert.match(portal, /updateViaCache: "none"/);
   assert.match(landing, /controllerchange/);
@@ -56,6 +56,8 @@ test("landing and portal advertise the PWA and the new access call to action", a
   assert.match(landing, /¡Entra ya!/);
   assert.match(worker, /request\.method !== "GET"/);
   assert.match(worker, /request\.mode === "navigate"/);
+  assert.match(worker, /addEventListener\("push"/);
+  assert.match(worker, /addEventListener\("notificationclick"/);
 });
 
 test("all map markers and service vehicle illustrations exist", async () => {

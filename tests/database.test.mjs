@@ -178,7 +178,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(adminDashboard.marketing.rewards_enabled, true);
   assert.equal(adminDashboard.marketing.advertising_enabled, true);
   assert.ok(adminDashboard.marketing.reward_catalog.some((reward) => reward.id === "passenger_snack"));
-  assert.deepEqual(adminDashboard.service_shifts.map((shift) => shift.code), ["morning", "midday", "evening", "night"]);
+  assert.deepEqual(adminDashboard.service_shifts.map((shift) => shift.code), ["morning", "midday", "evening", "night", "all_day"]);
   const campaignImage = `${ids.admin}/hotel-baeza.webp`;
   await db.exec("reset role");
   await db.query("insert into storage.objects(bucket_id,name) values('yavoi-marketing',$1)", [
@@ -284,27 +284,18 @@ test("Postgres security and complete ride lifecycle", async () => {
   await as(ids.admin, "aal2");
   await expectError(
     () => rpc("review_driver", { driver_id: ids.driver, approved: true, note: "Expediente revisado" }),
-    /Faltan requisitos/,
+    /Faltan fotografía, identificación, licencia, tarjeta de circulación o póliza/,
   );
   for (const [index, id] of [ids.driver, ids.driver2].entries()) {
     const avatarPath = `${id}/avatar.png`;
-    const vehicleFrontPath = `${id}/vehicle-front.jpg`;
     const documents = {
       government_id_path: `${id}/government-id.pdf`,
       license_path: `${id}/license.pdf`,
-      transport_card_path: `${id}/transport-card.pdf`,
       insurance_path: `${id}/insurance.pdf`,
       vehicle_registration_path: `${id}/registration.pdf`,
-      vehicle_verification_path: `${id}/verification.pdf`,
-      mechanical_inspection_path: `${id}/mechanical.pdf`,
-      tax_compliance_path: `${id}/tax.pdf`,
-      criminal_record_path: `${id}/criminal-record.pdf`,
-      policy_commitment_path: `${id}/policy-commitment.pdf`,
-      traffic_law_commitment_path: `${id}/traffic-law-commitment.pdf`,
     };
     await db.exec("reset role");
     await db.query("insert into storage.objects(bucket_id,name) values('yavoi-avatars',$1)", [avatarPath]);
-    await db.query("insert into storage.objects(bucket_id,name) values('yavoi-vehicle-photos',$1)", [vehicleFrontPath]);
     for (const path of Object.values(documents))
       await db.query("insert into storage.objects(bucket_id,name) values('yavoi-documents',$1)", [path]);
     await as(id);
@@ -314,52 +305,10 @@ test("Postgres security and complete ride lifecycle", async () => {
       avatar_path: avatarPath,
     });
     const submitted = await rpc("driver_profile", {
-      vehicle_make: "Nissan",
-      vehicle_model: "Versa",
-      vehicle_year: 2024,
-      vehicle_color: "Gris",
-      plate: `YAV${index + 1}01`,
-      category: "basic",
-      birth_date: "1990-01-01",
-      license_number: `LIC-${index + 1}`,
-      license_expires: "2099-12-31",
-      insurance_expires: "2099-12-31",
-      transport_card_number: `TAR-${index + 1}`,
-      transport_card_expires: "2099-12-31",
-      vehicle_registration_expires: "2099-12-31",
-      vin: `3N1CN7AP${String(index + 1).padStart(9, "0")}`,
-      hologram_number: `HOL-${index + 1}`,
-      hologram_expires: "2099-12-31",
-      vehicle_verification_expires: "2099-12-31",
-      mechanical_inspection_expires: "2099-12-31",
-      tax_compliance_expires: "2099-12-31",
-      seatbelts_all: true,
-      front_airbags: true,
-      abs_brakes: true,
-      first_service_tools: true,
-      extinguisher_abc: true,
-      four_doors: true,
-      tint_percent: 20,
-      air_conditioning: true,
-      reflective_markings: true,
-      vehicle_front_path: vehicleFrontPath,
       ...documents,
     });
     assert.equal(submitted.complete, true);
-    assert.equal(submitted.policy_version, "YV-POL-CON-2026.09.12");
-    assert.equal(submitted.traffic_law_version, "YV-VIAL-POE-2026.08.08-63");
-    assert.deepEqual(
-      (
-        await db.query(
-          "select policy_version,traffic_law_version from public.drivers where id=$1",
-          [id],
-        )
-      ).rows[0],
-      {
-        policy_version: "YV-POL-CON-2026.09.12",
-        traffic_law_version: "YV-VIAL-POE-2026.08.08-63",
-      },
-    );
+    assert.equal(submitted.profile_locked, true);
     assert.ok(
       (await db.query("select profile_locked_at from public.profiles where id=$1", [id])).rows[0]
         .profile_locked_at,
@@ -367,12 +316,25 @@ test("Postgres security and complete ride lifecycle", async () => {
     await expectError(() => rpc("driver_profile", {}), /protegido/);
   }
   await as(ids.admin, "aal2");
-  for (const id of [ids.driver, ids.driver2])
+  for (const [index, id] of [ids.driver, ids.driver2].entries())
     await rpc("review_driver", {
       driver_id: id,
       approved: true,
+      driver_type: index === 1 ? "support" : "yavoi",
+      category: "basic",
+      vehicle_make: "Nissan",
+      vehicle_model: "Versa",
+      vehicle_year: 2024,
+      vehicle_color: "Gris",
+      plate: `YAV${index + 1}01`,
+      license_number: `LIC-${index + 1}`,
+      license_expires: "2099-12-31",
+      insurance_expires: "2099-12-31",
+      transport_card_number: `TAR-${index + 1}`,
+      transport_card_expires: "2099-12-31",
       note: "Expediente completo y vigencias verificadas.",
     });
+  assert.equal((await db.query("select driver_type from public.drivers where id=$1", [ids.driver2])).rows[0].driver_type, "support");
   await db.exec("reset role");
   await db.query("update public.service_shifts set start_time='00:00',end_time='23:59' where code=$1", [currentShiftCode()]);
   await as(ids.admin, "aal2");
@@ -599,18 +561,18 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(detail.driver.vehicle_model, "Versa");
   assert.equal(detail.driver.vehicle_color, "Gris");
   assert.equal(detail.driver.plate, "YAV101");
-  assert.equal(detail.driver.vehicle_front_path, `${ids.driver}/vehicle-front.jpg`);
+  assert.equal(detail.driver.vehicle_front_path, null);
   assert.match(detail.regulatory_record.assignment_snapshot.driver.affiliation_number, /^YV-[A-F0-9]{12}$/);
   assert.equal(detail.regulatory_record.assignment_snapshot.driver.license_number, undefined);
   assert.equal(detail.regulatory_record.assignment_snapshot.vehicle.vin, undefined);
   await expectError(() => db.query("select * from public.trip_regulatory_records"), /permission denied/);
   assert.equal(detail.company_insurance.available, false);
-  assert.match(detail.pin, /^\d{4}$/);
+  assert.equal(detail.pin_required, false);
+  assert.equal(detail.pin, undefined);
   assert.deepEqual(detail.messages.map((message) => message.body), [
     "Estoy en la entrada principal.",
     "Voy en camino; llego en unos minutos.",
   ]);
-  const pin = detail.pin;
   await as(ids.other);
   assert.equal((await db.query("select * from public.trips")).rows.length, 0);
   await expectError(() => db.query("select * from public.trip_regulatory_records"), /permission denied/);
@@ -618,7 +580,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   await expectError(() => db.query("select * from private.trip_secrets"), /permission denied/);
   await as(ids.driver);
   assert.equal((await rpc("offers")).length, 0);
-  assert.equal((await rpc("trip", { trip_id: t.id })).pin, null);
+  assert.equal((await rpc("trip", { trip_id: t.id })).pin, undefined);
   await as(ids.driver2);
   await expectError(() => rpc("accept", { trip_id: t.id }), /disponible/);
   await as(ids.rider);
@@ -632,25 +594,14 @@ test("Postgres security and complete ride lifecycle", async () => {
     /estado/,
   );
   await rpc("transition", { trip_id: t.id, status: "arrived" });
-  for (let i = 0; i < 5; i++)
-    assert.ok(
-      (await rpc("transition", { trip_id: t.id, status: "in_progress", pin: "0000" })).error,
-    );
-  assert.match(
-    (await rpc("transition", { trip_id: t.id, status: "in_progress", pin })).error,
-    /bloqueado/,
-  );
-  await as(ids.admin, "aal2");
-  await rpc("reset_pin", { trip_id: t.id });
-  await as(ids.rider);
-  const newPin = (await rpc("trip", { trip_id: t.id })).pin;
   await db.exec("reset role");
   await db.query(
     "insert into public.location_history(trip_id,driver_id,lat,lng,accuracy,captured_at) values($1,$2,28.18,-105.48,10,now()-interval '1 minute')",
     [t.id, ids.driver],
   );
   await as(ids.driver);
-  await rpc("transition", { trip_id: t.id, status: "in_progress", pin: newPin });
+  const started = await rpc("transition", { trip_id: t.id, status: "in_progress" });
+  assert.equal(started.status, "in_progress");
   await rpc("location", { trip_id: t.id, lat: 28.19, lng: -105.47, accuracy: 10 });
   await as(ids.rider);
   const activeTrip = await rpc("trip", { trip_id: t.id });

@@ -127,6 +127,7 @@ const S = {
   scheduleData: null,
   scheduleConfirmation: null,
   routeRenderTimer: null,
+  driverNavigationMode: "",
   referralCode: "",
   driverDraftTimer: null,
   passengerOriginMode: "gps",
@@ -143,7 +144,6 @@ if (/^YV[A-F0-9]{8}$/.test(referralFromUrl)) {
 }
 const modal = $("#modal");
 let toastTimer, pollTimer;
-let driverNavigationWindow;
 let googleMapsPromise;
 function loadGoogleMaps() {
   if (!GOOGLE_MAPS_BROWSER_KEY) return Promise.resolve(false);
@@ -315,19 +315,12 @@ function notify(message) {
 function serviceNotification(title, body, { tag = "yavoi-update", target = "home" } = {}) {
   notify(`${title}. ${body}`);
   if (!("Notification" in window) || Notification.permission !== "granted") return;
-  try {
-    const item = new Notification(title, {
-      body,
-      icon: "/icons/yavoi-192.png",
-      badge: "/icons/yavoi-maskable-512.png",
-      tag,
-      renotify: true,
+  const options = { body, icon: "/icons/yavoi-192.png", badge: "/icons/yavoi-maskable-512.png", tag, renotify: true, data: { target } };
+  navigator.serviceWorker?.ready
+    .then((registration) => registration.showNotification(title, options))
+    .catch(() => {
+      try { new Notification(title, options); } catch {}
     });
-    item.onclick = () => {
-      window.focus();
-      location.hash = target;
-    };
-  } catch {}
 }
 async function armOfferSound() {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -427,7 +420,6 @@ function presentDriverOfferAlert(offer) {
     });
   }, 100);
   $("#accept-driver-offer").onclick = () => {
-    const navigationWindow = driverActiveTrip() ? null : window.open("about:blank", "yavoi-driver-navigation");
     run(async () => {
     clearInterval(timer);
     stopOfferRinging(offer.offer_id);
@@ -435,15 +427,13 @@ function presentDriverOfferAlert(offer) {
       const trip = await rpc("accept", { offer_id: offer.offer_id });
       if (trip.error) throw Error(trip.error);
       const queued = Boolean(trip.queued_after_trip_id);
-      if (!queued) openDriverNavigation({ ...trip, status: "accepted" }, navigationWindow);
-      else navigationWindow?.close();
+      if (!queued) openDriverNavigation({ ...trip, status: "accepted" });
       closeModal();
       if (queued) {
         notify("Siguiente viaje aceptado. La navegación actual continúa hasta terminar el servicio en curso.");
         await syncDriverOffers({ present: false });
       } else location.hash = "trip/" + trip.id;
     } catch (error) {
-      navigationWindow?.close();
       throw error;
     }
     });
@@ -968,13 +958,14 @@ function mapFrame(
   id = "ride-map",
   caption = "Busca una dirección con calle y número, o elige qué marcador colocar en el mapa.",
   routeMode = "",
+  navigation = "",
 ) {
   const legend = routeMode === "trip"
     ? `<div class="map-route-legend"><span class="suggested"><i></i>Ruta sugerida</span><span class="actual"><i></i>Recorrido real</span></div>`
     : routeMode === "planning"
       ? '<div class="map-route-legend hidden" id="planning-route-legend"><span class="suggested"><i></i>Ruta sugerida</span></div>'
     : "";
-  return `<section class="map-panel"><div class="map-top">Delicias, Chihuahua</div>${legend}<div class="map-placement hidden" id="${id}-placement">${I("crosshair")}<span></span><button type="button" data-action="cancel-map-placement" aria-label="Cancelar selección">${I("x")}</button></div><button class="map-fullscreen" type="button" data-action="map-fullscreen" aria-label="Ver mapa en pantalla completa">${I("maximize-2")}<span>Ampliar</span></button><div class="map" id="${id}" aria-label="Mapa de Delicias"></div><div class="map-caption">${I("shield-check")}<span>${caption}</span></div></section>`;
+  return `<section class="map-panel"><div class="map-top">Delicias, Chihuahua</div>${legend}${navigation}<div class="map-placement hidden" id="${id}-placement">${I("crosshair")}<span></span><button type="button" data-action="cancel-map-placement" aria-label="Cancelar selección">${I("x")}</button></div><button class="map-fullscreen" type="button" data-action="map-fullscreen" aria-label="Ver mapa en pantalla completa">${I("maximize-2")}<span>Ampliar</span></button><div class="map" id="${id}" aria-label="Mapa de Delicias"></div><div class="map-caption">${I("shield-check")}<span>${caption}</span></div></section>`;
 }
 async function mapService(body) {
   const { data, error } = await db.functions.invoke("maps", { body });
@@ -1274,21 +1265,19 @@ function updateRouteMonitor() {
     input.focus();
   });
 }
-function googleNavigationUrl(trip) {
-  const pickup = ["accepted", "arrived"].includes(trip.status);
-  const lat = Number(pickup ? trip.origin_lat : trip.dest_lat);
-  const lng = Number(pickup ? trip.origin_lng : trip.dest_lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "";
-  const params = new URLSearchParams({ api: "1", destination: `${lat},${lng}`, travelmode: "driving", dir_action: "navigate" });
-  return `https://www.google.com/maps/dir/?${params}`;
+function openDriverNavigation(trip) {
+  // Keep the driver in Yavoi!. The same live map switches to guidance and
+  // returns to the service controls as soon as GPS confirms the arrival.
+  S.driverNavigationMode = ["accepted", "arrived"].includes(trip.status) ? "pickup" : "destination";
+  return S.driverNavigationMode;
 }
-function openDriverNavigation(trip, navigationWindow = null) {
-  const url = googleNavigationUrl(trip);
-  if (!url) return null;
-  driverNavigationWindow = navigationWindow || driverNavigationWindow;
-  if (driverNavigationWindow && !driverNavigationWindow.closed) driverNavigationWindow.location.href = url;
-  else driverNavigationWindow = window.open(url, "yavoi-driver-navigation");
-  return driverNavigationWindow;
+function driverMapNavigationMarkup(trip, conductor) {
+  if (!conductor || !["accepted", "in_progress"].includes(trip.status)) return "";
+  const pickup = trip.status === "accepted";
+  const distance = pickup ? trip.pickup_distance_km : trip.distance_km;
+  const minutes = pickup ? trip.pickup_eta_minutes : trip.trip_eta_minutes;
+  const destination = pickup ? trip.origin : trip.destination;
+  return `<section class="in-app-navigation" aria-live="polite"><div><span>${I("navigation")} Navegación en Yavoi!</span><strong>${pickup ? "Ve por tu pasajero" : "Lleva al pasajero a su destino"}</strong><small>${decimal(distance)} km · ${minutes} min</small></div><p>${e(destination)}</p></section>`;
 }
 async function refreshAvailableUnits({ fit = true } = {}) {
   if (!S.map || S.profile?.role !== "passenger" || !S.origin) return;
@@ -1968,7 +1957,8 @@ function driverSafetyMarkup() {
 function driverLiveMapMarkup(driver) {
   const status = driver.online ? "Ubicación en vivo" : "Ubicación pausada";
   const action = driver.online ? "Desconectarme" : "Conectarme";
-  return `<section class="driver-live-map section-gap"><div class="driver-live-map-heading"><span class="driver-live-status ${driver.online ? "online" : ""}"><i></i>${status}</span></div>${mapFrame("driver-live-map", "Tu ubicación se mantiene actualizada para la operación.")}<div class="driver-live-controls"><button class="availability-hold ${driver.online ? "is-online" : "is-offline"}" type="button" data-hold-availability aria-label="Mantén pulsado un segundo para ${action.toLowerCase()}">${I("power")}<span><small>Mantén 1 segundo</small><strong>${action}</strong></span><i class="availability-hold-progress" aria-hidden="true"></i></button></div></section>`;
+  const notices = typeof Notification !== "undefined" && Notification.permission === "granted";
+  return `<section class="driver-live-map section-gap"><div class="driver-live-map-heading"><span class="driver-live-status ${driver.online ? "online" : ""}"><i></i>${status}</span></div>${mapFrame("driver-live-map", "Tu ubicación se mantiene actualizada para la operación.")}<div class="driver-live-controls"><button class="availability-hold ${driver.online ? "is-online" : "is-offline"}" type="button" data-hold-availability aria-label="Mantén pulsado un segundo para ${action.toLowerCase()}">${I("power")}<span><small>Mantén 1 segundo</small><strong>${action}</strong></span><i class="availability-hold-progress" aria-hidden="true"></i></button></div><button class="driver-notification-control ${notices ? "ready" : ""}" type="button" data-action="notifications">${I(notices ? "bell-ring" : "bell")} ${notices ? "Alertas activas" : "Activar alertas de viajes"}</button></section>`;
 }
 function bindAvailabilityHold() {
   const control = $("[data-hold-availability]");
@@ -2101,7 +2091,7 @@ async function driverHome() {
   const driver = S.driver;
   if (!driver?.approved) {
     shell(
-      `<section class="panel"><span class="badge pending">Expediente pendiente de aprobación</span><h2 class="section-gap">Tu próximo paso: completa tu perfil</h2><p>Necesitamos tu fotografía, licencia, seguro y datos de la unidad. Operaciones revisará el expediente antes de que puedas recibir viajes.</p>${driver?.review_note ? `<p class="hint">${e(driver.review_note)}</p>` : ""}<a class="btn" href="#profile">Completar mi expediente ${I("arrow-right")}</a></section>`,
+      `<section class="panel"><span class="badge pending">Expediente pendiente de aprobación</span><h2 class="section-gap">Tu próximo paso: entrega tus documentos</h2><p>Sube tu fotografía, INE, licencia, tarjeta de circulación y póliza vigente. Operaciones verificará los documentos, registrará los datos oficiales y autorizará tu cuenta antes de recibir viajes.</p>${driver?.review_note ? `<p class="hint">${e(driver.review_note)}</p>` : ""}<a class="btn" href="#profile">Completar mi expediente ${I("arrow-right")}</a></section>`,
       "Hola, " + e(S.profile.full_name.split(" ")[0]),
       "Tu actividad como conductor comienza con una revisión de seguridad.",
     );
@@ -2590,20 +2580,18 @@ async function tripView(id) {
   const cancellationFeeActions = t.status === "cancelled" && cancellationPayment?.status === "pending" && (conductor || S.profile.role === "admin")
     ? `<div class="row wrap section-gap">${button("Confirmar cuota recibida", "settle-cancel-fee", "secondary", "circle-dollar-sign")}${S.profile.role === "admin" ? button("Condonar cuota", "waive-cancel-fee", "secondary", "badge-x") : ""}</div>`
     : "";
-  const navigationUrl = conductor && ["accepted", "arrived", "in_progress"].includes(t.status) ? googleNavigationUrl(t) : "";
-  const driverNavigation = navigationUrl
-    ? `<a class="btn driver-navigation wide section-gap" href="${e(navigationUrl)}" target="_blank" rel="noopener noreferrer">${I("navigation")} ${t.status === "in_progress" ? "Navegar al destino con Maps" : "Navegar a recoger al pasajero con Maps"}</a><p class="hint driver-navigation-note">Usa la guía por voz de Maps mientras conduces. Yavoi! seguirá registrando el recorrido GPS del viaje.</p>`
+  const driverNavigation = conductor && ["accepted", "in_progress"].includes(t.status)
+    ? '<p class="hint driver-navigation-note">La guía y el recorrido se muestran directamente en el mapa de Yavoi!.</p>'
     : "";
   const tripFooter = `<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}${terminalReport}</div>`;
   shell(
-    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${vehiclePhoto ? `<figure class="assigned-vehicle-photo"><img src="${e(vehiclePhoto)}" alt="Fotografía frontal del vehículo asignado, placa ${e(driver.plate)}"><figcaption>Unidad verificada · confirma que la placa visible coincida con <strong>${e(driver.plate)}</strong></figcaption></figure>` : ""}${legalTripMarkup}${chatAction}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="trip-at-a-glance"><div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>${serviceDetails}</div>` : serviceDetails}${paymentRows.replace(serviceDetails, "")}${action}${driverNavigation}${tripSafetyControls}${cancellationFeeActions}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" ? tripRatingsMarkup(S.trip.ratings || []) : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}${reportHistory}${tripFooter}</section><div class="stack"><div id="route-monitor">${routeMonitorMarkup()}</div>${mapFrame("ride-map", e(geo), "trip")}<section class="panel trip-chat-panel" id="trip-chat"><div class="row between wrap"><div><h2>Mensajes del viaje</h2><p>Disponible desde que el conductor acepta y mientras el viaje está activo.</p></div>${I("message-circle")}</div><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Confirma una entrada, referencia o indicación…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
+    `<div class="trip-layout"><section class="panel trip-panel">${badge(t)}<h2 class="big-status">${e(title)}</h2><p>${e(statusMessage)}</p><div class="stepper" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<span class="${i <= progress ? "done" : ""}"></span>`).join("")}</div><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div>${t.scheduled_at ? `<p class="hint">${I("calendar")} ${date(t.scheduled_at)}</p>` : ""}${person ? `<div class="person-card">${avatar(person.name, person.avatar_path, "big")}<div><small>${rider ? "Tu conductor" : "Tu pasajero"}</small><strong style="display:block;margin-top:5px">${e(person.name)}</strong>${rider ? `<p>${e([driver.vehicle_color, driver.vehicle_make, driver.vehicle_model, driver.vehicle_year].filter(Boolean).join(" ") || driver.vehicle)} · ${e(driver.plate)}</p><small>Calificación: ${driver.rating || "Nuevo conductor"}</small>` : ""}</div></div>` : ""}${vehiclePhoto ? `<figure class="assigned-vehicle-photo"><img src="${e(vehiclePhoto)}" alt="Fotografía frontal del vehículo asignado, placa ${e(driver.plate)}"><figcaption>Unidad verificada · confirma que la placa visible coincida con <strong>${e(driver.plate)}</strong></figcaption></figure>` : ""}${legalTripMarkup}${chatAction}${pin ? `<div class="pin-card"><span>Tu PIN de inicio<br><small>No lo compartas antes de abordar</small></span><strong>${e(pin)}</strong></div>` : ""}${t.distance_km != null ? `<div class="trip-at-a-glance"><div class="estimate-grid compact"><div><small>Recogida estimada</small><strong>${decimal(t.pickup_distance_km)} km · ${t.pickup_eta_minutes} min</strong></div><div><small>Recorrido estimado</small><strong>${decimal(t.distance_km)} km · ${t.trip_eta_minutes} min</strong><span>${zoneLabel(t.service_zone)}</span></div></div>${serviceDetails}</div>` : serviceDetails}${paymentRows.replace(serviceDetails, "")}${action}${driverNavigation}${tripSafetyControls}${cancellationFeeActions}${conductor && active(t) && t.status !== "payment_pending" ? `<div class="section-gap">${button("Actualizar ubicación ahora", "gps", "secondary wide", "locate-fixed")}<p class="hint">La ubicación se actualiza automáticamente mientras Yavoi! permanece abierto y se recupera al volver a la página.</p></div>` : ""}${t.status === "completed" && !my_rating && (rider || conductor) ? button(rider ? "Valorar viaje y conductor" : "Valorar pasajero", "rate", "wide", "star") : ""}${my_rating ? `<p class="hint">Evaluación enviada: ${my_rating.stars}/5. Gracias por compartir tu experiencia.</p>` : ""}${t.status === "completed" ? tripRatingsMarkup(S.trip.ratings || []) : ""}${t.status === "completed" && conductor ? button("Registrar propina recibida", "tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" && rider ? button("Agregar propina", "passenger-tip", "secondary wide section-gap", "heart") : ""}${t.status === "completed" ? button("Ver recibo", "receipt", "secondary wide section-gap", "receipt-text") : ""}${active(t) && t.status !== "in_progress" && t.status !== "payment_pending" ? button("Cancelar viaje", "cancel", "danger wide section-gap", "x") : ""}${S.profile.role === "admin" && t.status === "arrived" ? button("Renovar PIN bloqueado", "reset-pin", "secondary wide section-gap", "key-round") : ""}${S.profile.role === "admin" && t.status === "in_progress" ? button("Cancelar por incidencia", "cancel", "danger wide section-gap", "shield-alert") : ""}${reportHistory}${tripFooter}</section><div class="stack"><div id="route-monitor">${routeMonitorMarkup()}</div>${mapFrame("ride-map", e(geo), "trip", driverMapNavigationMarkup(t, conductor))}<section class="panel trip-chat-panel" id="trip-chat"><div class="row between wrap"><div><h2>Mensajes del viaje</h2><p>Disponible desde que el conductor acepta y mientras el viaje está activo.</p></div>${I("message-circle")}</div><div id="chat" class="chat">${messagesHtml(S.trip.messages)}</div>${conductor || rider ? `<form id="chat-form" class="chat-form"><input name="body" aria-label="Mensaje" placeholder="Confirma una entrada, referencia o indicación…" required maxlength="1000" ${!t.driver_id || !active(t) ? "disabled" : ""}><button class="btn" type="submit" aria-label="Enviar mensaje" ${!t.driver_id || !active(t) ? "disabled" : ""}>${I("send")}</button></form>` : ""}<p class="hint">Para una emergencia real, llama al <a href="tel:911" class="link">911</a>. El chat no es un servicio de atención inmediata.</p></section></div></div>`,
     "Tu viaje Yavoi!",
     "Folio " + e(t.id.slice(0, 8).toUpperCase()) + " · " + date(t.created_at),
   );
   await startMap(t);
   const startTrip = async (v = {}) => {
     await rpc("transition", { trip_id: t.id, status: "in_progress", ...(v.pin ? { pin: v.pin } : {}) });
-    // Reuse the same named Maps window/tab, replacing pickup guidance with delivery.
     openDriverNavigation({ ...t, status: "in_progress" });
     await tripView(t.id);
   };
@@ -3491,13 +3479,16 @@ function profile() {
   const driverDossier = driver
     ? `<details class="profile-section dossier-details" ${dossier.percent < 100 ? "open" : ""}><summary><span>${I("car-front")}<strong>Mi unidad y documentos</strong></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : dossier.percent === 100 ? "100% completo" : `${dossier.percent}% completo`}</span></summary><div class="profile-section-body">${driverProgressMarkup(p, d)}<p class="hint">Al modificar el expediente la autorización anterior se pausa hasta una nueva revisión. Los documentos son privados y sólo el conductor y Operaciones pueden consultarlos.</p><p class="driver-draft-status" id="driver-draft-status" role="status" aria-live="polite">${I("cloud")} Cada campo y casilla se guarda como borrador privado. Si un archivo falla, los demás avances se conservan.</p>${d.review_note ? `<p class="hint">Revisión: ${e(d.review_note)}</p>` : ""}<form id="vehicle-form"><fieldset ${formDisabled}><h3>Datos de la unidad</h3><div class="grid2"><label>Marca<input name="vehicle_make" required minlength="2" maxlength="50" value="${e(d.vehicle_make)}" placeholder="Nissan"></label><label>Modelo<input name="vehicle_model" required minlength="1" maxlength="50" value="${e(d.vehicle_model)}" placeholder="Versa"></label><label>Año<input name="vehicle_year" type="number" min="${new Date().getFullYear() - 7}" max="${new Date().getFullYear() + 1}" required value="${e(d.vehicle_year || "")}"></label><label>Color<input name="vehicle_color" required minlength="3" maxlength="40" value="${e(d.vehicle_color)}" placeholder="Gris"></label><label>Placas<input name="plate" required minlength="5" maxlength="20" value="${e(d.plate)}"></label><label>Categoría<select name="category">${S.categories.map((c) => `<option value="${c.id}" ${d.category === c.id ? "selected" : ""}>${e(c.name)}</option>`).join("")}</select></label><label>Fecha de nacimiento<input name="birth_date" type="date" required value="${e(d.birth_date || "")}"></label><label>Número de licencia<input name="license_number" required maxlength="50" value="${e(d.license_number)}"></label><label>Vencimiento de licencia<input name="license_expires" type="date" required value="${e(d.license_expires)}"></label><label>Vencimiento de seguro<input name="insurance_expires" type="date" required value="${e(d.insurance_expires)}"></label><label>Número de tarjetón<input name="transport_card_number" required maxlength="50" value="${e(d.transport_card_number || "")}"></label><label>Vencimiento de tarjetón<input name="transport_card_expires" type="date" required value="${e(d.transport_card_expires || "")}"></label><label>NIV / VIN<input name="vin" required minlength="17" maxlength="17" value="${e(d.vin || "")}" placeholder="17 caracteres"></label><label>Número de holograma<input name="hologram_number" required maxlength="50" value="${e(d.hologram_number || "")}"></label><label>Vencimiento de holograma<input name="hologram_expires" type="date" required value="${e(d.hologram_expires || "")}"></label><label>Vencimiento de tarjeta de circulación<input name="vehicle_registration_expires" type="date" required value="${e(d.vehicle_registration_expires || "")}"></label><label>Vencimiento de revisión mecánica<input name="mechanical_inspection_expires" type="date" required value="${e(d.mechanical_inspection_expires || "")}"></label><label>Vencimiento de constancia fiscal<input name="tax_compliance_expires" type="date" required value="${e(d.tax_compliance_expires || "")}"></label><label>Porcentaje de entintado<input name="tint_percent" type="number" min="0" max="20" required value="${e(d.tint_percent ?? "")}"></label><label>Vencimiento de verificación vehicular<input name="vehicle_verification_expires" type="date" value="${e(d.vehicle_verification_expires || "")}" ${d.vehicle_verification_not_applicable ? "disabled" : "required"}></label></div><label class="check"><input type="checkbox" name="vehicle_verification_not_applicable" ${d.vehicle_verification_not_applicable ? "checked" : ""}>La verificación ambiental no es aplicable y Operaciones deberá validarlo</label><h3 class="section-gap">Equipo y características de seguridad</h3><div class="driver-safety-checks"><label class="check"><input type="checkbox" name="seatbelts_all" ${d.seatbelts_all ? "checked" : ""}>Cinturones para todas las plazas</label><label class="check"><input type="checkbox" name="front_airbags" ${d.front_airbags ? "checked" : ""}>Bolsas de aire frontales</label><label class="check"><input type="checkbox" name="abs_brakes" ${d.abs_brakes ? "checked" : ""}>Frenos ABS</label><label class="check"><input type="checkbox" name="first_service_tools" ${d.first_service_tools ? "checked" : ""}>Herramientas de primer servicio</label><label class="check"><input type="checkbox" name="extinguisher_abc" ${d.extinguisher_abc ? "checked" : ""}>Extinguidor ABC</label><label class="check"><input type="checkbox" name="four_doors" ${d.four_doors ? "checked" : ""}>Unidad de al menos cuatro puertas</label><label class="check"><input type="checkbox" name="air_conditioning" ${d.air_conditioning ? "checked" : ""}>Aire acondicionado</label><label class="check"><input type="checkbox" name="reflective_markings" ${d.reflective_markings ? "checked" : ""}>Señalamientos reflejantes</label></div><h3 class="section-gap">Documentos privados</h3><div class="driver-documents">${vehiclePhotoField(d.vehicle_front_path)}${documentField("government_id_file", "Identificación oficial del propietario", d.government_id_path)}${documentField("license_file", "Licencia de conducir", d.license_path)}${documentField("transport_card_file", "Tarjetón anual de transporte", d.transport_card_path)}${documentField("insurance_file", "Póliza particular y recibo", d.insurance_path)}${documentField("vehicle_registration_file", "Tarjeta de circulación", d.vehicle_registration_path)}${documentField("vehicle_verification_file", "Verificación vehicular", d.vehicle_verification_path, d.vehicle_verification_not_applicable ? "marcada como no aplicable" : "")}${documentField("mechanical_inspection_file", "Revisión mecánica y de seguridad", d.mechanical_inspection_path)}${documentField("tax_compliance_file", "Constancia de cumplimiento fiscal", d.tax_compliance_path)}${documentField("criminal_record_file", "Carta de no antecedentes penales (voluntaria)", d.criminal_record_path, "no condiciona la autorización; el requisito legal fue invalidado por la SCJN")}${documentField("policy_commitment_file", "Carta de compromiso y políticas Yavoi! firmada", d.policy_commitment_path)}${documentField("traffic_law_commitment_file", "Carta de aceptación de obligaciones viales firmada", d.traffic_law_commitment_path)}</div><div class="document-templates"><div>${I("file-down")}<span><strong>Plantillas para firma</strong><small>Descarga, completa, firma y carga el documento entero.</small></span></div><a class="btn secondary" href="/documents/carta-compromiso-politicas-yavoi.pdf" download>Políticas Yavoi! ${I("download")}</a><a class="btn secondary" href="/documents/carta-aceptacion-vialidad-chihuahua.pdf" download>Obligaciones viales ${I("download")}</a><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Consultar ley oficial ${I("external-link")}</a></div><label class="check"><input type="checkbox" name="advertising_interest" ${d.advertising_interest ? "checked" : ""}>Me interesa participar en convenios de publicidad</label><button type="submit" class="btn">Guardar y enviar expediente ${I("shield-check")}</button></fieldset></form></div></details>`
     : "";
+  const streamlinedDriverDossier = driver
+    ? `<details class="profile-section dossier-details" ${dossier.percent < 100 ? "open" : ""}><summary><span>${I("files")}<strong>Documentos para autorización</strong></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Autorizado" : dossier.percent === 100 ? "Listo para revisar" : `${dossier.percent}% completo`}</span></summary><div class="profile-section-body">${driverProgressMarkup(p, d)}<p class="hint">Sube solamente estos cinco documentos. Operaciones revisa su vigencia, registra los datos oficiales de la unidad y autoriza tu cuenta antes de que puedas recibir viajes.</p><p class="driver-draft-status" id="driver-draft-status" role="status" aria-live="polite">${I("cloud")} Tus avances se guardan como borrador privado.</p>${d.review_note ? `<p class="hint">Revisión de Operaciones: ${e(d.review_note)}</p>` : ""}<form id="vehicle-form"><fieldset ${formDisabled}><div class="driver-documents streamlined-driver-documents">${documentField("government_id_file", "Identificación oficial INE", d.government_id_path, "frente y reverso si aplica")}${documentField("license_file", "Licencia de conducir", d.license_path, "vigente")}${documentField("vehicle_registration_file", "Tarjeta de circulación", d.vehicle_registration_path, "vigente")}${documentField("insurance_file", "Póliza de seguro", d.insurance_path, "vigente")}</div><p class="hint">La fotografía de perfil forma parte del expediente. Puedes actualizarla en Mis datos generales.</p><button type="submit" class="btn">Enviar documentos a Operaciones ${I("shield-check")}</button></fieldset></form></div></details>`
+    : "";
   const score = Number(S.data.rating || 0);
   const profileShortcuts = `<section class="profile-shortcuts" aria-label="Opciones principales del perfil"><div class="profile-score">${I("star")}<span><small>CALIFICACIÓN VIGENTE</small><strong>${score > 0 ? `${decimal(score)}/5` : "Aún sin calificaciones"}</strong></span></div><div class="profile-shortcut-grid"><a class="profile-shortcut" href="#help">${I("life-buoy")}<span><strong>Ayuda</strong><small>Viajes, pagos y soporte</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#wallet">${I("wallet")}<span><strong>Mi Cartera</strong><small>${driver ? "Ingresos y liquidaciones" : "Pagos y viajes"}</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#safety">${I("shield-check")}<span><strong>Seguridad</strong><small>Consejos y qué hacer</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#inbox">${I("inbox")}<span><strong>Bandeja de Entrada</strong><small>Avisos y mensajes de Yavoi!</small></span>${I("arrow-right")}</a></div></section>`;
   const ridePreferencesMarkup = passenger
     ? `<section class="ride-preferences"><div>${I("sliders-horizontal")}<span><strong>Preferencias de viaje</strong><small>${S.ridePreferences?.pickup_pin_enabled ? "Código de inicio activado" : "Inicio de viaje sin código"}</small></span></div><button class="btn secondary" type="button" data-action="ride-preferences">Configurar</button></section>`
     : "";
   shell(
-    `<section class="panel"><div class="profile-head">${avatar(p.full_name, p.avatar_path, "big")}<div><h2>${e(p.full_name)}</h2><p>${e(S.user.email)} · ${e(roles[p.role])}</p><small>El tipo de cuenta se protege en el servidor.</small></div></div>${profileShortcuts}${ridePreferencesMarkup}${passenger ? passengerProgressMarkup(p) : ""}${lockNotice}${personalForm}</section>${driverDossier}${driver ? weeklyProfileMarkup() : ""}<section class="panel section-gap"><h2>Acceso y seguridad</h2><p>Tu sesión es personal. Puedes cambiar tu contraseña o cerrar sesión en todos tus dispositivos.</p><div class="row wrap">${button("Cambiar contraseña", "password", "secondary", "key-round")}${button("Cerrar mis sesiones", "logout", "secondary", "log-out")}</div>${p.role === "admin" ? '<p class="hint">Operaciones exige autenticación en dos pasos. Conserva acceso a tu aplicación autenticadora.</p>' : ""}</section>`,
+    `<section class="panel"><div class="profile-head">${avatar(p.full_name, p.avatar_path, "big")}<div><h2>${e(p.full_name)}</h2><p>${e(S.user.email)} · ${e(roles[p.role])}</p><small>El tipo de cuenta se protege en el servidor.</small></div></div>${profileShortcuts}${ridePreferencesMarkup}${passenger ? passengerProgressMarkup(p) : ""}${lockNotice}${personalForm}</section>${streamlinedDriverDossier}${driver ? weeklyProfileMarkup() : ""}<section class="panel section-gap"><h2>Acceso y seguridad</h2><p>Tu sesión es personal. Puedes cambiar tu contraseña o cerrar sesión en todos tus dispositivos.</p><div class="row wrap">${button("Cambiar contraseña", "password", "secondary", "key-round")}${button("Cerrar mis sesiones", "logout", "secondary", "log-out")}</div>${p.role === "admin" ? '<p class="hint">Operaciones exige autenticación en dos pasos. Conserva acceso a tu aplicación autenticadora.</p>' : ""}</section>`,
     "Mi perfil",
     "Tu información, tu unidad y las opciones de tu cuenta.",
   );
@@ -3615,7 +3606,7 @@ function profile() {
         snapshot[name] = form.elements[name]?.checked || false;
       });
       const verificationExpiry = form.elements.vehicle_verification_expires;
-      if (S.transportComplianceAvailable) {
+      if (S.transportComplianceAvailable && verificationExpiry) {
         verificationExpiry.disabled = snapshot.vehicle_verification_not_applicable;
         verificationExpiry.required = !snapshot.vehicle_verification_not_applicable;
       }
@@ -4127,7 +4118,8 @@ function fleet() {
     const weeklyBilling = d.billing_mode !== "commission";
     const assignedShift = (S.data.service_shifts || []).find((shift) => shift.code === d.service_shift_code);
     const doc = (path, label) => path ? `<button class="btn secondary" data-document="${e(path)}">${I("file-check")} ${label}</button>` : "";
-    return `<details class="offer dossier-card driver-admin-card" data-driver-card="${e(d.id)}"><summary class="driver-admin-summary"><span><strong>${e(d.full_name)}</strong><small>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</small></span><span class="driver-admin-glance"><small>${reward.rating ? `${decimal(reward.rating)}/5` : "Sin calificación"}</small><small>${Number(reward.trip_count || 0)} viajes</small></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span>${I("chevron-down")}</summary><div class="driver-admin-body"><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} requisitos${progress.missing.length ? ` · Faltan: ${e(progress.missing.slice(0, 3).join(", "))}${progress.missing.length > 3 ? "…" : ""}` : " · Expediente completo"}</small></div><div class="driver-reward-summary"><span><small>NIVEL RATING</small><strong>${e(reward.level || "Activo")}</strong></span><span><small>PUNTOS</small><strong>${Number(reward.available_points || 0)}</strong></span><span><small>VIAJES</small><strong>${Number(reward.trip_count || 0)}</strong></span><span><small>CALIFICACIÓN</small><strong>${reward.rating ? `${decimal(reward.rating)}/5` : "—"}</strong></span><span><small>INGRESOS</small><strong>${money(reward.income_cents || 0)}</strong></span><span><small>INCIDENTES 90 DÍAS</small><strong>${Number(reward.recent_incidents || 0)}</strong></span></div><div class="driver-billing-row"><div>${I(weeklyBilling ? "calendar-check" : "percent")}<span><small>MODALIDAD COMERCIAL</small><strong>${weeklyBilling ? `Aportación de ${money(d.weekly_fee_cents || 50000)}` : "Comisión por viaje"}</strong><p>Efectivo: ${Number(d.cash_commission_bps || 0) / 100}% · Electrónico: ${Number(d.card_commission_bps || 0) / 100}% para Yavoi!</p></span></div><button class="btn secondary" data-billing="${e(d.id)}">Configurar cobro ${I("settings-2")}</button></div><div class="driver-shift-assignment"><div>${I("clock-3")}<span><small>TURNO ASIGNADO POR OPERACIONES</small><strong>${e(assignedShift?.name || "Sin turno asignado")}</strong><p>${assignedShift ? e(shiftTimeLabel(assignedShift)) : "El conductor no podrá conectarse hasta recibir un turno."}</p></span></div><button class="btn secondary" data-driver-shift="${e(d.id)}">Asignar turno ${I("calendar-clock")}</button></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.vehicle_front_path ? `<button class="btn secondary" data-vehicle-photo="${e(d.vehicle_front_path)}">${I("car-front")} Frente y placa</button>` : ""}${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.government_id_path, "Identificación")}${doc(d.license_path, "Licencia")}${doc(d.transport_card_path, "Tarjetón")}${doc(d.insurance_path, "Seguro")}${doc(d.vehicle_registration_path, "Circulación")}${doc(d.vehicle_verification_path, "Verificación")}${doc(d.mechanical_inspection_path, "Revisión mecánica")}${doc(d.tax_compliance_path, "Fiscal")}${doc(d.criminal_record_path, "No antecedentes · voluntaria")}${doc(d.policy_commitment_path, "Políticas Yavoi!")}${doc(d.traffic_law_commitment_path, "Obligaciones viales")}<button class="btn" data-review="${e(d.id)}">Revisar autorización ${I("arrow-right")}</button></div>${d.advertising_interest ? "<small>Interesado en convenios de publicidad</small>" : ""}</div></details>`;
+    const typeBadge = d.driver_type === "support" ? '<span class="badge driver-support-badge">Conductor de Apoyo</span>' : '<span class="badge neutral">Conductor Yavoi!</span>';
+    return `<details class="offer dossier-card driver-admin-card ${d.driver_type === "support" ? "driver-support-card" : ""}" data-driver-card="${e(d.id)}"><summary class="driver-admin-summary"><span><strong>${e(d.full_name)}</strong>${typeBadge}<small>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</small></span><span class="driver-admin-glance"><small>${reward.rating ? `${decimal(reward.rating)}/5` : "Sin calificación"}</small><small>${Number(reward.trip_count || 0)} viajes</small></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span>${I("chevron-down")}</summary><div class="driver-admin-body"><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} documentos${progress.missing.length ? ` · Faltan: ${e(progress.missing.join(", "))}` : " · Expediente completo"}</small></div><div class="driver-reward-summary"><span><small>NIVEL RATING</small><strong>${e(reward.level || "Activo")}</strong></span><span><small>PUNTOS</small><strong>${Number(reward.available_points || 0)}</strong></span><span><small>VIAJES</small><strong>${Number(reward.trip_count || 0)}</strong></span><span><small>CALIFICACIÓN</small><strong>${reward.rating ? `${decimal(reward.rating)}/5` : "—"}</strong></span><span><small>INGRESOS</small><strong>${money(reward.income_cents || 0)}</strong></span><span><small>INCIDENTES 90 DÍAS</small><strong>${Number(reward.recent_incidents || 0)}</strong></span></div><div class="driver-billing-row"><div>${I(weeklyBilling ? "calendar-check" : "percent")}<span><small>MODALIDAD COMERCIAL</small><strong>${weeklyBilling ? `Aportación de ${money(d.weekly_fee_cents || 50000)}` : "Comisión por viaje"}</strong><p>Efectivo: ${Number(d.cash_commission_bps || 0) / 100}% · Electrónico: ${Number(d.card_commission_bps || 0) / 100}% para Yavoi!</p></span></div><button class="btn secondary" data-billing="${e(d.id)}">Configurar cobro ${I("settings-2")}</button></div><div class="driver-shift-assignment"><div>${I("clock-3")}<span><small>TURNO ASIGNADO POR OPERACIONES</small><strong>${e(assignedShift?.name || "Sin turno asignado")}</strong><p>${assignedShift ? e(shiftTimeLabel(assignedShift)) : "El conductor no podrá conectarse hasta recibir un turno."}</p></span></div><button class="btn secondary" data-driver-shift="${e(d.id)}">Asignar turno ${I("calendar-clock")}</button></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.government_id_path, "Identificación")}${doc(d.license_path, "Licencia")}${doc(d.insurance_path, "Seguro")}${doc(d.vehicle_registration_path, "Circulación")}<button class="btn" data-review="${e(d.id)}">Registrar y revisar ${I("arrow-right")}</button></div></div></details>`;
   }).join("");
   const managedProfiles = (S.data.managed_profiles || []).map((managed) => {
     const editState = profileEditState(managed);
@@ -4145,7 +4137,7 @@ function fleet() {
     `<article class="reward-operation-card"><div class="reward-icon">${I(redemption.icon || "gift")}</div><div><strong>${e(redemption.name)}</strong><small>${e(redemption.driver_name)} · ${e(redemption.code)} · ${redemption.points_spent} puntos</small><p>${e(redemption.description || "Beneficio solicitado por el conductor.")}</p></div><span class="badge pending">Por entregar</span><div class="row wrap"><button class="btn" data-reward-review="${e(redemption.id)}" data-result="fulfilled">Marcar entregada</button><button class="btn secondary" data-reward-review="${e(redemption.id)}" data-result="cancelled">Cancelar y devolver puntos</button></div></article>`,
   ).join("");
   shell(
-    `<section class="panel"><div class="row between"><div><h2>Expedientes de conductores</h2><p>La aprobación sólo se habilita con todos los requisitos legales, técnicos y documentales vigentes. La carta de no antecedentes es voluntaria y no condiciona la autorización.</p></div></div><div class="document-templates operations-letter-templates"><div>${I("file-down")}<span><strong>Plantillas vigentes para conductores</strong><small>Consulta o descarga exactamente los documentos que debe firmar cada conductor.</small></span></div><a class="btn secondary" href="/documents/carta-compromiso-politicas-yavoi.pdf" target="_blank" rel="noopener noreferrer">Carta de políticas ${I("external-link")}</a><a class="btn secondary" href="/documents/carta-aceptacion-vialidad-chihuahua.pdf" target="_blank" rel="noopener noreferrer">Carta de obligaciones viales ${I("external-link")}</a><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Ley oficial ${I("external-link")}</a></div>${S.data.drivers.length ? cards : '<div class="empty"><p>Los conductores aparecerán al crear su cuenta y completar el perfil.</p></div>'}</section><section class="panel section-gap"><div class="row between wrap"><div><h2>Canjes para conductores</h2><p>Entrega beneficios físicos y registra el resultado. Una cancelación devuelve los puntos automáticamente.</p></div><span class="badge ${pendingRewards ? "pending" : "neutral"}">${(rewardOperations.pending || []).length} pendientes</span></div><div class="reward-operations">${pendingRewards || "<div class=\"empty\"><p>No hay recompensas pendientes de entrega.</p></div>"}</div></section><section class="panel section-gap"><h2>Control de edición de perfiles</h2><p>Los perfiles completos permanecen protegidos. Una autorización abre una ventana de 24 horas y queda registrada en auditoría.</p><div class="managed-profiles">${managedProfiles || '<div class="empty"><p>No hay perfiles para administrar.</p></div>'}</div></section>`,
+    `<section class="panel"><div class="row between"><div><h2>Expedientes de conductores</h2><p>El conductor entrega fotografía, identificación oficial, licencia, tarjeta de circulación y póliza. Operaciones captura desde esos documentos los datos oficiales de transporte y autoriza la unidad.</p></div></div><div class="document-templates operations-letter-templates"><div>${I("file-down")}<span><strong>Plantillas vigentes para conductores</strong><small>Consulta o descarga exactamente los documentos que debe firmar cada conductor.</small></span></div><a class="btn secondary" href="/documents/carta-compromiso-politicas-yavoi.pdf" target="_blank" rel="noopener noreferrer">Carta de políticas ${I("external-link")}</a><a class="btn secondary" href="/documents/carta-aceptacion-vialidad-chihuahua.pdf" target="_blank" rel="noopener noreferrer">Carta de obligaciones viales ${I("external-link")}</a><a class="link" href="https://www.congresochihuahua2.gob.mx/biblioteca/leyes/archivosLeyes/117.pdf" target="_blank" rel="noopener noreferrer">Ley oficial ${I("external-link")}</a></div>${S.data.drivers.length ? cards : '<div class="empty"><p>Los conductores aparecerán al crear su cuenta y completar el perfil.</p></div>'}</section><section class="panel section-gap"><div class="row between wrap"><div><h2>Canjes para conductores</h2><p>Entrega beneficios físicos y registra el resultado. Una cancelación devuelve los puntos automáticamente.</p></div><span class="badge ${pendingRewards ? "pending" : "neutral"}">${(rewardOperations.pending || []).length} pendientes</span></div><div class="reward-operations">${pendingRewards || "<div class=\"empty\"><p>No hay recompensas pendientes de entrega.</p></div>"}</div></section><section class="panel section-gap"><h2>Control de edición de perfiles</h2><p>Los perfiles completos permanecen protegidos. Una autorización abre una ventana de 24 horas y queda registrada en auditoría.</p><div class="managed-profiles">${managedProfiles || '<div class="empty"><p>No hay perfiles para administrar.</p></div>'}</div></section>`,
     "Conductores y flotilla",
     "Revisa identidad, documentación y capacidades antes de autorizar una unidad.",
   );
@@ -4194,10 +4186,24 @@ function fleet() {
           "Revisión de " + d.full_name,
           `<div class="review-readiness ${progress.percent === 100 ? "ready" : ""}"><strong>${progress.percent === 100 ? "Expediente completo" : `Expediente al ${progress.percent}%`}</strong><p>${progress.missing.length ? `Faltan: ${e(progress.missing.join(", "))}.` : "Confirma la legibilidad, autenticidad y vigencia de cada documento antes de aprobar."}</p></div><form id="review"><label>Resultado<select name="approved"><option value="false">Pendiente / no autorizado</option><option value="true" ${d.approved ? "selected" : ""} ${progress.percent < 100 ? "disabled" : ""}>Aprobar conductor</option></select></label><label class="check"><input name="female_verified" type="checkbox" ${d.female_verified ? "checked" : ""}>Identidad de conductora verificada</label><label class="check"><input name="accessible_verified" type="checkbox" ${d.accessible_verified ? "checked" : ""}>Unidad y asistencia de accesibilidad verificadas</label><label>Resultado de la revisión<textarea name="note" required minlength="5" maxlength="1000">${e(d.review_note)}</textarea></label><p class="hint">Confirma documentos, fotografía, vigencias y capacidades. Esta acción queda registrada con tu identidad.</p><button class="btn wide" type="submit">Guardar autorización</button></form>`,
         );
+        $("#review").insertAdjacentHTML("afterbegin", `<details class="profile-section" open><summary><span>${I("clipboard-check")}<strong>Registro oficial por Operaciones</strong></span>${I("chevron-down")}</summary><div class="profile-section-body"><p class="hint">Captura esta información al revisar los cinco documentos. Sólo Operaciones puede modificarla.</p><div class="grid2"><label>Tipo de conductor<select name="driver_type"><option value="yavoi" ${d.driver_type !== "support" ? "selected" : ""}>Conductor Yavoi!</option><option value="support" ${d.driver_type === "support" ? "selected" : ""}>Conductor de Apoyo</option></select></label><label>Servicio asignado<select name="category">${S.categories.map((category) => `<option value="${e(category.id)}" ${d.category === category.id ? "selected" : ""}>Yavoi! ${e(category.name)}</option>`).join("")}</select></label><label>Marca<input name="vehicle_make" required minlength="2" maxlength="50" value="${e(d.vehicle_make || "")}"></label><label>Modelo<input name="vehicle_model" required minlength="1" maxlength="50" value="${e(d.vehicle_model || "")}"></label><label>Año<input name="vehicle_year" type="number" min="1990" max="${new Date().getFullYear() + 1}" required value="${e(d.vehicle_year || "")}"></label><label>Color<input name="vehicle_color" required minlength="3" maxlength="40" value="${e(d.vehicle_color || "")}"></label><label>Placas<input name="plate" required minlength="5" maxlength="20" value="${e(d.plate || "")}"></label><label>Número de licencia<input name="license_number" required minlength="3" maxlength="50" value="${e(d.license_number || "")}"></label><label>Vencimiento de licencia<input name="license_expires" type="date" required value="${e(d.license_expires || "")}"></label><label>Vencimiento de póliza<input name="insurance_expires" type="date" required value="${e(d.insurance_expires || "")}"></label><label>Tarjetón de transporte<input name="transport_card_number" required minlength="3" maxlength="50" value="${e(d.transport_card_number || "")}"></label><label>Vencimiento de tarjetón<input name="transport_card_expires" type="date" required value="${e(d.transport_card_expires || "")}"></label></div></div></details>`);
+        iconsNow();
         bindForm("#review", async (v) => {
           await rpc("review_driver", {
             driver_id: d.id,
             approved: v.approved === "true",
+            driver_type: v.driver_type,
+            category: v.category,
+            vehicle_make: v.vehicle_make,
+            vehicle_model: v.vehicle_model,
+            vehicle_year: Number(v.vehicle_year),
+            vehicle_color: v.vehicle_color,
+            plate: v.plate,
+            license_number: v.license_number,
+            license_expires: v.license_expires,
+            insurance_expires: v.insurance_expires,
+            transport_card_number: v.transport_card_number,
+            transport_card_expires: v.transport_card_expires,
             female_verified: v.female_verified === "on",
             accessible_verified: v.accessible_verified === "on",
             note: v.note,
@@ -4659,8 +4665,7 @@ async function sendDriverPosition(position = S.latestPosition) {
       ...(trip ? { trip_id: trip.id } : {}),
     });
     if (result?.destination_reached && trip) {
-      driverNavigationWindow?.close?.();
-      driverNavigationWindow = null;
+      S.driverNavigationMode = "";
       location.hash = "trip/" + trip.id;
       await tripView(trip.id);
       await handleAction("finish");
@@ -4669,6 +4674,7 @@ async function sendDriverPosition(position = S.latestPosition) {
     if (result?.arrived_automatically && trip) {
       // Keep the driver in the service flow as soon as GPS confirms arrival.
       // The next action replaces pickup guidance with destination guidance.
+      S.driverNavigationMode = "";
       location.hash = "trip/" + trip.id;
       await tripView(trip.id);
       notify("Llegaste al punto de recolección. Cuando estén listos, inicia el viaje.");
@@ -4781,10 +4787,16 @@ async function handleAction(action, b) {
   if (action === "notifications")
     return run(async () => {
       await armOfferSound();
-      if (!("Notification" in window)) throw Error("Este navegador no admite avisos del sistema.");
+      if (!("Notification" in window)) {
+        openModal("Activa alertas de viajes", `<p>En este iPhone abre Yavoi! desde Safari, pulsa Compartir y selecciona <strong>Agregar a inicio</strong>. Después abre la app instalada y activa las alertas desde este botón.</p>`);
+        return;
+      }
       const permission = await Notification.requestPermission();
-      if (permission !== "granted")
-        throw Error("Los avisos no quedaron autorizados. Puedes activarlos en los permisos del navegador.");
+      if (permission !== "granted") {
+        const iphone = /iphone|ipad|ipod/i.test(navigator.userAgent);
+        openModal("Alertas pendientes", `<p>${iphone ? "En iPhone, instala Yavoi! con Compartir → Agregar a inicio y vuelve a abrirla para permitir alertas." : "Permite las notificaciones en los ajustes del navegador y vuelve a intentarlo."}</p><p class="hint">El permiso se solicita desde este botón para proteger tu cuenta. Las alertas de viaje continuarán visibles dentro de Yavoi!.</p>`);
+        return;
+      }
       serviceNotification("Avisos de Yavoi! activados", "Te avisaremos cuando recibas una solicitud dirigida a tu unidad.");
       await renderRoute();
     });

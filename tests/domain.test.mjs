@@ -107,71 +107,27 @@ test("service categories use dedicated professional vehicle assets", () => {
   assert.equal(serviceAsset("pickup"), "/assets/services/pickup.webp");
   assert.equal(serviceAsset("unknown"), "/assets/services/basic.webp");
 });
-test("driver dossier progress requires every current document and expiration", () => {
+test("driver dossier progress requires only the five documents reviewed by Operations", () => {
   const profile = { full_name: "Conductor Prueba", phone: "6391234567", avatar_path: "avatar.png" };
   const complete = {
-    birth_date: "1990-01-01",
     government_id_path: "id.pdf",
-    vehicle_make: "Nissan",
-    vehicle_model: "Versa",
-    vehicle_year: 2024,
-    vehicle_color: "Gris",
-    plate: "ABC123A",
-    vehicle_front_path: "vehicle-front.jpg",
-    license_number: "LIC123",
-    license_expires: "2099-12-31",
-    insurance_expires: "2099-12-31",
     license_path: "license.pdf",
     insurance_path: "insurance.pdf",
-    transport_card_number: "TAR-123",
-    transport_card_expires: "2099-12-31",
-    transport_card_path: "transport-card.pdf",
     vehicle_registration_path: "registration.pdf",
-    vehicle_registration_expires: "2099-12-31",
-    vin: "3N1CN7AP000000001",
-    hologram_number: "HOL-123",
-    hologram_expires: "2099-12-31",
-    vehicle_verification_path: "verification.pdf",
-    vehicle_verification_expires: "2099-12-31",
-    mechanical_inspection_path: "mechanical.pdf",
-    mechanical_inspection_expires: "2099-12-31",
-    tax_compliance_path: "tax.pdf",
-    tax_compliance_expires: "2099-12-31",
-    seatbelts_all: true,
-    front_airbags: true,
-    abs_brakes: true,
-    first_service_tools: true,
-    extinguisher_abc: true,
-    four_doors: true,
-    tint_percent: 20,
-    air_conditioning: true,
-    reflective_markings: true,
-    criminal_record_path: "record.pdf",
-    policy_commitment_path: "policy.pdf",
-    traffic_law_commitment_path: "traffic.pdf",
   };
   assert.deepEqual(driverDossierStatus(profile, complete), {
-    completed: 34,
-    total: 34,
+    completed: 5,
+    total: 5,
     percent: 100,
     missing: [],
   });
-  const expired = driverDossierStatus(profile, {
+  const partial = driverDossierStatus(profile, {
     ...complete,
-    license_expires: "2020-01-01",
-    criminal_record_path: null,
+    license_path: null,
   });
-  assert.equal(expired.completed, 33);
-  assert.equal(expired.percent, 97);
-  assert.ok(expired.missing.includes("Vigencia de licencia"));
-  assert.ok(!expired.missing.includes("Carta de no antecedentes penales"));
-  const legacy = driverDossierStatus(profile, complete, false);
-  assert.deepEqual(legacy, {
-    completed: 17,
-    total: 17,
-    percent: 100,
-    missing: [],
-  });
+  assert.equal(partial.completed, 4);
+  assert.equal(partial.percent, 80);
+  assert.deepEqual(partial.missing, ["Licencia de conducir"]);
 });
 test("passenger profile progress requires identity, photo and legal acceptance", () => {
   const partial = passengerProfileStatus({ full_name: "Ana Pérez", phone: "6391234567" });

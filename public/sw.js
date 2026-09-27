@@ -1,4 +1,4 @@
-const CACHE = "yavoi-shell-v5";
+const CACHE = "yavoi-shell-v6";
 const CORE = [
   "/",
   "/portal.html",
@@ -52,4 +52,34 @@ self.addEventListener("fetch", (event) => {
       })),
     );
   }
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = event.notification.data?.target || "home";
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      const existing = windows[0];
+      if (existing) return existing.focus().then(() => existing.navigate(`/portal.html#${target}`));
+      return clients.openWindow(`/portal.html#${target}`);
+    }),
+  );
+});
+
+// Las suscripciones Web Push llegan aquí incluso si la PWA está en segundo
+// plano. El servidor entrega el contenido y la pantalla de destino, mientras
+// que este controlador conserva una apertura segura dentro de Yavoi!.
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch { payload = { body: event.data?.text?.() || "" }; }
+  const title = payload.title || "Yavoi!";
+  const options = {
+    body: payload.body || "Tienes una actualización de Yavoi!.",
+    icon: "/icons/yavoi-192.png",
+    badge: "/icons/yavoi-maskable-512.png",
+    tag: payload.tag || "yavoi-update",
+    renotify: Boolean(payload.renotify),
+    data: { target: payload.target || "home" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
 });
