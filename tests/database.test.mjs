@@ -353,9 +353,9 @@ test("Postgres security and complete ride lifecycle", async () => {
   await db.query("insert into public.driver_presence(driver_id,lat,lng,accuracy) values($1,28.191,-105.471,10)", [ids.driver]);
   await as(ids.driver);
   const launchedDriver = await rpc("bootstrap", { driver_launch: true });
-  assert.equal(launchedDriver.driver.online, false);
+  assert.equal(launchedDriver.driver.online, true);
   await db.exec("reset role");
-  assert.equal((await db.query("select count(*)::int as count from public.driver_presence where driver_id=$1", [ids.driver])).rows[0].count, 0);
+  assert.equal((await db.query("select count(*)::int as count from public.driver_presence where driver_id=$1", [ids.driver])).rows[0].count, 1);
   await db.exec("reset role");
   await db.query("update public.drivers set online=true where id in ($1,$2)", [ids.driver, ids.driver2]);
   await as(ids.driver);

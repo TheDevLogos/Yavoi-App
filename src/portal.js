@@ -51,6 +51,9 @@ const GOOGLE_CLIENT_ID = String(
 ).trim();
 const GOOGLE_MAPS_BROWSER_KEY = String(import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY || "").trim();
 const GOOGLE_MAP_ID = String(import.meta.env.VITE_GOOGLE_MAP_ID || "").trim();
+// VAPID public keys are intentionally public. The matching private key only
+// exists in Supabase Edge Function secrets and signs the delivery request.
+const WEB_PUSH_VAPID_PUBLIC_KEY = String(import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY || "BPP4SxptAGWXO4pfNp5yZ4Qa75ouZDZNXG3UjLnl3pC2wJ9d1HpTkR1r8zZ4YGvtLAEd0IZ_-GkfadDOAohUmcs").trim();
 let L = Leaflet;
 const DELICIAS_MAP_CENTER = [DEFAULT_ORIGIN.lat, DEFAULT_ORIGIN.lng];
 const OPERATIONS_EMPTY_ZOOM = 13;
@@ -135,6 +138,7 @@ const S = {
   passengerGpsLastApplied: 0,
   addressSessions: {},
   addressSuggestionTimers: {},
+  pushSubscriptionReady: false,
 };
 const referralFromUrl = String(new URLSearchParams(location.search).get("ref") || "").trim().toUpperCase();
 if (/^YV[A-F0-9]{8}$/.test(referralFromUrl)) {
@@ -323,6 +327,37 @@ function serviceNotification(title, body, { tag = "yavoi-update", target = "home
       try { new Notification(title, options); } catch {}
     });
 }
+function base64UrlBytes(value) {
+  const padded = String(value || "").replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(String(value || "").length / 4) * 4, "=");
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+async function enableDriverPushNotifications() {
+  if (S.profile?.role !== "driver") throw Error("Las alertas persistentes están disponibles para cuentas de conductor.");
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    const iphone = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    throw Error(iphone
+      ? "En iPhone instala Yavoi! desde Safari con Compartir → Agregar a inicio. Después abre la app instalada y activa las alertas."
+      : "Este navegador no permite avisos persistentes. Abre Yavoi! en Chrome, Edge o la aplicación instalada.");
+  }
+  if (!WEB_PUSH_VAPID_PUBLIC_KEY) throw Error("Las alertas del dispositivo todavía no están configuradas. Inténtalo nuevamente en unos minutos.");
+  const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+  if (permission !== "granted") throw Error("Permite las notificaciones para recibir solicitudes aunque Yavoi! esté minimizado.");
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: base64UrlBytes(WEB_PUSH_VAPID_PUBLIC_KEY),
+  });
+  const json = subscription.toJSON();
+  await rpc("push_subscription", {
+    endpoint: subscription.endpoint,
+    p256dh: json.keys?.p256dh || "",
+    auth: json.keys?.auth || "",
+    user_agent: navigator.userAgent.slice(0, 300),
+  });
+  S.pushSubscriptionReady = true;
+  serviceNotification("Alertas persistentes activadas", "Aunque Yavoi! esté minimizado, recibirás y podrás abrir las solicitudes durante tu minuto de disponibilidad.");
+}
 async function armOfferSound() {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return false;
@@ -494,6 +529,21 @@ async function syncDriverOffers({ present = true } = {}) {
   } finally {
     S.offerSyncing = false;
   }
+}
+async function openPushedOffer() {
+  const offerId = String(new URLSearchParams(location.search).get("offer") || "");
+  if (!/^[0-9a-f-]{36}$/i.test(offerId) || S.profile?.role !== "driver" || !S.driver?.online) return;
+  const offers = await syncDriverOffers({ present: false });
+  const offer = offers.find((item) => item.offer_id === offerId);
+  if (offer) {
+    S.pendingOfferIds.add(offer.offer_id);
+    presentDriverOfferAlert(offer);
+  } else {
+    notify("La solicitud ya fue tomada o venció. Yavoi! sigue buscando viajes compatibles.");
+  }
+  const url = new URL(location.href);
+  url.searchParams.delete("offer");
+  history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 function closeModal() {
   S.mpController?.unmount?.();
@@ -870,7 +920,10 @@ async function loadSession() {
   await renderRoute();
   requestInitialLocation();
   startUpdates();
-  if (S.profile.role === "driver" && S.driver?.online) startDriverTracking();
+  if (S.profile.role === "driver" && S.driver?.online) {
+    startDriverTracking();
+    openPushedOffer().catch(() => {});
+  }
   else stopDriverTracking();
   setTimeout(maybeShowEngagementPromo, 450);
 }
@@ -4804,17 +4857,7 @@ async function handleAction(action, b) {
   if (action === "notifications")
     return run(async () => {
       await armOfferSound();
-      if (!("Notification" in window)) {
-        openModal("Activa alertas de viajes", `<p>En este iPhone abre Yavoi! desde Safari, pulsa Compartir y selecciona <strong>Agregar a inicio</strong>. Después abre la app instalada y activa las alertas desde este botón.</p>`);
-        return;
-      }
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        const iphone = /iphone|ipad|ipod/i.test(navigator.userAgent);
-        openModal("Alertas pendientes", `<p>${iphone ? "En iPhone, instala Yavoi! con Compartir → Agregar a inicio y vuelve a abrirla para permitir alertas." : "Permite las notificaciones en los ajustes del navegador y vuelve a intentarlo."}</p><p class="hint">El permiso se solicita desde este botón para proteger tu cuenta. Las alertas de viaje continuarán visibles dentro de Yavoi!.</p>`);
-        return;
-      }
-      serviceNotification("Avisos de Yavoi! activados", "Te avisaremos cuando recibas una solicitud dirigida a tu unidad.");
+      await enableDriverPushNotifications();
       await renderRoute();
     });
   if (action === "offer-sound")

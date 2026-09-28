@@ -1,4 +1,4 @@
-const CACHE = "yavoi-shell-v6";
+const CACHE = "yavoi-shell-v7";
 const CORE = [
   "/",
   "/portal.html",
@@ -57,11 +57,14 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const target = event.notification.data?.target || "home";
+  const offerId = event.notification.data?.offer_id || "";
+  const query = offerId ? `?offer=${encodeURIComponent(offerId)}` : "";
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
       const existing = windows[0];
-      if (existing) return existing.focus().then(() => existing.navigate(`/portal.html#${target}`));
-      return clients.openWindow(`/portal.html#${target}`);
+      const destination = `/portal.html${query}#${target}`;
+      if (existing) return existing.focus().then(() => existing.navigate(destination));
+      return clients.openWindow(destination);
     }),
   );
 });
@@ -79,7 +82,9 @@ self.addEventListener("push", (event) => {
     badge: "/icons/yavoi-maskable-512.png",
     tag: payload.tag || "yavoi-update",
     renotify: Boolean(payload.renotify),
-    data: { target: payload.target || "home" },
+    requireInteraction: Boolean(payload.require_interaction),
+    actions: payload.actions || [{ action: "open", title: "Ver solicitud" }],
+    data: { target: payload.target || "home", offer_id: payload.offer_id || "" },
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });

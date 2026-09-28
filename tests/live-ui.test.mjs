@@ -402,6 +402,15 @@ test("drivers receive an audible, visible and recoverable offer alert", () => {
   assert.match(css, /\.driver-offer-alert/);
 });
 
+test("driver availability survives a one-minute background grace and push opens the matching offer", async () => {
+  const migration = await readFile(new URL("../supabase/migrations/20260927100000_driver_web_push_and_grace.sql", import.meta.url), "utf8");
+  assert.match(portal, /enableDriverPushNotifications/);
+  assert.match(portal, /openPushedOffer/);
+  assert.match(migration, /Conductor sin actividad durante un minuto/);
+  assert.match(migration, /private\.driver_candidate_eligible_v5/);
+  assert.match(migration, /private\.auto_assign_trip_v4/);
+});
+
 test("expanded dispatch, brief alerts, fixed capacity, compact profiles and shifts work together", () => {
   assert.match(dispatchShiftMigration, /not exact_near as fallback_all/);
   assert.match(dispatchShiftMigration, /private\.available_units_v4/);
@@ -428,15 +437,15 @@ test("expanded dispatch, brief alerts, fixed capacity, compact profiles and shif
   assert.match(css, /\.shift-grid/);
 });
 
-test("drivers open disconnected and only retain availability while completing an active service", async () => {
-  const launchMigration = await readFile(new URL("../supabase/migrations/20260927073000_driver_launches_offline.sql", import.meta.url), "utf8");
+test("drivers retain their explicit availability only during the one-minute background grace", async () => {
+  const launchMigration = await readFile(new URL("../supabase/migrations/20260927100000_driver_web_push_and_grace.sql", import.meta.url), "utf8");
   assert.match(portal, /driverSessionInitialized: false/);
   assert.match(portal, /rpc\("bootstrap", S\.driverSessionInitialized \? \{\} : \{ driver_launch: true \}\)/);
   assert.match(portal, /const status = driver\.online \? "Ubicación en vivo" : "Desconectado"/);
-  assert.match(launchMigration, /create or replace function private\.bootstrap_v5/);
+  assert.match(launchMigration, /create or replace function private\.bootstrap_v6/);
   assert.match(launchMigration, /status in \('accepted','arrived','in_progress'\)/);
-  assert.match(launchMigration, /set online=false,shift_connected_at=null/);
-  assert.match(launchMigration, /when 'bootstrap' then private\.bootstrap_v5\(payload\)/);
+  assert.match(launchMigration, /interval '1 minute'/);
+  assert.match(launchMigration, /when 'bootstrap' then private\.bootstrap_v6\(payload\)/);
 });
 
 test("passenger price and driver contractual earnings stay distinct on trip detail", () => {

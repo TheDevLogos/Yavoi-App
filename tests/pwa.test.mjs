@@ -34,7 +34,7 @@ test("PWA manifest and platform icons are complete", async () => {
 });
 
 test("installed PWA checks for releases and reloads after the new worker takes control", () => {
-  assert.match(serviceWorker, /yavoi-shell-v6/);
+  assert.match(serviceWorker, /yavoi-shell-v7/);
   assert.match(landing, /updateViaCache:'none'/);
   assert.match(portal, /updateViaCache: "none"/);
   assert.match(landing, /controllerchange/);
@@ -58,6 +58,25 @@ test("landing and portal advertise the PWA and the new access call to action", a
   assert.match(worker, /request\.mode === "navigate"/);
   assert.match(worker, /addEventListener\("push"/);
   assert.match(worker, /addEventListener\("notificationclick"/);
+  assert.match(worker, /offer_id/);
+  assert.match(worker, /requireInteraction/);
+});
+
+test("driver push subscriptions preserve offer opening after a background wake", async () => {
+  const [migration, pushFunction] = await Promise.all([
+    read("supabase/migrations/20260927100000_driver_web_push_and_grace.sql").then(String),
+    read("supabase/functions/push-driver-alert/index.ts").then(String),
+  ]);
+  assert.match(portal, /function enableDriverPushNotifications\(\)/);
+  assert.match(portal, /registration\.pushManager\.subscribe/);
+  assert.match(portal, /function openPushedOffer\(\)/);
+  assert.match(migration, /driver_push_subscriptions/);
+  assert.match(migration, /driver_push_jobs/);
+  assert.match(migration, /interval '1 minute'/);
+  assert.match(migration, /private\.bootstrap_v6/);
+  assert.match(migration, /private\.offers_v10/);
+  assert.match(pushFunction, /webpush\.sendNotification/);
+  assert.match(pushFunction, /WEB_PUSH_VAPID_PRIVATE_KEY/);
 });
 
 test("all map markers and service vehicle illustrations exist", async () => {
