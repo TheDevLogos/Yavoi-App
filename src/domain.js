@@ -31,6 +31,7 @@ export const navs = {
     ["trips", "route", "Viajes"],
     ["fleet", "car", "Conductores y flotilla"],
     ["payments", "credit-card", "Pagos y cuotas"],
+    ["finance", "chart-no-axes-combined", "Finanzas"],
     ["help", "headset", "Reportes"],
     ["rates", "sliders-horizontal", "Tarifas"],
     ["marketing", "megaphone", "Recompensas y publicidad"],

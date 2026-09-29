@@ -1,5 +1,6 @@
 import "./portal.css";
 import { walletMarkup, bindWallet, financeTripDetail, offerFinanceDetail, mountFinanceOperations } from "./finance.js";
+import { mountFinanceDashboard } from "./finance-dashboard.js";
 import Leaflet from "leaflet";
 import { createIcons, icons } from "lucide";
 import { authProviderSettings, db, rpc, inboxRpc } from "./client.js";
@@ -980,6 +981,7 @@ function enhanceOperationsLayout() {
   const root = $("#page-content");
   if (!root) return;
   root.classList.add("operations-surface");
+  if (S.view === "finance") return;
   const toolbar = document.createElement("div");
   toolbar.className = "operations-layout-tools";
   toolbar.innerHTML = `<label>${I("search")}<input id="ops-quick-search" type="search" value="${e(S.opsSearch[S.view] || "")}" placeholder="Filtrar información visible" aria-label="Filtrar información visible"></label><div><button class="btn secondary" type="button" data-ops-layout="open">${I("unfold-vertical")} Expandir</button><button class="btn secondary" type="button" data-ops-layout="close">${I("fold-vertical")} Colapsar</button></div>`;
@@ -2825,6 +2827,10 @@ function bindWeeklyProof() {
     await refreshPage();
     notify("Comprobante enviado a Operaciones.");
   });
+}
+async function financialDashboardView() {
+  shell('<div id="finance-dashboard" class="fin-dashboard"><div class="fin-empty" role="status">Preparando los reportes financieros…</div></div>', 'Finanzas', 'Tus viajes, conciliaciones y cierres en un solo lugar.');
+  await mountFinanceDashboard({ notify, openModal, drivers: S.data.drivers || [] });
 }
 function paymentsView() {
   const payments = S.data.payments || [];
@@ -5198,6 +5204,7 @@ async function renderRoute() {
     rewards();
   } else if (S.view === "audit") await audit();
   else if (S.view === "inbox") await inbox();
+  else if (S.view === "finance") await financialDashboardView();
   else ({ trips: tripsView, profile, wallet, payments: paymentsView, help, fleet, rates, marketing: marketingView, safety })[S.view]?.();
 }
 async function refreshPage() {
