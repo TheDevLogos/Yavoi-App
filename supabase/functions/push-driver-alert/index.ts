@@ -36,12 +36,17 @@ Deno.serve(async (request) => {
     await admin.from("driver_push_jobs").update({ failed_at: new Date().toISOString(), failure_reason: "Oferta vencida antes de entregar" }).eq("id", job.id);
     return Response.json({ ok: true, skipped: "expired" });
   }
-  const { data: subscriptions = [] } = await admin
-    .from("driver_push_subscriptions")
-    .select("id,endpoint,p256dh,auth")
-    .eq("driver_id", job.driver_id);
+  const [subscriptionResult, financeResult] = await Promise.all([
+    admin.from("driver_push_subscriptions").select("id,endpoint,p256dh,auth").eq("driver_id", job.driver_id),
+    admin.rpc('yavoi_offer_finance', { offer_id: job.offer_id }),
+  ]);
+  const subscriptions = subscriptionResult.data || [];
+  const finance = financeResult.data;
+  if (Date.parse(offer.expires_at) <= Date.now()) {
+    await admin.from("driver_push_jobs").update({ failed_at: new Date().toISOString(), failure_reason: "Oferta vencida antes de entregar" }).eq("id", job.id);
+    return Response.json({ ok: true, skipped: "expired" });
+  }
   webpush.setVapidDetails("mailto:soporte@yavoi.app", vapidPublicKey, vapidPrivateKey);
-  const { data: finance } = await admin.rpc('yavoi_offer_finance', { offer_id: job.offer_id });
   const netLabel = finance ? new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(finance.net_cents) / 100) : '';
   const payload = JSON.stringify({
     title: "Nueva solicitud de viaje",
@@ -56,7 +61,7 @@ Deno.serve(async (request) => {
   const deliveries = await Promise.allSettled(subscriptions.map((subscription) => webpush.sendNotification(
     { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
     payload,
-    { TTL: 60, urgency: "high", topic: `yavoi-${job.offer_id.slice(0, 24)}` },
+    { TTL: Math.max(1, Math.min(8, Math.ceil((Date.parse(offer.expires_at) - Date.now()) / 1000))), urgency: "high", topic: `yavoi-${job.offer_id.slice(0, 24)}` },
   )));
   const invalid = deliveries.flatMap((result, index) => result.status === "rejected" && [404, 410].includes(Number(result.reason?.statusCode)) ? [subscriptions[index].id] : []);
   if (invalid.length) await admin.from("driver_push_subscriptions").delete().in("id", invalid);
