@@ -40,6 +40,7 @@ function safePaymentEvent(payment: Record<string, unknown>, externalReference: s
     live_mode: String(Boolean(payment.live_mode)),
     provider_created_at: String(payment.date_created || ""),
     provider_approved_at: String(payment.date_approved || ""),
+    funds_available_at: String(payment.money_release_date || ""),
     event_key: eventKey,
     event_type: "payment_api",
   };

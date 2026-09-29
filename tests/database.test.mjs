@@ -1106,6 +1106,9 @@ test("Postgres security and complete ride lifecycle", async () => {
     category: "basic",
     preferred_driver_id: ids.driver2,
   });
+  await db.exec("reset role");
+  await db.query("update public.quotes set financial_terms='{}' where id=$1", [commissionQuote.id]);
+  await as(ids.rider);
   const commissionTrip = await rpc("request_trip", {
     quote_id: commissionQuote.id,
     request_key: crypto.randomUUID(),
@@ -1244,7 +1247,7 @@ test("Postgres security and complete ride lifecycle", async () => {
     [ids.driver],
   );
   await as(ids.admin, "aal2");
-  const offlineDriverCalendar = await rpc("scheduled_operations", { month: scheduledAt.slice(0, 7) });
+  const offlineDriverCalendar = await rpc("scheduled_operations", { month: recurringTrip.scheduled_at.slice(0, 7) });
   const offlineDriver = offlineDriverCalendar.drivers.find((driver) => driver.id === ids.driver);
   assert.equal(offlineDriver.category, "large");
   assert.equal(offlineDriver.connected, false);
@@ -1301,7 +1304,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   await db.exec("reset role");
   await db.query("update public.trips set driver_id=null,scheduled_at=$2 where id=$1", [singleScheduled.id, scheduledAt]);
   await as(ids.admin, "aal2");
-  const calendar = await rpc("scheduled_operations", { month: scheduledAt.slice(0, 7) });
+  const calendar = await rpc("scheduled_operations", { month: recurringTrip.scheduled_at.slice(0, 7) });
   assert.ok(calendar.trips.some((item) => item.id === recurringTrip.id));
   const calendarTrip = calendar.trips.find((item) => item.id === recurringTrip.id);
   assert.equal(calendarTrip.passenger_name, "Pasajero Actualizado");

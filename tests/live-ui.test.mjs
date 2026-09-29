@@ -449,9 +449,9 @@ test("drivers retain their explicit availability only during the one-minute back
 });
 
 test("passenger price and driver contractual earnings stay distinct on trip detail", () => {
-  assert.match(portal, /const driverTripEarnings = Number\(t\.fare_cents/);
+  assert.match(portal, /const driverTripEarnings = Number\(t\.financial_breakdown\?\.contractual_net_cents/);
   assert.match(portal, /Tu ganancia/);
-  assert.match(portal, /descuentos financiados por Yavoi! no reducen esta ganancia/);
+  assert.match(portal, /Incluye promociones por conciliar/);
   assert.match(portal, /Total · tarjeta/);
   assert.match(portal, /Total · efectivo/);
 });

@@ -41,9 +41,11 @@ Deno.serve(async (request) => {
     .select("id,endpoint,p256dh,auth")
     .eq("driver_id", job.driver_id);
   webpush.setVapidDetails("mailto:soporte@yavoi.app", vapidPublicKey, vapidPrivateKey);
+  const { data: finance } = await admin.rpc('yavoi_offer_finance', { offer_id: job.offer_id });
+  const netLabel = finance ? new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(finance.net_cents) / 100) : '';
   const payload = JSON.stringify({
     title: "Nueva solicitud de viaje",
-    body: "Tienes un viaje disponible. Abre Yavoi! y decide antes de que venza.",
+    body: finance ? `Neto estimado ${netLabel}${finance.promotion_pending_cents ? ' · incluye promoción por conciliar' : ''}. Abre Yavoi! para ver comisión, impuestos y aceptar.` : "Tienes un viaje disponible. Abre Yavoi! y decide antes de que venza.",
     tag: `yavoi-offer-${job.offer_id}`,
     target: "home",
     offer_id: job.offer_id,
