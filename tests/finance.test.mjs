@@ -52,6 +52,8 @@ test('Financial wallet: taxes, cash carry, funding, refunds and withdrawal autho
   }
   const cashSplit=(await db.query("select private.finance_split(11600,1000,2320,false,'{}') f")).rows[0].f;
   assert.equal(cashSplit.isr_withheld_cents,0);assert.equal(cashSplit.vat_withheld_cents,0);
+  assert.equal((await db.query("select private.finance_weekly_due('2026-09-28T12:30:00Z')='2026-09-28T13:00:00Z'::timestamptz due")).rows[0].due, true);
+  assert.equal((await db.query("select private.finance_weekly_due('2026-09-29T12:30:00Z')='2026-10-05T13:00:00Z'::timestamptz due")).rows[0].due, true);
   const terms={version:'test',vat_included:true,level_discounts:{Activo:0}};
   async function trip(method,discount=0) {
     const q=(await db.query(`insert into public.quotes(passenger_id,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,category,distance_km,fare_cents,commission_cents,financial_terms) values($1,'Origen','Destino',28.19,-105.47,28.2,-105.46,'basic',5,11600,2320,$2) returning id`,[rider,JSON.stringify(terms)])).rows[0];
@@ -97,7 +99,14 @@ test('Financial wallet: taxes, cash carry, funding, refunds and withdrawal autho
   assert.equal(afterRefund,refundBefore-split.net_cents);
   await db.query("update public.payments set status='refunded' where id=$1",[pay.id]);
   assert.equal((await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w.balance_cents,afterRefund);
+  const tipPay=(await db.query(`insert into public.payments(payer_id,driver_id,trip_id,kind,provider,amount_cents,status,provider_approved_at,funds_available_at) values($1,$2,$3,'tip','mercado_pago',500,'approved',now(),now()) returning id`,[rider,d,card.id])).rows[0];
+  const withTip=(await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w.balance_cents;
+  assert.equal(withTip,afterRefund+489);
+  await db.query("update public.payments set status='refunded' where id=$1",[tipPay.id]);
+  await db.query("update public.payments set status='refunded' where id=$1",[tipPay.id]);
+  assert.equal((await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w.balance_cents,afterRefund);
   await as(admin,'aal2');
+  assert.equal((await rpc('finance_operations')).tax_summary.isr_cents,0);
   await rpc('finance_funding',{driver_id:d,kind:'incentive',amount_cents:11600,request_key:crypto.randomUUID(),reference:'INCENTIVE-TEST',note:'Incentivo bruto conciliado'});
   await rpc('finance_provider',{provider:'mercado_pago',note:'Proveedor de prueba controlada'});
   await as(d);
