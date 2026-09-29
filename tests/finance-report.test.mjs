@@ -12,7 +12,7 @@ test('Fiscal rows distinguish estimates, validated assessments, payments and cre
  r.tax_assessments=[{category:'company_isr',amount_cents:0}];r.tax_payments=[{category:'company_isr',amount_cents:100}];
  const row=taxRows(r).find(x=>x.kind==='company_isr');assert.equal(row.due,0);assert.equal(row.balance,-100);assert.equal(row.validated,true);
  r.meta.period='week';r.tax_assessments=[];assert.equal(taxRows(r).find(x=>x.kind==='company_isr').due,null);
- assert.ok(financialWarnings(r).some(x=>x.includes('enero')));
+ assert.ok(!financialWarnings(r).some(x=>x.includes('enero')));
 });
 test('Financial exports preserve all rows, escape HTML and neutralise spreadsheet formula injection',()=>{
  const r=fixture();r.documents=[{occurred_on:'2026-09-29',kind:'expense',category:'operations',gross_cents:11600,creditable_vat_cents:1600,reference:'=SUM(1,2)',note:'<script>alert(1)</script>'}];

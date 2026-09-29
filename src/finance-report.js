@@ -1,7 +1,7 @@
 import { escapeHtml as e, money } from './domain.js';
 
 export const taxNames = { isr_withheld: 'ISR retenido a conductores', vat_withheld: 'IVA retenido a conductores', state_contribution: 'Aportación estatal 1.5%', company_vat: 'IVA propio de Yavoi!', company_isr: 'ISR propio de Yavoi!' };
-export const fiscalNames = {income_extra:'Ingresos complementarios sin IVA',cash_commission_offset:'Comisiones de efectivo compensadas en billetera (IVA incluido)',other_deductions:'Deducciones adicionales pagadas y validadas',ptu:'PTU efectivamente pagada',losses:'Pérdidas fiscales aplicables del ejercicio',isr_credit:'ISR acreditable propio',vat_credit:'Saldo de IVA acreditable adicional',opening_certified:'Saldos fiscales del ejercicio conciliados'};
+export const fiscalNames = {income_extra:'Ingresos complementarios sin IVA',cash_commission_offset:'Comisiones de efectivo compensadas en billetera (IVA incluido)',other_deductions:'Deducciones adicionales pagadas y validadas',ptu:'PTU efectivamente pagada',losses:'Pérdidas fiscales aplicables del ejercicio',isr_credit:'ISR acreditable propio',vat_credit:'Saldo de IVA acreditable adicional'};
 export const costNames = { operations: 'Operación', marketing: 'Publicidad', processing_fee: 'Procesamiento de pagos', insurance: 'Seguros', technology: 'Tecnología', other: 'Otros gastos' };
 export function localToday() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chihuahua', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
 export function movePeriod(anchor, period, direction) {
@@ -35,7 +35,6 @@ export function financialWarnings(report) {
   if (s.refunds_pending) notices.push(`${s.refunds_pending} reembolsos aún pendientes de confirmación.`);
   if (s.promotion_pending_cents) notices.push(`Promociones por abonar a conductores: ${money(s.promotion_pending_cents)}. Un abono en billetera aún no equivale a una transferencia bancaria.`);
   if (s.opening_adjustments_cents || s.adjustments_cents) notices.push('Hay saldos de apertura o ajustes manuales: revisa sus comprobantes. No se cuentan como ingresos comerciales.');
-  if (report.corporate && Object.keys(report.corporate).length && !report.corporate.opening_reconciled) notices.push('Falta conciliar los saldos fiscales desde enero y las comisiones en efectivo compensadas. El ISR propio RESICO permanece como estimación.');
   if (!report.saved_closure && report.closure_history.length) notices.push('Existe un cierre guardado. El avance actual puede contener movimientos posteriores; consulta la versión guardada o genera una nueva revisión.');
   return notices;
 }

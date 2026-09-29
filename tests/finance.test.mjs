@@ -198,11 +198,8 @@ test('Financial wallet: taxes, cash carry, funding, refunds and withdrawal autho
   assert.equal(projection.isr_due_cents,Math.max(0,projection.isr_accrued_cents-projection.previous_payments_cents-projection.credits_cents));
   await rpc('finance_document',{reverses_id:ded.id,occurred_on:today,reference:'DEDUCTION-REVERSED',note:'Corrección de deducción validada',fiscal_validated:true,request_key:crypto.randomUUID()});
   assert.equal((await rpc('finance_report',{period:'month'})).corporate.deductions_ytd_cents,baseline.deductions_ytd_cents);
-  const cert=await rpc('finance_document',{...fiscal,category:'opening_certified',gross_cents:0,period_start:today.slice(0,4)+'-01-01',reference:'YEAR-OPENING-CERTIFIED',request_key:crypto.randomUUID()});
   assert.equal((await rpc('finance_report',{period:'month'})).corporate.opening_reconciled,true);
-  await assert.rejects(()=>rpc('finance_document',{...fiscal,category:'opening_certified',gross_cents:0,period_start:today.slice(0,4)+'-01-01',reference:'YEAR-OPENING-DUPLICATED',request_key:crypto.randomUUID()}),/saldo fiscal/);
-  await rpc('finance_document',{reverses_id:cert.id,occurred_on:today,reference:'YEAR-OPENING-REVERSED',note:'Volver a saldos por conciliar',fiscal_validated:true,request_key:crypto.randomUUID()});
-  assert.equal((await rpc('finance_report',{period:'month'})).corporate.opening_reconciled,false);
+  await assert.rejects(()=>rpc('finance_document',{...fiscal,category:'opening_certified',gross_cents:0,period_start:today.slice(0,4)+'-01-01',reference:'YEAR-OPENING-TEST',request_key:crypto.randomUUID()}),/saldos históricos de prueba/);
 
   await rpc('finance_document',{kind:'expense',reverses_id:doc.id,gross_cents:doc.gross_cents,occurred_on:today,reference:'CFDI-CORRECTION-TEST',note:'Comprobante corregido con contrapartida',request_key:crypto.randomUUID(),fiscal_validated:true});
   assert.equal((await rpc('finance_report')).summary.expenses_cents,0);
@@ -224,6 +221,9 @@ test('Financial wallet: taxes, cash carry, funding, refunds and withdrawal autho
   assert.equal(currentPast.summary.operating_result_cents,saved.summary.operating_result_cents-5000);
   assert.equal((await rpc('finance_closed_report',{closure_id:close.id})).summary.operating_result_cents,saved.summary.operating_result_cents);
   assert.equal((await rpc('finance_close',{...closing,request_key:crypto.randomUUID()})).revision,2);
+  const emptyPast=(await db.query(`select (date_trunc('week',timezone('America/Chihuahua',now()))-interval '21 days')::date::text as day`)).rows[0].day;
+  const noOpeningProof=await rpc('finance_close',{period:'week',anchor:emptyPast,request_key:crypto.randomUUID(),note:'Cierre sin saldos históricos de prueba'});
+  assert.equal(noOpeningProof.status,'closed');
   await as(outsider);await assert.rejects(()=>rpc('finance_closed_report',{closure_id:close.id}),/dos pasos/);
   await db.close();
 });
