@@ -20,6 +20,6 @@ export const entryNames = {
   commission: 'Comisión Yavoi! (IVA incluido)', isr: 'ISR retenido', vat: 'IVA retenido',
   card_tip: 'Propina electrónica', refund: 'Ajuste por reembolso', promotion_credit: 'Promoción financiada',
   opening: 'Saldo inicial conciliado', incentive: 'Incentivo', commission_payment: 'Comisión pagada',
-  adjustment: 'Ajuste conciliado', withdrawal: 'Transferencia a tu cuenta', withdrawal_fee: 'Cargo por retiro diario',
+  adjustment: 'Ajuste conciliado del viaje', withdrawal: 'Transferencia a tu cuenta', withdrawal_fee: 'Cargo por retiro diario',
 };
 export const withdrawalNames = { requested: 'Solicitado', processing: 'En transferencia', paid: 'Pagado', rejected: 'Cancelado' };

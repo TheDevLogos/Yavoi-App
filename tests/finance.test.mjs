@@ -279,6 +279,18 @@ test('Financial wallet: taxes, cash carry, funding, refunds and withdrawal autho
     {kind:'vat',amount_cents:-80},
     {kind:'promotion_credit',amount_cents:1160},
   ]);
+
+  // A correction cannot exist without the terminal trip, evidence and a unique
+  // reference. Repeating the same request remains idempotent and adds no row.
+  await as(admin,'aal2');
+  await assert.rejects(()=>rpc('finance_funding',{driver_id:d,kind:'adjustment',amount_cents:250,request_key:crypto.randomUUID(),reference:'ADJ-NO-TRIP',note:'Corrección sin viaje'}),/viaje finalizado/);
+  const adjustmentKey=crypto.randomUUID();
+  const adjustment={driver_id:d,kind:'adjustment',trip_id:card.id,amount_cents:250,request_key:adjustmentKey,reference:'ADJ-TRIP-TEST',note:'Corrección documentada por Operaciones'};
+  const adjustmentResult=await rpc('finance_funding',adjustment);
+  assert.equal((await rpc('finance_funding',adjustment)).entry.id,adjustmentResult.entry.id);
+  await db.exec('reset role');
+  const adjustmentEntry=(await db.query(`select trip_id,kind,amount_cents,detail->>'reference' reference,detail->>'note' note from public.driver_wallet_entries where id=$1`,[adjustmentResult.entry.id])).rows[0];
+  assert.deepEqual(adjustmentEntry,{trip_id:card.id,kind:'adjustment',amount_cents:250,reference:'ADJ-TRIP-TEST',note:'Corrección documentada por Operaciones'});
   await db.close();
 });
 
