@@ -413,6 +413,9 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(q.booking_fee_cents, 0);
   assert.equal(q.pickup_surcharge_cents, 0);
   assert.equal(q.fare_cents, 4900);
+  assert.equal(q.financial_terms?.version, "MX-CHIH-2026.09");
+  assert.equal(q.financial_terms?.dynamic_bps, 10000);
+  assert.equal(q.financial_terms?.dynamic_cents, 0);
   assert.equal(q.distance_charge_cents + q.time_charge_cents + q.minimum_adjustment_cents + 2300, q.fare_cents);
   const typical = await rpc("quote", {
     origin: "Centro",
@@ -500,6 +503,8 @@ test("Postgres security and complete ride lifecycle", async () => {
     cash_tender_cents: 10000,
   });
   assert.equal(t.fare_cents, q.fare_cents);
+  assert.deepEqual(t.financial_terms, q.financial_terms);
+  assert.equal(t.total_cents, q.fare_cents);
   assert.equal(Number(t.distance_km), Number(q.distance_km));
   assert.equal(Number(t.pickup_distance_km), Number(q.pickup_distance_km));
   assert.equal(t.trip_eta_minutes, q.trip_eta_minutes);
@@ -779,6 +784,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(cardTrip.driver_id, null);
   assert.equal(cardTrip.reward_discount_cents, 2000);
   assert.equal(cardTrip.total_cents, cardQuote.fare_cents + 1500 - 2000);
+  assert.deepEqual(cardTrip.financial_terms, cardQuote.financial_terms);
   const checkout = await rpc("payment_checkout", { payment_id: cardTrip.payment_id });
   assert.equal(checkout.amount_cents, cardTrip.total_cents);
   assert.equal(checkout.payer_email, "rider@example.test");
@@ -816,9 +822,18 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.equal(secondOffer.billing_mode, "weekly_fee");
   assert.equal(secondOffer.commission_bps, 1000);
   assert.equal(secondOffer.commission_cents, Math.round(secondOffer.fare_cents * 0.1));
+  assert.equal(secondOffer.financial_breakdown.commission_cents, secondOffer.commission_cents);
+  assert.equal(secondOffer.financial_breakdown.net_cents,
+    cardTrip.total_cents - secondOffer.commission_cents - secondOffer.financial_breakdown.isr_withheld_cents - secondOffer.financial_breakdown.vat_withheld_cents);
   const acceptedCardTrip = await rpc("accept", { offer_id: secondOffer.offer_id });
   assert.equal(acceptedCardTrip.billing_mode, "weekly_fee");
   assert.equal(acceptedCardTrip.commission_bps_applied, 1000);
+  assert.equal(acceptedCardTrip.fare_cents, cardQuote.fare_cents);
+  assert.equal(acceptedCardTrip.total_cents, cardQuote.fare_cents + 1500 - 2000);
+  assert.equal(acceptedCardTrip.financial_breakdown.fare_cents, cardQuote.fare_cents);
+  assert.equal(acceptedCardTrip.financial_breakdown.passenger_total_cents, acceptedCardTrip.total_cents);
+  assert.equal(acceptedCardTrip.financial_breakdown.commission_cents, acceptedCardTrip.commission_cents);
+  assert.equal(acceptedCardTrip.financial_breakdown.contractual_net_cents, secondOffer.net_cents);
   await as(ids.rider);
   const paidCardTrip = await rpc("trip", { trip_id: cardTrip.id });
   assert.equal(paidCardTrip.trip.status, "accepted");

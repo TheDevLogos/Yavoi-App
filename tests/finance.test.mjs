@@ -60,11 +60,33 @@ test('Financial wallet: taxes, cash carry, funding, refunds and withdrawal autho
     return (await db.query(`insert into public.trips(passenger_id,driver_id,quote_id,request_key,status,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,category,fare_cents,commission_cents,commission_bps_applied,billing_mode,payment_method,payment_status,tip_cents,reward_discount_cents,total_cents,completed_at) values($1,$2,$3,gen_random_uuid(),'completed','Origen','Destino',28.19,-105.47,28.2,-105.46,'basic',11600,2320,2000,'commission',$4,'paid',1000,$5,12600-$5,now()) returning *`,[rider,d,q.id,method,discount])).rows[0];
   }
   const cash=await trip('cash');
+  // A completed cash trip keeps the passenger amount and the contractual
+  // driver amount tied to the same fare snapshot. Taxes are not withheld
+  // from cash because it is collected directly by the driver.
+  assert.equal(cash.financial_breakdown.fare_cents,cash.fare_cents);
+  assert.equal(cash.financial_breakdown.passenger_total_cents,cash.fare_cents+cash.tip_cents);
+  assert.equal(cash.financial_breakdown.commission_cents,cash.commission_cents);
+  assert.equal(cash.financial_breakdown.cash_commission_due_cents,cash.commission_cents);
+  assert.equal(cash.financial_breakdown.isr_withheld_cents,0);
+  assert.equal(cash.financial_breakdown.vat_withheld_cents,0);
+  assert.equal(cash.financial_breakdown.contractual_net_cents,cash.fare_cents+cash.tip_cents-cash.commission_cents);
   let balance=(await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w;
   assert.equal(balance.debt_cents,2320);
   assert.equal((await db.query('select count(*)::int n from public.driver_commission_settlements where driver_id=$1',[d])).rows[0].n,0);
   const card=await trip('card',1160);
+  // Card settlement, discount reimbursement and driver detail must reconcile
+  // exactly in integer cents against the amount actually charged.
+  const cardBreakdown=card.financial_breakdown;
+  assert.equal(cardBreakdown.fare_cents,card.fare_cents);
+  assert.equal(cardBreakdown.passenger_total_cents,card.fare_cents-card.reward_discount_cents+card.tip_cents);
+  assert.equal(cardBreakdown.promotion_pending_cents,card.reward_discount_cents);
+  assert.equal(cardBreakdown.commission_cents,card.commission_cents);
+  assert.equal(cardBreakdown.taxable_base_cents+cardBreakdown.fare_vat_cents,card.fare_cents-card.reward_discount_cents);
+  assert.equal(cardBreakdown.commission_base_cents+cardBreakdown.commission_vat_cents,card.commission_cents);
+  assert.equal(cardBreakdown.net_cents,cardBreakdown.passenger_total_cents-card.commission_cents-cardBreakdown.isr_withheld_cents-cardBreakdown.vat_withheld_cents);
+  assert.equal(cardBreakdown.contractual_net_cents,cardBreakdown.net_cents+(await db.query('select (private.finance_split($1,0,0,true,$2::jsonb)->>\'net_cents\')::bigint amount',[card.reward_discount_cents,JSON.stringify({rfc_provided:true,entity:'individual'})])).rows[0].amount);
   let pay=(await db.query(`insert into public.payments(payer_id,driver_id,trip_id,kind,provider,amount_cents,status,provider_approved_at,funds_available_at) values($1,$2,$3,'ride','mercado_pago',11440,'approved',now(),now()) returning *`,[rider,d,card.id])).rows[0];
+  assert.equal(pay.amount_cents,cardBreakdown.passenger_total_cents);
   const split=(await db.query('select private.finance_split(10440,1000,2320,true,$1::jsonb) f',[JSON.stringify({rfc_provided:true,entity:'individual'})])).rows[0].f;
   balance=(await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w;
   assert.equal(balance.balance_cents,split.net_cents-2320);
@@ -225,6 +247,38 @@ test('Financial wallet: taxes, cash carry, funding, refunds and withdrawal autho
   const noOpeningProof=await rpc('finance_close',{period:'week',anchor:emptyPast,request_key:crypto.randomUUID(),note:'Cierre sin saldos históricos de prueba'});
   assert.equal(noOpeningProof.status,'closed');
   await as(outsider);await assert.rejects(()=>rpc('finance_closed_report',{closure_id:close.id}),/dos pasos/);
+
+  // A card cancellation keeps only the retained cancellation fee. The original
+  // fare is never credited to the driver after the passenger refund completes.
+  await db.exec('reset role');
+  const cancellationTerms={version:'test-cancellation',vat_included:true,level_discounts:{Activo:0}};
+  const cancellationQuote=(await db.query(`insert into public.quotes(passenger_id,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,category,distance_km,fare_cents,commission_cents,financial_terms) values($1,'Origen','Destino',28.19,-105.47,28.2,-105.46,'basic',5,11600,2320,$2) returning id`,[rider,JSON.stringify(cancellationTerms)])).rows[0];
+  const cancellationTrip=(await db.query(`insert into public.trips(passenger_id,driver_id,quote_id,request_key,status,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,category,fare_cents,commission_cents,commission_bps_applied,billing_mode,payment_method,payment_status,total_cents,cancellation_fee_cents,cancellation_commission_cents,cancelled_at) values($1,$2,$3,gen_random_uuid(),'cancelled','Origen','Destino',28.19,-105.47,28.2,-105.46,'basic',11600,2320,2000,'commission','card','paid',11600,1160,232,now()) returning *`,[rider,d,cancellationQuote.id])).rows[0];
+  assert.equal(cancellationTrip.financial_breakdown.passenger_total_cents,1160);
+  assert.equal(cancellationTrip.financial_breakdown.commission_cents,232);
+  assert.equal(cancellationTrip.financial_breakdown.state_contribution_cents,17);
+  const cancellationPayment=(await db.query(`insert into public.payments(payer_id,driver_id,trip_id,kind,provider,amount_cents,retained_amount_cents,status,provider_approved_at) values($1,$2,$3,'ride','mercado_pago',11600,1160,'refunded',now()) returning id`,[rider,d,cancellationTrip.id])).rows[0];
+  const cancellationEntries=(await db.query(`select kind,amount_cents from public.driver_wallet_entries where trip_id=$1 order by created_at,kind`,[cancellationTrip.id])).rows;
+  assert.deepEqual(cancellationEntries,[
+    {kind:'card_credit',amount_cents:1160},
+    {kind:'commission',amount_cents:-232},
+    {kind:'isr',amount_cents:-21},
+    {kind:'vat',amount_cents:-80},
+  ]);
+  assert.equal((await db.query('select count(*)::int n from public.driver_wallet_entries where trip_id=$1',[cancellationTrip.id])).rows[0].n,4);
+  assert.ok(cancellationPayment.id);
+
+  // Promotions are posted only by Operations with a unique reconciliation
+  // reference, and credit the same tax treatment shown in the trip detail.
+  await as(admin,'aal2');
+  await rpc('finance_funding',{driver_id:d,kind:'promotion',trip_id:card.id,amount_cents:1160,request_key:crypto.randomUUID(),reference:'PROMO-TRIP-TEST',note:'Promoción del viaje conciliada por Operaciones'});
+  await assert.rejects(()=>rpc('finance_funding',{driver_id:d,kind:'promotion',trip_id:card.id,amount_cents:1160,request_key:crypto.randomUUID(),reference:'PROMO-TRIP-REPEAT',note:'Intento duplicado de promoción'}),/Promoción ya abonada/);
+  await db.exec('reset role');
+  assert.deepEqual((await db.query(`select kind,amount_cents from public.driver_wallet_entries where trip_id=$1 and entry_key like 'promotion%' order by entry_key`,[card.id])).rows,[
+    {kind:'isr',amount_cents:-21},
+    {kind:'vat',amount_cents:-80},
+    {kind:'promotion_credit',amount_cents:1160},
+  ]);
   await db.close();
 });
 
