@@ -85,6 +85,14 @@ test('Financial wallet: taxes, cash carry, funding, refunds and withdrawal autho
   assert.equal(cardBreakdown.commission_base_cents+cardBreakdown.commission_vat_cents,card.commission_cents);
   assert.equal(cardBreakdown.net_cents,cardBreakdown.passenger_total_cents-card.commission_cents-cardBreakdown.isr_withheld_cents-cardBreakdown.vat_withheld_cents);
   assert.equal(cardBreakdown.contractual_net_cents,cardBreakdown.net_cents+(await db.query('select (private.finance_split($1,0,0,true,$2::jsonb)->>\'net_cents\')::bigint amount',[card.reward_discount_cents,JSON.stringify({rfc_provided:true,entity:'individual'})])).rows[0].amount);
+  // Once the passenger sees a quote and the driver is assigned, the price
+  // inputs and contractual terms cannot be edited. A direct write to the
+  // derived breakdown is harmless because the database restores its formula.
+  await assert.rejects(()=>db.query('update public.quotes set fare_cents=fare_cents+1 where id=$1',[card.quote_id]),/cotización financiera/);
+  await assert.rejects(()=>db.query('update public.trips set fare_cents=fare_cents+1 where id=$1',[card.id]),/tarifa aceptada/);
+  await assert.rejects(()=>db.query("update public.trips set financial_terms=financial_terms||'{\"dynamic_cents\":999}'::jsonb where id=$1",[card.id]),/condiciones comerciales/);
+  await db.query("update public.trips set financial_breakdown='{\"altered\":true}'::jsonb where id=$1",[card.id]);
+  assert.deepEqual((await db.query('select financial_breakdown from public.trips where id=$1',[card.id])).rows[0].financial_breakdown,cardBreakdown);
   let pay=(await db.query(`insert into public.payments(payer_id,driver_id,trip_id,kind,provider,amount_cents,status,provider_approved_at,funds_available_at) values($1,$2,$3,'ride','mercado_pago',11440,'approved',now(),now()) returning *`,[rider,d,card.id])).rows[0];
   assert.equal(pay.amount_cents,cardBreakdown.passenger_total_cents);
   const split=(await db.query('select private.finance_split(10440,1000,2320,true,$1::jsonb) f',[JSON.stringify({rfc_provided:true,entity:'individual'})])).rows[0].f;
