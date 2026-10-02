@@ -2602,6 +2602,9 @@ async function tripView(id) {
     : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div>${Number(t.total_cents || 0) > 0 ? `<div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(t.total_cents ?? t.fare_cents, t.cash_tender_cents))}</strong></div>` : '<p class="hint">Viaje cubierto por tu recompensa. No entregues efectivo por la tarifa.</p>'}`);
   if (t.status !== "cancelled") paymentRows += driverPaymentRow;
   paymentRows += financeTripDetail(t, S.profile.role === "driver");
+  const adjustments = S.trip.fare_adjustments || [];
+  const acceptedAdjustments = Number(S.trip.accepted_adjustments_cents || 0);
+  if ((rider || conductor) && ["accepted", "arrived", "in_progress"].includes(t.status)) paymentRows += `<section class="finance-detail"><h3>Ajustes durante el viaje</h3>${adjustments.map(a => `<div class="receipt-row"><span>${e({waiting:'Tiempo de espera',detour:'Desvío',route_change:'Cambio de ruta',extra_pickup:'Recolección adicional'}[a.reason] || a.reason)} · ${e(a.status === 'pending' ? 'pendiente' : a.status === 'accepted' ? 'aceptado' : 'rechazado')}</span><strong>${money(a.amount_cents)}</strong></div>${a.status === 'pending' && a.proposed_by !== S.user.id ? `<div class="row wrap"><button class="btn secondary" data-adjustment-decision="accepted" data-adjustment-id="${e(a.id)}">Aceptar ajuste</button><button class="btn secondary" data-adjustment-decision="declined" data-adjustment-id="${e(a.id)}">Rechazar</button></div>` : ''}`).join('') || '<p class="hint">No hay ajustes solicitados.</p>'}${acceptedAdjustments ? `<div class="receipt-row total"><span>Ajustes aceptados</span><strong>${money(acceptedAdjustments)}</strong></div>` : ''}<button class="btn secondary" data-action="fare-adjustment">Solicitar ajuste</button><p class="hint">Los ajustes requieren aceptación de la otra persona y se registran con su motivo.</p></section>`;
   if (t.status === "cancelled") {
     const feeStatus = cancellationPayment
       ? ({ pending: "Pendiente de confirmar", approved: "Confirmada", cancelled: "Condonada" }[cancellationPayment.status] || cancellationPayment.status)
@@ -2661,6 +2664,7 @@ async function tripView(id) {
   };
   bindForm("#start-trip", startTrip);
   $('[data-action="start-trip"]')?.addEventListener("click", () => run(() => startTrip()));
+  $$('[data-adjustment-decision]').forEach(button => button.onclick = () => run(async () => { await rpc('fare_adjustment',{trip_id:t.id,action:'decide',adjustment_id:button.dataset.adjustmentId,decision:button.dataset.adjustmentDecision}); await tripView(t.id); notify('Ajuste registrado.'); }));
   bindForm("#chat-form", async (v, f) => {
     await rpc("message", { trip_id: t.id, body: v.body });
     f.reset();
@@ -4991,6 +4995,11 @@ async function handleAction(action, b) {
   }
   const t = S.trip?.trip;
   if (!t) return;
+  if (action === "fare-adjustment") {
+    openModal("Solicitar ajuste de viaje", `<form id="fare-adjustment-form"><label>Motivo<select name="reason" required><option value="waiting">Tiempo de espera</option><option value="detour">Desvío solicitado</option><option value="route_change">Cambio de ruta solicitado</option><option value="extra_pickup">Recolección adicional</option></select></label><label>Importe adicional (MXN)<input name="amount" type="number" min="0.01" max="1000" step="0.01" required></label><p class="hint">La otra persona verá este aviso y deberá aceptarlo. El ajuste queda registrado en el detalle del viaje.</p><button class="btn wide" type="submit">Enviar para aceptación</button></form>`);
+    bindForm('#fare-adjustment-form', async values => { await rpc('fare_adjustment',{trip_id:t.id,action:'propose',reason:values.reason,amount_cents:cents(values.amount)}); closeModal(); await tripView(t.id); notify('Ajuste enviado para aceptación.'); });
+    return;
+  }
   if (action === "settle-cancel-fee" || action === "waive-cancel-fee") {
     const waived = action === "waive-cancel-fee";
     openModal(
@@ -5020,13 +5029,14 @@ async function handleAction(action, b) {
       await tripView(t.id);
     });
   if (action === "finish") {
-    const freeRewardTrip = Number(t.total_cents || 0) === 0;
+    const finalTotal = Number(t.total_cents || 0) + Number(S.trip?.accepted_adjustments_cents || 0);
+    const freeRewardTrip = finalTotal === 0;
     const cashConfirmation = freeRewardTrip
       ? '<label class="check"><input type="checkbox" required>Confirmo que el viaje cubierto por la recompensa llegó al destino.</label>'
       : '<label class="check"><input name="cash_received" type="checkbox" required>Recibí el pago y entregué el cambio correspondiente.</label>';
     openModal(
       freeRewardTrip ? "Llegada con recompensa" : t.payment_method === "card" ? "Llegada confirmada" : "Llegada y pago en efectivo",
-      `<p>Confirma con el pasajero que llegaron al destino antes de cerrar el viaje.</p><div class="receipt-row total"><span>${t.payment_method === "cash" ? "Total a recolectar" : "Total"}</span><strong>${money(t.total_cents || 0)}</strong></div>${t.reward_discount_cents ? `<div class="receipt-row positive-points"><span>Recompensa aplicada</span><strong>-${money(t.reward_discount_cents)}</strong></div>` : ""}${t.payment_method === "cash" && !freeRewardTrip ? `<div class="receipt-row"><span>Paga con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row total"><span>Entrega de cambio</span><strong>${money(changeDue(t.total_cents ?? t.fare_cents, t.cash_tender_cents))}</strong></div><p class="hint">Este importe incluye la tarifa fija aceptada y cualquier ajuste que ambas partes hubieran aprobado antes de finalizar.</p>` : t.payment_method === "card" ? `<div class="hint">Pago con tarjeta confirmado por Mercado Pago.</div>` : '<div class="hint">La tarifa está cubierta por Puntos Viajeros.</div>'}<form id="finish">${t.payment_method === "cash" ? cashConfirmation : '<label class="check"><input type="checkbox" required>Confirmo que el pasajero llegó al destino.</label>'}<button class="btn wide" type="submit">${t.payment_method === "cash" ? "Confirmar dinero recibido" : "Completar viaje"} ${I("check")}</button></form>`,
+      `<p>Confirma con el pasajero que llegaron al destino antes de cerrar el viaje.</p><div class="receipt-row total"><span>${t.payment_method === "cash" ? "Total a recolectar" : "Total"}</span><strong>${money(finalTotal)}</strong></div>${t.payment_method === "cash" && !freeRewardTrip ? `<p class="hint">Incluye ${money(Number(S.trip?.accepted_adjustments_cents || 0))} de ajustes aceptados.</p>` : ''}<form id="finish">${t.payment_method === "cash" ? cashConfirmation : '<label class="check"><input type="checkbox" required>Confirmo que el pasajero llegó al destino.</label>'}<button class="btn wide" type="submit">${t.payment_method === "cash" ? "Confirmar dinero recibido" : "Completar viaje"} ${I("check")}</button></form>`,
     );
     bindForm("#finish", async () => {
       await rpc("transition", { trip_id: t.id, status: "completed", cash_received: t.payment_method === "cash" });
