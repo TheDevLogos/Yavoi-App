@@ -371,7 +371,7 @@ test("Operations fee reactivation persists while overdue records remain auditabl
 });
 
 test("rates explain fare inputs and reports reconcile each driver billing scheme", () => {
-  assert.match(portal, /Cómo se calcula y cómo gana Yavoi!/);
+  assert.match(portal, /Control tarifario y precio fijo/);
   assert.match(portal, /data-rate-preview/);
   assert.match(portal, /EJEMPLO SOBRE UNA TARIFA DE \$100/);
   assert.match(portal, /Conciliación de ingresos Yavoi!/);
