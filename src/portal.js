@@ -120,6 +120,7 @@ const S = {
   offerAudioContext: null,
   offerAudioArmed: false,
   offerRingTimers: new Map(),
+  waitingTimer: null,
   offerMap: null,
   initialLocationRequested: false,
   initialLocationPromise: null,
@@ -2538,7 +2539,45 @@ function syncTripSummary(trip) {
   if (index >= 0) S.data.trips[index] = { ...S.data.trips[index], ...trip };
   else S.data.trips.unshift(trip);
 }
+function waitingClockText(seconds) {
+  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+  return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
+}
+function waitingChargeMarkup(waiting) {
+  if (!waiting) return "";
+  const free = Number(waiting.free_seconds_remaining || 0);
+  const running = waiting.status === "running";
+  return `<section class="finance-detail waiting-charge" data-waiting-charge data-free-until="${e(waiting.free_until)}" data-waiting-rate="${Number(waiting.rate_cents_per_minute || 0)}" data-waiting-status="${e(waiting.status)}"><h3>Tu conductor te espera fuera</h3><p class="hint">Los primeros 2 minutos son de cortesía. Después, la espera se suma por segundo a la tarifa final.</p><div class="estimate-grid compact"><div><small>${running && free > 0 ? "Cortesía restante" : "Tiempo de espera"}</small><strong data-waiting-time>${running && free > 0 ? waitingClockText(free) : waitingClockText(Math.max(0, Math.floor((Date.now() - Date.parse(waiting.free_until)) / 1000)))}</strong></div><div><small>${running && free > 0 ? "Cargo actual" : "Ajuste acumulado"}</small><strong data-waiting-amount>${money(waiting.charged_cents || 0)}</strong></div></div><p class="hint" data-waiting-note>${running && free > 0 ? "La tarifa empieza al terminar la cortesía." : "El importe se actualizará en el total final."}</p></section>`;
+}
+function startWaitingClock() {
+  clearInterval(S.waitingTimer);
+  const box = $("[data-waiting-charge]");
+  if (!box || box.dataset.waitingStatus !== "running") return;
+  const freeUntil = Date.parse(box.dataset.freeUntil);
+  const rate = Number(box.dataset.waitingRate || 0);
+  const update = () => {
+    const elapsed = Math.max(0, Math.floor((Date.now() - freeUntil) / 1000));
+    const remaining = Math.max(0, Math.ceil((freeUntil - Date.now()) / 1000));
+    const amount = Math.floor(elapsed * rate / 60);
+    const time = $("[data-waiting-time]", box), value = $("[data-waiting-amount]", box), note = $("[data-waiting-note]", box);
+    if (remaining > 0) {
+      if (time) time.textContent = waitingClockText(remaining);
+      if (value) value.textContent = money(0);
+      if (note) note.textContent = "La tarifa empieza al terminar la cortesía.";
+    } else {
+      if (time) time.textContent = waitingClockText(elapsed);
+      if (value) value.textContent = money(amount);
+      if (note) note.textContent = "El importe se actualiza por segundo y quedará registrado al iniciar el viaje.";
+    }
+    $$('[data-trip-final-total]').forEach(total => {
+      total.textContent = money(Number(total.dataset.tripBaseTotal || 0) + amount);
+    });
+  };
+  update();
+  S.waitingTimer = setInterval(update, 1000);
+}
 async function tripView(id) {
+  clearInterval(S.waitingTimer);
   S.trip = await rpc("trip", { trip_id: id });
   const { trip: t, driver, passenger, location: loc, my_rating } = S.trip;
   // The optional secure-start setting is enforced by the server. We do not
@@ -2593,18 +2632,22 @@ async function tripView(id) {
   const rewardPaymentRow = t.reward_discount_cents
     ? `<div class="receipt-row positive-points"><span>Recompensa Puntos Viajeros</span><strong>-${money(t.reward_discount_cents)}</strong></div>`
     : "";
+  const finalTripTotal = Number(S.trip.final_total_cents ?? t.total_cents ?? t.fare_cents ?? 0);
+  const waitingAtLoad = Number(S.trip.waiting_adjustments_cents || 0);
+  const tripBaseTotal = finalTripTotal - waitingAtLoad;
+  const payableTotal = `<strong data-trip-final-total data-trip-base-total="${tripBaseTotal}">${money(finalTripTotal)}</strong>`;
   const driverTripEarnings = Number(t.financial_breakdown?.contractual_net_cents ?? (Number(t.fare_cents || 0) - Number(t.commission_cents || 0) + Number(t.tip_cents || 0)));
   const driverPaymentRow = S.profile.role === "driver"
     ? `<div class="receipt-row total driver-trip-earnings"><span>Tu ganancia</span><strong>${money(driverTripEarnings)}</strong></div><p class="hint">Incluye promociones por conciliar. Consulta comisión, impuestos y saldo confirmado en el detalle.</p>`
     : "";
   let paymentRows = serviceDetails + (t.payment_method === "card"
-    ? `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · tarjeta</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div><p class="hint">Estado del pago: ${e({ paid: "Confirmado", pending: "En proceso", failed: "No aprobado", refund_pending: "Reembolso en proceso", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</p>`
-    : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div>${Number(t.total_cents || 0) > 0 ? `<div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(t.total_cents ?? t.fare_cents, t.cash_tender_cents))}</strong></div>` : '<p class="hint">Viaje cubierto por tu recompensa. No entregues efectivo por la tarifa.</p>'}`);
+    ? `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · tarjeta</span>${payableTotal}</div>${waitingAtLoad ? '<p class="hint">El ajuste de espera se registró. La autorización adicional de tarjeta se solicitará al pasajero antes de conciliarlo.</p>' : ''}<p class="hint">Estado del pago: ${e({ paid: "Confirmado", pending: "En proceso", failed: "No aprobado", refund_pending: "Reembolso en proceso", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</p>`
+    : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span>${payableTotal}</div>${finalTripTotal > 0 ? `<div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(finalTripTotal, t.cash_tender_cents))}</strong></div>` : '<p class="hint">Viaje cubierto por tu recompensa. No entregues efectivo por la tarifa.</p>'}`);
   if (t.status !== "cancelled") paymentRows += driverPaymentRow;
-  paymentRows += financeTripDetail(t, S.profile.role === "driver");
+  paymentRows += financeTripDetail({ ...t, final_total_cents: finalTripTotal, waiting_charge: S.trip.waiting_charge, manual_adjustments_cents: S.trip.manual_adjustments_cents }, S.profile.role === "driver");
   const adjustments = S.trip.fare_adjustments || [];
   const acceptedAdjustments = Number(S.trip.accepted_adjustments_cents || 0);
-  if ((rider || conductor) && ["accepted", "arrived", "in_progress"].includes(t.status)) paymentRows += `<section class="finance-detail"><h3>Ajustes durante el viaje</h3>${adjustments.map(a => `<div class="receipt-row"><span>${e({waiting:'Tiempo de espera',detour:'Desvío',route_change:'Cambio de ruta',extra_pickup:'Recolección adicional'}[a.reason] || a.reason)} · ${e(a.status === 'pending' ? 'pendiente' : a.status === 'accepted' ? 'aceptado' : 'rechazado')}</span><strong>${money(a.amount_cents)}</strong></div>${a.status === 'pending' && a.proposed_by !== S.user.id ? `<div class="row wrap"><button class="btn secondary" data-adjustment-decision="accepted" data-adjustment-id="${e(a.id)}">Aceptar ajuste</button><button class="btn secondary" data-adjustment-decision="declined" data-adjustment-id="${e(a.id)}">Rechazar</button></div>` : ''}`).join('') || '<p class="hint">No hay ajustes solicitados.</p>'}${acceptedAdjustments ? `<div class="receipt-row total"><span>Ajustes aceptados</span><strong>${money(acceptedAdjustments)}</strong></div>` : ''}<button class="btn secondary" data-action="fare-adjustment">Solicitar ajuste</button><p class="hint">Los ajustes requieren aceptación de la otra persona y se registran con su motivo.</p></section>`;
+  if ((rider || conductor) && ["accepted", "arrived", "in_progress"].includes(t.status)) paymentRows += `${waitingChargeMarkup(S.trip.waiting_charge)}<section class="finance-detail"><h3>Ajustes durante el viaje</h3>${adjustments.map(a => `<div class="receipt-row"><span>${e({detour:'Desvío',route_change:'Cambio de ruta',extra_pickup:'Recolección adicional'}[a.reason] || a.reason)} · ${e(a.status === 'pending' ? 'pendiente' : a.status === 'accepted' ? 'aceptado' : 'rechazado')}</span><strong>${money(a.amount_cents)}</strong></div>${a.status === 'pending' && a.proposed_by !== S.user.id ? `<div class="row wrap"><button class="btn secondary" data-adjustment-decision="accepted" data-adjustment-id="${e(a.id)}">Aceptar ajuste</button><button class="btn secondary" data-adjustment-decision="declined" data-adjustment-id="${e(a.id)}">Rechazar</button></div>` : ''}`).join('') || '<p class="hint">No hay otros ajustes solicitados.</p>'}${acceptedAdjustments ? `<div class="receipt-row total"><span>Otros ajustes aceptados</span><strong>${money(acceptedAdjustments)}</strong></div>` : ''}<button class="btn secondary" data-action="fare-adjustment">Solicitar ajuste</button><p class="hint">Los cambios de ruta, desvíos y recolecciones adicionales requieren aceptación de la otra persona. La espera se calcula automáticamente al llegar.</p></section>`;
   if (t.status === "cancelled") {
     const feeStatus = cancellationPayment
       ? ({ pending: "Pendiente de confirmar", approved: "Confirmada", cancelled: "Condonada" }[cancellationPayment.status] || cancellationPayment.status)
@@ -2615,7 +2658,7 @@ async function tripView(id) {
   }
   if (S.profile.role === "admin" && S.trip.operations) {
     const operations = S.trip.operations;
-    const expected = Number(t.total_cents ?? t.fare_cents ?? 0);
+    const expected = finalTripTotal;
     const collected = Number(operations.paid_cents || 0);
     const difference = collected - expected;
     const ledger = operations.ledger || [];
@@ -2657,6 +2700,7 @@ async function tripView(id) {
     "Folio " + e(t.id.slice(0, 8).toUpperCase()) + " · " + date(t.created_at),
   );
   await startMap(t);
+  startWaitingClock();
   const startTrip = async (v = {}) => {
     await rpc("transition", { trip_id: t.id, status: "in_progress", ...(v.pin ? { pin: v.pin } : {}) });
     openDriverNavigation({ ...t, status: "in_progress" });
@@ -4996,7 +5040,7 @@ async function handleAction(action, b) {
   const t = S.trip?.trip;
   if (!t) return;
   if (action === "fare-adjustment") {
-    openModal("Solicitar ajuste de viaje", `<form id="fare-adjustment-form"><label>Motivo<select name="reason" required><option value="waiting">Tiempo de espera</option><option value="detour">Desvío solicitado</option><option value="route_change">Cambio de ruta solicitado</option><option value="extra_pickup">Recolección adicional</option></select></label><label>Importe adicional (MXN)<input name="amount" type="number" min="0.01" max="1000" step="0.01" required></label><p class="hint">La otra persona verá este aviso y deberá aceptarlo. El ajuste queda registrado en el detalle del viaje.</p><button class="btn wide" type="submit">Enviar para aceptación</button></form>`);
+    openModal("Solicitar ajuste de viaje", `<form id="fare-adjustment-form"><label>Motivo<select name="reason" required><option value="detour">Desvío solicitado</option><option value="route_change">Cambio de ruta solicitado</option><option value="extra_pickup">Recolección adicional</option></select></label><label>Importe adicional (MXN)<input name="amount" type="number" min="0.01" max="1000" step="0.01" required></label><p class="hint">La espera se calcula automáticamente después de dos minutos de cortesía. La otra persona deberá aceptar los demás ajustes antes de que se sumen al viaje.</p><button class="btn wide" type="submit">Enviar para aceptación</button></form>`);
     bindForm('#fare-adjustment-form', async values => { await rpc('fare_adjustment',{trip_id:t.id,action:'propose',reason:values.reason,amount_cents:cents(values.amount)}); closeModal(); await tripView(t.id); notify('Ajuste enviado para aceptación.'); });
     return;
   }
@@ -5029,14 +5073,14 @@ async function handleAction(action, b) {
       await tripView(t.id);
     });
   if (action === "finish") {
-    const finalTotal = Number(t.total_cents || 0) + Number(S.trip?.accepted_adjustments_cents || 0);
+    const finalTotal = Number(S.trip?.final_total_cents ?? t.total_cents ?? 0);
     const freeRewardTrip = finalTotal === 0;
     const cashConfirmation = freeRewardTrip
       ? '<label class="check"><input type="checkbox" required>Confirmo que el viaje cubierto por la recompensa llegó al destino.</label>'
       : '<label class="check"><input name="cash_received" type="checkbox" required>Recibí el pago y entregué el cambio correspondiente.</label>';
     openModal(
       freeRewardTrip ? "Llegada con recompensa" : t.payment_method === "card" ? "Llegada confirmada" : "Llegada y pago en efectivo",
-      `<p>Confirma con el pasajero que llegaron al destino antes de cerrar el viaje.</p><div class="receipt-row total"><span>${t.payment_method === "cash" ? "Total a recolectar" : "Total"}</span><strong>${money(finalTotal)}</strong></div>${t.payment_method === "cash" && !freeRewardTrip ? `<p class="hint">Incluye ${money(Number(S.trip?.accepted_adjustments_cents || 0))} de ajustes aceptados.</p>` : ''}<form id="finish">${t.payment_method === "cash" ? cashConfirmation : '<label class="check"><input type="checkbox" required>Confirmo que el pasajero llegó al destino.</label>'}<button class="btn wide" type="submit">${t.payment_method === "cash" ? "Confirmar dinero recibido" : "Completar viaje"} ${I("check")}</button></form>`,
+      `<p>Confirma con el pasajero que llegaron al destino antes de cerrar el viaje.</p><div class="receipt-row total"><span>${t.payment_method === "cash" ? "Total a recolectar" : "Total"}</span><strong>${money(finalTotal)}</strong></div>${t.payment_method === "cash" && !freeRewardTrip ? `<p class="hint">Incluye ${money(Number(S.trip?.waiting_adjustments_cents || 0))} de espera y ${money(Number(S.trip?.manual_adjustments_cents || 0))} de otros ajustes aceptados.</p>` : ''}<form id="finish">${t.payment_method === "cash" ? cashConfirmation : '<label class="check"><input type="checkbox" required>Confirmo que el pasajero llegó al destino.</label>'}<button class="btn wide" type="submit">${t.payment_method === "cash" ? "Confirmar dinero recibido" : "Completar viaje"} ${I("check")}</button></form>`,
     );
     bindForm("#finish", async () => {
       await rpc("transition", { trip_id: t.id, status: "completed", cash_received: t.payment_method === "cash" });
@@ -5275,8 +5319,14 @@ function startUpdates() {
       if (payload.new?.actor_id === S.user.id) return safeRefresh();
       const event = payload.new?.event;
       if (event === "arrived_automatically" && payload.new?.actor_id !== S.user.id) {
-        serviceNotification("Tu unidad ya llegó", "El conductor está en el punto de recolección. Confirma la unidad antes de compartir tu PIN.", {
+        serviceNotification("Tu unidad ya llegó", "Tu conductor te espera fuera. Tienes 2 minutos de cortesía antes de que comience el cobro de espera.", {
           tag: `yavoi-arrived-${payload.new.trip_id}`,
+          target: `trip/${payload.new.trip_id}`,
+        });
+      }
+      if (event === "waiting_started" && payload.new?.actor_id !== S.user.id) {
+        serviceNotification("Tu conductor te espera fuera", "Tienes 2 minutos de cortesía. Después, la espera se calculará por segundo y se mostrará en el detalle del viaje.", {
+          tag: `yavoi-waiting-${payload.new.trip_id}`,
           target: `trip/${payload.new.trip_id}`,
         });
       }
