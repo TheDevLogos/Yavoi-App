@@ -8,11 +8,11 @@ Todos los importes están expresados en MXN e incluyen IVA en la cotización al 
 
 | Servicio | Base | Por km | Por minuto | Mínimo | Cargo de reserva |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Yavoi! Básico | $23.00 | $6.30 | $0.75 | $49.00 | $0.00 |
-| Yavoi! Grande | $33.00 | $8.40 | $1.00 | $69.00 | $0.00 |
-| Yavoi! Comercial | $78.00 | $9.80 | $1.20 | $130.00 | $0.00 |
-| Yavoi! Plus | $39.00 | $9.10 | $1.10 | $79.00 | $0.00 |
-| Yavoi! Pickup | $96.00 | $11.90 | $1.50 | $174.00 | $0.00 |
+| Yavoi! Básico | $23.00 | $6.50 | $0.85 | $46.00 | $0.00 |
+| Yavoi! Grande | $33.00 | $8.70 | $1.15 | $65.00 | $0.00 |
+| Yavoi! Comercial | $78.00 | $10.10 | $1.40 | $122.00 | $0.00 |
+| Yavoi! Plus | $39.00 | $9.45 | $1.25 | $74.20 | $0.00 |
+| Yavoi! Pickup | $96.00 | $12.30 | $1.70 | $164.00 | $0.00 |
 
 ## Fórmula vigente
 
@@ -34,6 +34,10 @@ La distancia de recogida sirve para estimar llegada y para la operación de asig
 - Multiplicador y monto de demanda dinámica cuando esté aprobado y habilitado.
 - Descuento, puntos y promoción con quién absorbe su costo.
 - Tarifa anticipada aceptada, propina y precio final.
+
+## Calibración de esta versión
+
+La referencia de **2.94 km y 5 minutos** para Yavoi! Básico se calcula como `$23.00 + $19.11 + $4.25 = $46.36`. Es una referencia de proporción y transparencia; descuentos y propina se calculan después y se muestran por separado.
 
 ## Estado de reglas comerciales
 

@@ -81,11 +81,11 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.deepEqual(
     (await db.query("select id,base_cents,km_cents,booking_fee_cents from public.categories order by id")).rows,
     [
-      { id: "basic", base_cents: 2300, km_cents: 630, booking_fee_cents: 0 },
-      { id: "commercial", base_cents: 7800, km_cents: 980, booking_fee_cents: 0 },
-      { id: "large", base_cents: 3300, km_cents: 840, booking_fee_cents: 0 },
-      { id: "pickup", base_cents: 9600, km_cents: 1190, booking_fee_cents: 0 },
-      { id: "plus", base_cents: 3900, km_cents: 910, booking_fee_cents: 0 },
+      { id: "basic", base_cents: 2300, km_cents: 650, booking_fee_cents: 0 },
+      { id: "commercial", base_cents: 7800, km_cents: 1010, booking_fee_cents: 0 },
+      { id: "large", base_cents: 3300, km_cents: 870, booking_fee_cents: 0 },
+      { id: "pickup", base_cents: 9600, km_cents: 1230, booking_fee_cents: 0 },
+      { id: "plus", base_cents: 3900, km_cents: 945, booking_fee_cents: 0 },
     ],
   );
   await as(ids.rider);
@@ -412,8 +412,9 @@ test("Postgres security and complete ride lifecycle", async () => {
   assert.ok(q.trip_eta_minutes >= 5);
   assert.equal(q.booking_fee_cents, 0);
   assert.equal(q.pickup_surcharge_cents, 0);
-  assert.equal(q.fare_cents, 4900);
+  assert.equal(q.fare_cents, 4600);
   assert.equal(q.financial_terms?.version, "MX-CHIH-2026.09");
+  assert.equal(q.financial_terms?.tariff_version, "delicias-transparent-2026-10");
   assert.equal(q.financial_terms?.dynamic_bps, 10000);
   assert.equal(q.financial_terms?.dynamic_cents, 0);
   assert.equal(q.distance_charge_cents + q.time_charge_cents + q.minimum_adjustment_cents + 2300, q.fare_cents);
@@ -1371,7 +1372,7 @@ test("Postgres security and complete ride lifecycle", async () => {
   await rpc("update_driver_insurance", {
     driver_id: ids.driver2,
     insurance_path: insurancePath,
-    insurance_expires: "2026-10-01",
+    insurance_expires: "2099-12-31",
     note: "Póliza revisada por Operaciones.",
   });
   await rpc("log_report_export", { report: "overview", format: "pdf", period: "month" });
