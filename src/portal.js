@@ -2600,6 +2600,8 @@ async function tripView(id) {
     t.status,
   );
   const ridePayment = S.trip.payments?.find((payment) => payment.kind === "ride");
+  const adjustmentPayments = (S.trip.payments || []).filter((payment) => payment.kind === "trip_adjustment");
+  const pendingAdjustmentPayment = adjustmentPayments.find((payment) => ["created", "pending", "in_process"].includes(payment.status));
   const cancellationPayment = S.trip.payments?.find((payment) => payment.kind === "cancellation_fee");
   const action =
     t.status === "payment_pending" && rider && ridePayment
@@ -2641,7 +2643,7 @@ async function tripView(id) {
     ? `<div class="receipt-row total driver-trip-earnings"><span>Tu ganancia</span><strong>${money(driverTripEarnings)}</strong></div><p class="hint">Incluye promociones por conciliar. Consulta comisión, impuestos y saldo confirmado en el detalle.</p>`
     : "";
   let paymentRows = serviceDetails + (t.payment_method === "card"
-    ? `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · tarjeta</span>${payableTotal}</div>${waitingAtLoad ? '<p class="hint">El ajuste de espera se registró. La autorización adicional de tarjeta se solicitará al pasajero antes de conciliarlo.</p>' : ''}<p class="hint">Estado del pago: ${e({ paid: "Confirmado", pending: "En proceso", failed: "No aprobado", refund_pending: "Reembolso en proceso", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</p>`
+    ? `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · tarjeta</span>${payableTotal}</div>${adjustmentPayments.map(payment => `<div class="receipt-row"><span>Ajuste posterior · ${e({created:'pendiente de autorización',pending:'en proceso',in_process:'en proceso',approved:'pagado',rejected:'no aprobado',cancelled:'cancelado'}[payment.status] || payment.status)}</span><strong>${money(payment.amount_cents)}</strong></div>`).join('')}${pendingAdjustmentPayment && rider ? `<button class="btn secondary wide" data-action="pay-adjustment">Autorizar ajuste con tarjeta</button>` : ''}${pendingAdjustmentPayment && conductor ? '<p class="hint">El pasajero debe autorizar el ajuste de tarjeta antes de finalizar el viaje.</p>' : ''}<p class="hint">Estado del pago: ${e({ paid: "Confirmado", pending: "En proceso", failed: "No aprobado", refund_pending: "Reembolso en proceso", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</p>`
     : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span>${payableTotal}</div>${finalTripTotal > 0 ? `<div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(finalTripTotal, t.cash_tender_cents))}</strong></div>` : '<p class="hint">Viaje cubierto por tu recompensa. No entregues efectivo por la tarifa.</p>'}`);
   if (t.status !== "cancelled") paymentRows += driverPaymentRow;
   paymentRows += financeTripDetail({ ...t, final_total_cents: finalTripTotal, waiting_charge: S.trip.waiting_charge, manual_adjustments_cents: S.trip.manual_adjustments_cents }, S.profile.role === "driver");
@@ -5067,6 +5069,10 @@ async function handleAction(action, b) {
     if (payment)
       return cardCheckout(payment.id, t.id, payment.amount_cents, t.scheduled_at ? "schedule-confirmation" : "trip");
   }
+  if (action === "pay-adjustment") {
+    const payment = S.trip.payments?.find((item) => item.kind === "trip_adjustment" && ["created", "pending", "in_process"].includes(item.status));
+    if (payment) return cardCheckout(payment.id, t.id, payment.amount_cents, "trip");
+  }
   if (action === "arrive")
     return run(async () => {
       await rpc("transition", { trip_id: t.id, status: "arrived" });
@@ -5327,6 +5333,14 @@ function startUpdates() {
       if (event === "waiting_started" && payload.new?.actor_id !== S.user.id) {
         serviceNotification("Tu conductor te espera fuera", "Tienes 2 minutos de cortesía. Después, la espera se calculará por segundo y se mostrará en el detalle del viaje.", {
           tag: `yavoi-waiting-${payload.new.trip_id}`,
+          target: `trip/${payload.new.trip_id}`,
+        });
+      }
+      if (event === "trip_adjustment_payment_created" && payload.new?.actor_id !== S.user.id) {
+        const amount = Number(payload.new?.detail?.amount_cents || 0);
+        const riderNotice = S.profile?.role === "passenger";
+        serviceNotification(riderNotice ? "Autoriza el ajuste de tu viaje" : "Ajuste de tarjeta pendiente", riderNotice ? `Se registró un ajuste de ${money(amount)}. Ábrelo para autorizar el cobro seguro con tarjeta.` : `El pasajero debe autorizar ${money(amount)} antes de finalizar el viaje.`, {
+          tag: `yavoi-adjustment-payment-${payload.new.trip_id}`,
           target: `trip/${payload.new.trip_id}`,
         });
       }
