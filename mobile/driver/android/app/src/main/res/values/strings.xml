@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Yavoi! Conductor</string>
+    <string name="title_activity_main">Yavoi! Conductor</string>
+    <string name="package_name">mx.yavoi.conductor</string>
+    <string name="custom_url_scheme">mx.yavoi.conductor</string>
+</resources>

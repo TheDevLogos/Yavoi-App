@@ -2,9 +2,14 @@ node_modules/
 dist/
 .env*
 !.env.example
+!.env.passenger
+!.env.driver
 supabase/.temp/
 supabase/.branches/
 .playwright/
 test-results/
 tmp/
 .vercel
+mobile/*/android/app/google-services.json
+mobile/*/android/keystore.properties
+mobile/*/android/*.jks

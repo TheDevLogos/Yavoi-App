@@ -44,6 +44,7 @@ import {
   errorMessage,
   isWeakPasswordError,
 } from "./domain.js";
+import { appTargetName, isNativeApp, targetAllowsRole, targetRole } from "./app-target.js";
 const $ = (s, el = document) => el.querySelector(s),
   $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const I = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
@@ -746,6 +747,7 @@ function authPage(view = "login", message = "") {
   const signup = view === "signup",
     forgot = view === "forgot",
     recovery = view === "recovery";
+  const appName = appTargetName();
   const title = signup
     ? "Tu próximo viaje empieza aquí"
     : forgot
@@ -754,7 +756,7 @@ function authPage(view = "login", message = "") {
         ? "Elige una nueva contraseña"
         : "Bienvenido a Yavoi!";
   $("#app").innerHTML =
-    `<div class="auth-layout"><aside class="auth-art"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><h1>Tu ciudad.<br>Tu camino.<br><span>Tu Yavoi!</span></h1><p>Una sola cuenta para moverte o conducir. Tu espacio, tu información y el control de cada viaje.</p><div class="auth-values"><div>${I("shield-check")} Acceso personal y datos protegidos</div><div>${I("banknote")} Precio claro antes de confirmar</div><div>${I("map-pin")} Hecho para Delicias y su gente</div></div></aside><main class="auth-main"><div class="auth-box"><img class="auth-logo-mobile" src="/assets/yavoi-logo.png" alt="Yavoi!"><a class="top-back" href="/">${I("arrow-left")} Volver a Yavoi!</a><div class="eyebrow">TU RAITE, AL INSTANTE</div><h2>${title}</h2><p>${signup ? "Crea tu acceso. Después podrás completar tu perfil de pasajero o conductor." : forgot ? "Te enviaremos un enlace si existe una cuenta con ese correo." : recovery ? "Usa al menos 12 caracteres y una contraseña que no utilices en otro lugar." : "Ingresa con tu cuenta. Te llevaremos al espacio que corresponde a tu perfil."}</p>${message ? `<div class="hint" role="status">${e(message)}</div>` : ""}${!forgot && !recovery ? `<div class="social-auth">${googleAuthMarkup()}</div><div class="auth-divider"><span>o usa tu correo</span></div>` : ""}<form id="auth-form">${!recovery ? '<label>Correo electrónico<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="tu@correo.com"></label>' : ""}${!forgot ? `<label>Contraseña<input name="password" type="password" autocomplete="${signup || recovery ? "new-password" : "current-password"}" required minlength="${signup || recovery ? 12 : 1}" maxlength="128" placeholder="${signup || recovery ? "Al menos 12 caracteres" : "Tu contraseña"}"></label>` : ""}${signup ? `<label>Código de invitación <small>(opcional)</small><input name="referral_code" maxlength="10" pattern="YV[A-Fa-f0-9]{8}" value="${e(S.referralCode)}" placeholder="YV1234ABCD"></label><label class="check"><input required type="checkbox" name="consent">Entiendo que mi cuenta es personal y que debo verificar mi correo.</label>` : ""}<button class="btn wide" type="submit">${signup ? "Crear cuenta" : forgot ? "Enviar enlace" : recovery ? "Guardar contraseña" : "Ingresar"}${I("arrow-right")}</button></form><div class="auth-links"><button class="link" id="auth-switch">${signup || forgot || recovery ? "Ya tengo cuenta" : "Crear una cuenta"}</button>${!signup && !forgot && !recovery ? '<button class="link" id="forgot">Olvidé mi contraseña</button>' : ""}</div><p class="auth-note">Tu navegador puede guardar la contraseña en su administrador seguro. Nunca la guardamos en el historial de viajes.</p></div></main></div>`;
+    `<div class="auth-layout"><aside class="auth-art"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><h1>Tu ciudad.<br>Tu camino.<br><span>Tu Yavoi!</span></h1><p>${targetRole === "driver" ? "Conduce con una cuenta autorizada. Tus solicitudes, ingresos y navegación se mantienen en un solo lugar." : targetRole === "passenger" ? "Pide y sigue tus viajes con una cuenta personal, precio claro y atención en cada etapa." : "Una sola cuenta para moverte o conducir. Tu espacio, tu información y el control de cada viaje."}</p><div class="auth-values"><div>${I("shield-check")} Acceso personal y datos protegidos</div><div>${I("banknote")} Precio claro antes de confirmar</div><div>${I("map-pin")} Hecho para Delicias y su gente</div></div></aside><main class="auth-main"><div class="auth-box"><img class="auth-logo-mobile" src="/assets/yavoi-logo.png" alt="Yavoi!"><a class="top-back" href="/">${I("arrow-left")} Volver a Yavoi!</a><div class="eyebrow">${e(appName.toUpperCase())}</div><h2>${title}</h2><p>${signup ? targetRole ? `Crea tu acceso para ${e(targetRole === "driver" ? "conducir" : "pedir viajes")}.` : "Crea tu acceso. Después podrás completar tu perfil de pasajero o conductor." : forgot ? "Te enviaremos un enlace si existe una cuenta con ese correo." : recovery ? "Usa al menos 12 caracteres y una contraseña que no utilices en otro lugar." : targetRole ? `Ingresa con tu cuenta de ${e(targetRole === "driver" ? "conductor" : "pasajero")}.` : "Ingresa con tu cuenta. Te llevaremos al espacio que corresponde a tu perfil."}</p>${message ? `<div class="hint" role="status">${e(message)}</div>` : ""}${!forgot && !recovery ? `<div class="social-auth">${googleAuthMarkup()}</div><div class="auth-divider"><span>o usa tu correo</span></div>` : ""}<form id="auth-form">${!recovery ? '<label>Correo electrónico<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="tu@correo.com"></label>' : ""}${!forgot ? `<label>Contraseña<input name="password" type="password" autocomplete="${signup || recovery ? "new-password" : "current-password"}" required minlength="${signup || recovery ? 12 : 1}" maxlength="128" placeholder="${signup || recovery ? "Al menos 12 caracteres" : "Tu contraseña"}"></label>` : ""}${signup ? `<label>Código de invitación <small>(opcional)</small><input name="referral_code" maxlength="10" pattern="YV[A-Fa-f0-9]{8}" value="${e(S.referralCode)}" placeholder="YV1234ABCD"></label><label class="check"><input required type="checkbox" name="consent">Entiendo que mi cuenta es personal y que debo verificar mi correo.</label>` : ""}<button class="btn wide" type="submit">${signup ? "Crear cuenta" : forgot ? "Enviar enlace" : recovery ? "Guardar contraseña" : "Ingresar"}${I("arrow-right")}</button></form><div class="auth-links"><button class="link" id="auth-switch">${signup || forgot || recovery ? "Ya tengo cuenta" : "Crear una cuenta"}</button>${!signup && !forgot && !recovery ? '<button class="link" id="forgot">Olvidé mi contraseña</button>' : ""}</div><p class="auth-note">Tu navegador puede guardar la contraseña en su administrador seguro. Nunca la guardamos en el historial de viajes.</p></div></main></div>`;
   iconsNow();
   if (!forgot && !recovery && S.socialProviders.google && validGoogleClientId(GOOGLE_CLIENT_ID)) {
     renderOfficialGoogleButton(view);
@@ -823,8 +825,11 @@ function authPage(view = "login", message = "") {
 }
 function onboarding() {
   const pr = S.profile;
+  const rolePicker = targetRole
+    ? `<input type="hidden" name="role" value="${e(targetRole)}"><p class="hint">Esta aplicación está preparada para cuentas de ${e(targetRole === "driver" ? "conductor" : "pasajero")}.</p>`
+    : '<div class="role-choice"><label><input type="radio" name="role" value="passenger" checked>Pasajero</label><label><input type="radio" name="role" value="driver">Conductor</label></div>';
   $("#app").innerHTML =
-    `<div class="auth-main"><div class="auth-box"><img class="onboarding-logo" src="/assets/yavoi-logo.png" alt="Yavoi!"><div class="eyebrow">UN ÚLTIMO PASO</div><h2>Haz tuyo tu perfil</h2><p>Selecciona cómo usarás esta cuenta. Los conductores deben completar una revisión antes de recibir viajes.</p><form id="onboard"><div class="role-choice"><label><input type="radio" name="role" value="passenger" checked>Pasajero</label><label><input type="radio" name="role" value="driver">Conductor</label></div><label>Nombre completo<input name="name" autocomplete="name" required minlength="2" maxlength="100" value="${e(pr.full_name)}"></label><label>Teléfono de contacto<input name="phone" type="tel" autocomplete="tel" required minlength="10" maxlength="25" value="${e(pr.phone)}"></label><label id="onboard-referral">Código de invitación <small>(opcional)</small><input name="referral_code" maxlength="10" pattern="YV[A-Fa-f0-9]{8}" value="${e(S.referralCode)}" placeholder="YV1234ABCD"><small>Quedará ligado a tu cuenta de pasajero y no podrá cambiarse después.</small></label><button type="submit" class="btn wide">Guardar mi perfil ${I("arrow-right")}</button></form><button class="link" id="logout">Cerrar sesión</button></div></div>`;
+    `<div class="auth-main"><div class="auth-box"><img class="onboarding-logo" src="/assets/yavoi-logo.png" alt="Yavoi!"><div class="eyebrow">UN ÚLTIMO PASO</div><h2>Haz tuyo tu perfil</h2><p>${targetRole ? `Completa tu perfil de ${targetRole === "driver" ? "conductor" : "pasajero"}.` : "Selecciona cómo usarás esta cuenta. Los conductores deben completar una revisión antes de recibir viajes."}</p><form id="onboard">${rolePicker}<label>Nombre completo<input name="name" autocomplete="name" required minlength="2" maxlength="100" value="${e(pr.full_name)}"></label><label>Teléfono de contacto<input name="phone" type="tel" autocomplete="tel" required minlength="10" maxlength="25" value="${e(pr.phone)}"></label><label id="onboard-referral" class="${targetRole === "driver" ? "hidden" : ""}">Código de invitación <small>(opcional)</small><input name="referral_code" maxlength="10" pattern="YV[A-Fa-f0-9]{8}" value="${e(S.referralCode)}" placeholder="YV1234ABCD"><small>Quedará ligado a tu cuenta de pasajero y no podrá cambiarse después.</small></label><button type="submit" class="btn wide">Guardar mi perfil ${I("arrow-right")}</button></form><button class="link" id="logout">Cerrar sesión</button></div></div>`;
   iconsNow();
   $("#logout").onclick = signOut;
   $$('#onboard input[name="role"]').forEach((input) => input.onchange = () => {
@@ -898,6 +903,11 @@ async function loadSession() {
   S.driverSessionInitialized = true;
   S.profile = b.profile;
   S.driver = b.driver;
+  if (S.profile.onboarding_complete && !targetAllowsRole(S.profile.role)) {
+    await db.auth.signOut();
+    S.user = null;
+    return authPage("login", `Esta cuenta es de ${roles[S.profile.role] || "otro"}. Usa ${appTargetName()} con la cuenta correspondiente.`);
+  }
   S.transportComplianceAvailable = b.transport_compliance_version === "2026-09-15";
   if (!S.transportComplianceAvailable) S.transportCompliance = null;
   S.categories = b.categories || [];
@@ -5471,7 +5481,7 @@ db.auth.onAuthStateChange((event) => {
     }, 0);
   }
 });
-if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+if (!isNativeApp() && "serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   let refreshingForUpdate = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (refreshingForUpdate) return;
