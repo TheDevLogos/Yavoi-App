@@ -3,7 +3,8 @@ import { walletMarkup, bindWallet, financeTripDetail, offerFinanceDetail, mountF
 import { mountFinanceDashboard } from "./finance-dashboard.js";
 import Leaflet from "leaflet";
 import { createIcons, icons } from "lucide";
-import { authProviderSettings, db, rpc, inboxRpc } from "./client.js";
+import { PushNotifications } from "@capacitor/push-notifications";
+import { authProviderSettings, db, rpc, inboxRpc, registerNativePushToken } from "./client.js";
 import { createGoogleNonce, loadGoogleIdentity, validGoogleClientId } from "./google-auth.js";
 import {
   auditActionInfo,
@@ -57,6 +58,8 @@ const GOOGLE_MAP_ID = String(import.meta.env.VITE_GOOGLE_MAP_ID || "").trim();
 // VAPID public keys are intentionally public. The matching private key only
 // exists in Supabase Edge Function secrets and signs the delivery request.
 const WEB_PUSH_VAPID_PUBLIC_KEY = String(import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY || "BPP4SxptAGWXO4pfNp5yZ4Qa75ouZDZNXG3UjLnl3pC2wJ9d1HpTkR1r8zZ4YGvtLAEd0IZ_-GkfadDOAohUmcs").trim();
+let nativePushSetupPromise = null;
+let nativePushRegistrationError = null;
 let L = Leaflet;
 const DELICIAS_MAP_CENTER = [DEFAULT_ORIGIN.lat, DEFAULT_ORIGIN.lng];
 const OPERATIONS_EMPTY_ZOOM = 13;
@@ -338,6 +341,58 @@ function base64UrlBytes(value) {
 }
 async function enableDriverPushNotifications() {
   if (!S.profile || !["driver", "passenger"].includes(S.profile.role)) throw Error("Inicia sesión para activar las alertas de Yavoi!.");
+  if (isNativeApp()) {
+    if (targetRole && targetRole !== S.profile.role) throw Error("Esta aplicación no admite este tipo de cuenta.");
+    if (!nativePushSetupPromise) {
+      nativePushSetupPromise = (async () => {
+        const current = await PushNotifications.checkPermissions();
+        const permission = current.receive === "granted" ? current : await PushNotifications.requestPermissions();
+        if (permission.receive !== "granted") throw Error("Permite las notificaciones para recibir solicitudes de viaje en tu dispositivo.");
+        if (window.Capacitor?.getPlatform?.() === "android") {
+          await PushNotifications.createChannel({ id: "yavoi_trips", name: "Solicitudes de viaje", description: "Solicitudes y actualizaciones importantes de viajes Yavoi!", importance: 5, visibility: 1, sound: "default", vibration: true });
+        }
+        let finishRegistration;
+        let failRegistration;
+        const registered = new Promise((resolve, reject) => { finishRegistration = resolve; failRegistration = reject; });
+        nativePushRegistrationError = null;
+        await PushNotifications.addListener("registration", async ({ value }) => {
+          try {
+            const nativeAppId = targetRole === "driver" ? "mx.yavoi.conductor" : targetRole === "passenger" ? "mx.yavoi.pasajero" : "universal";
+            await registerNativePushToken({ token: value, platform: window.Capacitor?.getPlatform?.() || "android", app_id: nativeAppId, user_agent: navigator.userAgent.slice(0, 300) });
+            S.pushSubscriptionReady = true;
+            finishRegistration();
+          } catch (error) {
+            nativePushRegistrationError = error;
+            failRegistration(error);
+          }
+        });
+        await PushNotifications.addListener("registrationError", (error) => {
+          nativePushRegistrationError = error;
+          failRegistration(Error("No pudimos registrar las notificaciones de este dispositivo."));
+        });
+        await PushNotifications.addListener("pushNotificationReceived", (notification) => {
+          if (S.profile?.role === "driver") syncDriverOffers().catch((error) => notify(errorMessage(error)));
+          else safeRefresh();
+          if (!notification.data?.offer_id) notify(notification.body || notification.title || "Tienes una actualización de Yavoi!.");
+        });
+        await PushNotifications.addListener("pushNotificationActionPerformed", async ({ notification }) => {
+          const offerId = String(notification.data?.offer_id || "");
+          if (/^[0-9a-f-]{36}$/i.test(offerId)) {
+            const url = new URL(location.href);
+            url.searchParams.set("offer", offerId);
+            history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+          }
+          await refreshPage().catch((error) => notify(errorMessage(error)));
+          await openPushedOffer().catch((error) => notify(errorMessage(error)));
+        });
+        await PushNotifications.register();
+        await Promise.race([registered, new Promise((_, reject) => setTimeout(() => reject(nativePushRegistrationError || Error("No se recibió respuesta de Firebase. Revisa tu conexión e inténtalo otra vez.")), 12000))]);
+      })().catch((error) => { nativePushSetupPromise = null; throw error; });
+    }
+    await nativePushSetupPromise;
+    serviceNotification("Alertas de Yavoi! activadas", S.profile.role === "driver" ? "Este dispositivo recibirá solicitudes de viaje cuando la app esté en segundo plano." : "Recibirás actualizaciones importantes de tus viajes.");
+    return;
+  }
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
     const iphone = /iphone|ipad|ipod/i.test(navigator.userAgent);
     throw Error(iphone
