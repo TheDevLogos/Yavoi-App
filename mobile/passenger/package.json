@@ -5,6 +5,8 @@
   "dependencies": {
     "@capacitor/android": "8.4.3",
     "@capacitor/core": "8.4.3",
+    "@capacitor/geolocation": "^8.2.3",
+    "@capacitor/ios": "^8.4.3",
     "@capacitor/push-notifications": "8.1.3"
   }
 }

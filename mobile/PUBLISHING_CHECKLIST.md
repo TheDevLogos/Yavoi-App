@@ -46,12 +46,12 @@ Play exige una prueba cerrada con al menos 12 verificadores inscritos durante
 | Nombre visible | Versión `1.0.1` (`versionCode` 2) publicada en prueba interna: **Yavoi!** y **Yavoi! Drive** | Completar los recursos y la revisión de ficha para sustituir el nombre temporal que muestra Play durante las pruebas. |
 | Textos de ficha | Listos y guardados como borrador en ambas apps | Revisarlos junto con los recursos visuales antes de enviar la ficha a revisión. |
 | Recursos de Play | Pendiente | Preparar por cada app: ícono PNG/JPEG de 512×512, gráfico destacado de 1024×500 y entre 2 y 8 capturas de teléfono. Se recomienda usar 4 capturas de 1080 px o más por lado. |
-| Ficha y cumplimiento | Pendiente | Confirmar correo y sitio de soporte, categoría, anuncios, datos de contacto, política de privacidad, seguridad de datos, clasificación de contenido, acceso de revisión y eliminación de cuenta. |
-| Push nativo Android | Integración lista; envío pendiente | Cargar el secreto privado `FIREBASE_SERVICE_ACCOUNT_JSON` en Supabase y validarlo en teléfonos reales. Consultar `FIREBASE_SETUP.md`. |
-| Mapas y pagos | Funcionalidad en desarrollo | Restringir claves de Maps para cada paquete y certificado de firma de Play; agregar credenciales productivas de Mercado Pago y validar webhooks antes de cobrar a público real. |
+| Ficha y cumplimiento | Política, contacto y URL pública de eliminación de cuenta preparadas; cuestionario documentado | Validar los datos comerciales reales y completar en Play Console seguridad de datos, clasificación de contenido y acceso de revisión. Consultar `STORE_COMPLIANCE.md`. |
+| Push nativo Android | Integración lista; envío pendiente | Cargar el secreto privado `FIREBASE_SERVICE_ACCOUNT_JSON` en Supabase y validarlo en teléfonos reales. Consultar `FIREBASE_SETUP.md` y `PRODUCTION_CREDENTIALS.md`. |
+| Mapas y pagos | Funcionalidad en desarrollo; activación bloqueada de forma segura sin credenciales | Restringir claves de Maps, agregar credenciales productivas de Mercado Pago y validar webhooks antes de cobrar a público real. Consultar `PRODUCTION_CREDENTIALS.md`. |
 | Seguimiento del conductor | Pendiente de implementación nativa completa | Antes de solicitar ubicación en segundo plano, añadir el servicio visible de seguimiento, aviso previo y sus declaraciones en Play. |
 | Prueba cerrada | En espera de verificadores | Crear dos listas de al menos 12 cuentas de Google, publicar las dos versiones de prueba cerrada y conservar la inscripción durante 14 días. |
-| iOS | Pendiente de Xcode y Apple Developer | Crear ambos proyectos nativos, configurar APNs/Firebase, firma y pruebas físicas antes de App Review. |
+| iOS | Proyectos nativos de Yavoi! y Yavoi! Drive creados con push y ubicación preparados | Instalar Xcode, configurar Apple Developer, APNs/Firebase, firma y pruebas físicas antes de App Review. |
 
 No se debe solicitar producción ni publicar a usuarios generales hasta completar
 los recursos obligatorios, las declaraciones de Play y las pruebas reales de

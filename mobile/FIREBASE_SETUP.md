@@ -22,7 +22,7 @@ Los tokens FCM se guardan en una tabla privada con RLS y sin acceso directo desd
 
 | Componente | Android Yavoi! | Android Yavoi! Drive | iPhone Yavoi! | iPhone Yavoi! Drive |
 | --- | --- | --- | --- | --- |
-| App nativa y registro de token | Preparado | Preparado | Pendiente de Xcode | Pendiente de Xcode |
+| App nativa y registro de token | Preparado | Preparado | Proyecto nativo creado; pendiente de Xcode | Proyecto nativo creado; pendiente de Xcode |
 | `google-services.json` | Local | Local | No aplica | No aplica |
 | Envío desde Supabase | Pendiente de secreto | Pendiente de secreto | Pendiente de APNs y secreto | Pendiente de APNs y secreto |
 | Prueba real en dispositivo | Pendiente | Pendiente | Pendiente | Pendiente |
@@ -73,14 +73,16 @@ Después abre cada proyecto Android en Android Studio y genera su APK. Para publ
 El registro Firebase realizado hasta ahora es para Android. La integración push
 de iOS requiere estos pasos antes de enviar a App Review:
 
-1. Instalar Xcode completo y agregar `@capacitor/ios` al proyecto.
-2. Crear los proyectos nativos para `mx.yavoi.pasajero` y
-   `mx.yavoi.conductor`.
-3. Registrar ambos Bundle ID en Apple Developer, habilitar **Push
+1. Instalar Xcode completo y abrir `mobile/passenger/ios/App/App.xcodeproj` y
+   `mobile/driver/ios/App/App.xcodeproj`.
+2. Registrar ambos Bundle ID en Apple Developer, habilitar **Push
    Notifications** y crear la clave APNs para Firebase.
-4. Añadir cada app iOS a Firebase y colocar su `GoogleService-Info.plist`
+3. Añadir cada app iOS a Firebase y colocar su `GoogleService-Info.plist`
    dentro de su proyecto iOS, sin versionarlo.
-5. Configurar el equipo de firma, perfiles de aprovisionamiento, iconos,
+4. Configurar el equipo de firma, perfiles de aprovisionamiento, iconos,
    permisos de ubicación y textos de privacidad en Xcode.
+5. Agregar la capacidad Push Notifications a ambas apps. Para Yavoi! Drive,
+   agregar Background Modes únicamente cuando el seguimiento nativo continuo
+   esté implementado y probado.
 6. Probar registro de token, alerta en primer plano, en segundo plano y al
    tocar una notificación desde un iPhone real.

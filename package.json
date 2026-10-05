@@ -12,12 +12,18 @@
     "android:passenger:init": "npm run build:passenger && cd mobile/passenger && npx cap add android",
     "android:driver:init": "npm run build:driver && cd mobile/driver && npx cap add android",
     "android:passenger:sync": "npm run build:passenger && cd mobile/passenger && npx cap sync android",
-    "android:driver:sync": "npm run build:driver && cd mobile/driver && npx cap sync android"
+    "android:driver:sync": "npm run build:driver && cd mobile/driver && npx cap sync android",
+    "ios:passenger:init": "npm run build:passenger && cd mobile/passenger && npx cap add ios",
+    "ios:driver:init": "npm run build:driver && cd mobile/driver && npx cap add ios",
+    "ios:passenger:sync": "npm run build:passenger && cd mobile/passenger && npx cap sync ios",
+    "ios:driver:sync": "npm run build:driver && cd mobile/driver && npx cap sync ios"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.3",
     "@capacitor/core": "^8.4.3",
     "@capacitor/geolocation": "^8.2.3",
+    "@capacitor/ios": "^8.4.3",
+    "@capacitor/ios": "^8.5.2",
     "@capacitor/push-notifications": "^8.1.3",
     "@supabase/supabase-js": "2.116.0",
     "jspdf": "^4.2.1",
