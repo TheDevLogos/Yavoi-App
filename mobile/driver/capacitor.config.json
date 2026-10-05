@@ -1,6 +1,6 @@
 {
   "appId": "mx.yavoi.conductor",
-  "appName": "Yavoi! Conductor",
+  "appName": "Yavoi! Drive",
   "webDir": "../../dist",
   "bundledWebRuntime": false,
   "android": { "allowMixedContent": false }

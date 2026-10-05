@@ -4,8 +4,8 @@ El proyecto Firebase `yavoi-4a7af` contiene estas apps:
 
 | Aplicación | ID Android | Configuración local |
 | --- | --- | --- |
-| Yavoi! Pasajero | `mx.yavoi.pasajero` | `mobile/passenger/android/app/google-services.json` |
-| Yavoi! Conductor | `mx.yavoi.conductor` | `mobile/driver/android/app/google-services.json` |
+| Yavoi! | `mx.yavoi.pasajero` | `mobile/passenger/android/app/google-services.json` |
+| Yavoi! Drive | `mx.yavoi.conductor` | `mobile/driver/android/app/google-services.json` |
 
 Cada archivo `google-services.json` se descarga desde la ficha de su app Android en Firebase Console. Se mantiene local y está excluido de Git; no lo elimines ni lo agregues al repositorio. El proyecto ya aplica Google Services Gradle Plugin y Capacitor Push Notifications al sincronizar las plataformas nativas.
 
@@ -20,7 +20,7 @@ Los tokens FCM se guardan en una tabla privada con RLS y sin acceso directo desd
 
 ## Estado de activación
 
-| Componente | Android Pasajero | Android Conductor | iPhone Pasajero | iPhone Conductor |
+| Componente | Android Yavoi! | Android Yavoi! Drive | iPhone Yavoi! | iPhone Yavoi! Drive |
 | --- | --- | --- | --- | --- |
 | App nativa y registro de token | Preparado | Preparado | Pendiente de Xcode | Pendiente de Xcode |
 | `google-services.json` | Local | Local | No aplica | No aplica |
