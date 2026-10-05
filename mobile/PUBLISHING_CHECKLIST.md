@@ -12,10 +12,10 @@ Supabase. Para separar usos, una persona puede registrar un correo como
 pasajero y otro como conductor. Supabase conserva el tipo de cada perfil; cada aplicación solo permite
 el tipo de cuenta que le corresponde.
 
-## Estado de la primera versión Android
+## Estado de versiones Android
 
-Ambas apps quedan preparadas para la primera publicación con versión `1.0.0`
-(`versionCode` 1), firma de carga local independiente y `targetSdkVersion` 36.
+Ambas apps tienen publicada la actualización de prueba interna `1.0.1`
+(`versionCode` 2), firma de carga local independiente y `targetSdkVersion` 36.
 Google Play exige API 36 para nuevas publicaciones desde el 31 de agosto de
 2026. La firma y sus contraseñas permanecen en archivos ignorados por Git;
 deben respaldarse en un almacén seguro de Yavoi! antes de publicar.
@@ -28,10 +28,10 @@ deben respaldarse en un almacén seguro de Yavoi! antes de publicar.
 ## Estado en Google Play Console
 
 Las dos fichas ya están creadas en la cuenta de desarrollador de Yavoi! y usan
-los paquetes indicados arriba. La versión `1.0.0-internal` (código 1) de
-**Yavoi!** y **Yavoi! Drive** ya están publicadas en sus canales de
-prueba interna. Ambas aparecen como disponibles para verificadores internos y
-sin revisión; Google Play mostrará el nombre temporal del paquete hasta que se
+los paquetes indicados arriba. La versión `1.0.1-internal` (código 2) de
+**Yavoi!** y **Yavoi! Drive** ya está publicada en sus canales de prueba
+interna. Ambas aparecen como disponibles para verificadores internos y sin
+revisión; Google Play mostrará el nombre temporal del paquete hasta que se
 complete la ficha y la revisión de cada aplicación.
 
 La prueba interna admite hasta 100 personas, pero no queda disponible hasta
@@ -43,7 +43,7 @@ Play exige una prueba cerrada con al menos 12 verificadores inscritos durante
 
 | Frente | Estado actual | Siguiente acción concreta |
 | --- | --- | --- |
-| Nombre visible | Listo en los borradores de ficha y preparado en Android como versión `1.0.1` (`versionCode` 2): **Yavoi!** y **Yavoi! Drive** | Generar, validar y subir ambos AAB de la actualización para que el nombre también cambie en los teléfonos que instalen la app. |
+| Nombre visible | Versión `1.0.1` (`versionCode` 2) publicada en prueba interna: **Yavoi!** y **Yavoi! Drive** | Completar los recursos y la revisión de ficha para sustituir el nombre temporal que muestra Play durante las pruebas. |
 | Textos de ficha | Listos y guardados como borrador en ambas apps | Revisarlos junto con los recursos visuales antes de enviar la ficha a revisión. |
 | Recursos de Play | Pendiente | Preparar por cada app: ícono PNG/JPEG de 512×512, gráfico destacado de 1024×500 y entre 2 y 8 capturas de teléfono. Se recomienda usar 4 capturas de 1080 px o más por lado. |
 | Ficha y cumplimiento | Pendiente | Confirmar correo y sitio de soporte, categoría, anuncios, datos de contacto, política de privacidad, seguridad de datos, clasificación de contenido, acceso de revisión y eliminación de cuenta. |
