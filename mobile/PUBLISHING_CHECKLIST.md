@@ -25,6 +25,20 @@ deben respaldarse en un almacén seguro de Yavoi! antes de publicar.
 | Yavoi! Pasajero | `4E:F5:34:08:96:66:6B:F1:45:91:2E:38:61:5A:34:E1:29:AC:58:CC` |
 | Yavoi! Conductor | `83:00:E6:9F:EB:9A:F0:F8:0C:DB:9A:34:71:2D:89:1D:96:4C:22:3D` |
 
+## Estado en Google Play Console
+
+Las dos fichas ya están creadas en la cuenta de desarrollador de Yavoi! y usan
+los paquetes indicados arriba. La versión `1.0.0-internal` (código 1) de
+**Yavoi! Pasajero** y **Yavoi! Conductor** ya está publicada en sus canales de
+prueba interna. Ambas aparecen como disponibles para verificadores internos y
+sin revisión; Google Play mostrará el nombre temporal del paquete hasta que se
+complete la ficha y la revisión de cada aplicación.
+
+La prueba interna admite hasta 100 personas, pero no queda disponible hasta
+crear el segmento de verificadores. Para solicitar acceso a producción, Google
+Play exige una prueba cerrada con al menos 12 verificadores inscritos durante
+14 días continuos para cada aplicación.
+
 ## Antes de subir a Play Console
 
 1. Instalar Android Studio y JDK 21.
