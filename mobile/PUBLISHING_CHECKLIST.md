@@ -45,7 +45,7 @@ Play exige una prueba cerrada con al menos 12 verificadores inscritos durante
 | --- | --- | --- |
 | Nombre visible | Versión `1.0.1` (`versionCode` 2) publicada en prueba interna: **Yavoi!** y **Yavoi! Drive** | Completar los recursos y la revisión de ficha para sustituir el nombre temporal que muestra Play durante las pruebas. |
 | Textos de ficha | Listos y guardados como borrador en ambas apps | Revisarlos junto con los recursos visuales antes de enviar la ficha a revisión. |
-| Recursos de Play | Pendiente | Preparar por cada app: ícono PNG/JPEG de 512×512, gráfico destacado de 1024×500 y entre 2 y 8 capturas de teléfono. Se recomienda usar 4 capturas de 1080 px o más por lado. |
+| Recursos de Play | Íconos y gráficos destacados listos en `mobile/store-assets/` | Cargar un ícono y gráfico destacado por app, y añadir entre 2 y 8 capturas de teléfono; se recomiendan cuatro de 1080 px o más por lado. |
 | Ficha y cumplimiento | Política, contacto y URL pública de eliminación de cuenta preparadas; cuestionario documentado | Validar los datos comerciales reales y completar en Play Console seguridad de datos, clasificación de contenido y acceso de revisión. Consultar `STORE_COMPLIANCE.md`. |
 | Push nativo Android | Integración lista; envío pendiente | Cargar el secreto privado `FIREBASE_SERVICE_ACCOUNT_JSON` en Supabase y validarlo en teléfonos reales. Consultar `FIREBASE_SETUP.md` y `PRODUCTION_CREDENTIALS.md`. |
 | Mapas y pagos | Funcionalidad en desarrollo; activación bloqueada de forma segura sin credenciales | Restringir claves de Maps, agregar credenciales productivas de Mercado Pago y validar webhooks antes de cobrar a público real. Consultar `PRODUCTION_CREDENTIALS.md`. |

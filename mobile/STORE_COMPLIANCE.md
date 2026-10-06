@@ -49,8 +49,8 @@ grupos a revisar:
 
 ## Elementos necesarios antes de revisión de ficha
 
-- Ícono de 512 × 512 píxeles por app.
-- Gráfico destacado de 1024 × 500 píxeles por app.
+- Ícono de 512 × 512 píxeles por app: disponible en `mobile/store-assets/`.
+- Gráfico destacado de 1024 × 500 píxeles por app: disponible en `mobile/store-assets/`.
 - Entre 2 y 8 capturas de teléfono por app; se recomiendan cuatro de cada una.
 - Revisión de textos de ficha ya guardados como borrador.
 - Verificación de que la política y la URL de eliminación de cuenta estén
