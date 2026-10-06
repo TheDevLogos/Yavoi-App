@@ -1,10 +1,13 @@
 # Recursos de tiendas
 
-Recursos listos para cargar en Google Play:
+Los íconos fueron rediseñados a partir del logotipo azul oficial de Yavoi!.
 
-- `yavoi-passenger-icon-512.png`: icono de Yavoi!
-- `yavoi-drive-icon-512.png`: icono de Yavoi! Drive
-- `yavoi-passenger-feature-graphic-1024x500.png`: gráfico destacado de Yavoi!
-- `yavoi-drive-feature-graphic-1024x500.png`: gráfico destacado de Yavoi! Drive
+## Archivos para cargar
 
-Los archivos de 1024 px conservan el original editable para App Store y materiales de comunicación. Las capturas de pantalla se integrarán cuando se realicen en dispositivos reales.
+- `yavoi-passenger-icon-play-512.png` y `yavoi-drive-icon-play-512.png`: PNG 512×512 con el exterior transparente y el panel redondeado visible. Úsalos como propuesta visual para Google Play.
+- `yavoi-passenger-icon-app-store-1024.png` y `yavoi-drive-icon-app-store-1024.png`: PNG opacos de 1024×1024, sin canal alfa, preparados como fuente para App Store. Apple aplica el redondeo final del sistema.
+- `yavoi-*-icon-512.png` y `yavoi-*-icon-1024.png`: copias opacas de referencia.
+
+Yavoi! Drive integra `Drive` en blanco, de gran tamaño y con tipografía redondeada compatible con el carácter del logotipo. El eslogan oficial es **Tu raite, al instante**.
+
+Los gráficos destacados de 1024×500 continúan disponibles; pueden actualizarse después de aprobar el nuevo icono.
