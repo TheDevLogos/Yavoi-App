@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.4.3",
+    "@capacitor/app-launcher": "^8.0.1",
     "@capacitor/core": "^8.4.3",
     "@capacitor/geolocation": "^8.2.3",
     "@capacitor/ios": "^8.5.2",

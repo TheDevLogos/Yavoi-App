@@ -151,13 +151,16 @@ test("passenger unit search protects driver identity until acceptance", () => {
   assert.match(portal, /refreshAvailableUnits\(\{ fit: false \}\)/);
 });
 
-test("street routing preserves the route while driver navigation stays in Yavoi", () => {
+test("street routing preserves the route and drivers can launch Google Maps navigation", () => {
   assert.match(mapsFunction, /steps=true&alternatives=true/);
   assert.match(mapsFunction, /instructions/);
   assert.match(mapsFunction, /route:v2:/);
   assert.match(portal, /function openDriverNavigation\(trip\)/);
-  assert.match(portal, /function driverMapNavigationMarkup\(trip, conductor\)/);
-  assert.match(portal, /Navegación en Yavoi!/);
+  assert.match(portal, /async function launchDriverNavigation\(trip, reserved = null\)/);
+  assert.match(portal, /google\.navigation:q=/);
+  assert.match(portal, /comgooglemaps:\/\//);
+  assert.match(portal, /Abrir navegación a la recolección/);
+  assert.match(portal, /Abrir navegación al destino/);
   assert.match(css, /\.in-app-navigation/);
 });
 

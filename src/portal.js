@@ -4,6 +4,7 @@ import { mountFinanceDashboard } from "./finance-dashboard.js";
 import Leaflet from "leaflet";
 import { createIcons, icons } from "lucide";
 import { PushNotifications } from "@capacitor/push-notifications";
+import { AppLauncher } from "@capacitor/app-launcher";
 import { authProviderSettings, db, rpc, inboxRpc, registerNativePushToken } from "./client.js";
 import { createGoogleNonce, loadGoogleIdentity, validGoogleClientId } from "./google-auth.js";
 import {
@@ -518,17 +519,24 @@ function presentDriverOfferAlert(offer) {
     run(async () => {
     clearInterval(timer);
     stopOfferRinging(offer.offer_id);
+    let navigationWindow = null;
     try {
+      navigationWindow = reserveNavigationWindow();
       const trip = await rpc("accept", { offer_id: offer.offer_id });
       if (trip.error) throw Error(trip.error);
       const queued = Boolean(trip.queued_after_trip_id);
       if (!queued) openDriverNavigation({ ...trip, status: "accepted" });
       closeModal();
       if (queued) {
+        releaseNavigationWindow(navigationWindow);
         notify("Siguiente viaje aceptado. La navegación actual continúa hasta terminar el servicio en curso.");
         await syncDriverOffers({ present: false });
-      } else location.hash = "trip/" + trip.id;
+      } else {
+        location.hash = "trip/" + trip.id;
+        await launchDriverNavigation({ ...trip, status: "accepted" }, navigationWindow);
+      }
     } catch (error) {
+      releaseNavigationWindow(navigationWindow);
       throw error;
     }
     });
@@ -1393,10 +1401,74 @@ function updateRouteMonitor() {
     input.focus();
   });
 }
+function navigationStage(trip) {
+  return ["accepted", "arrived"].includes(trip.status) ? "pickup" : "destination";
+}
+function navigationTarget(trip, stage = navigationStage(trip)) {
+  const pickup = stage === "pickup";
+  const lat = Number(pickup ? trip.origin_lat : trip.dest_lat);
+  const lng = Number(pickup ? trip.origin_lng : trip.dest_lng);
+  const label = String((pickup ? trip.origin : trip.destination) || "").trim();
+  return {
+    stage,
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
+    label,
+  };
+}
+function googleMapsDirectionsUrl(target) {
+  const destination = target.lat !== null && target.lng !== null
+    ? `${target.lat},${target.lng}`
+    : target.label;
+  const params = new URLSearchParams({ api: "1", destination, travelmode: "driving" });
+  return `https://www.google.com/maps/dir/?${params}`;
+}
+function nativeGoogleMapsUrl(target) {
+  const destination = target.lat !== null && target.lng !== null
+    ? `${target.lat},${target.lng}`
+    : target.label;
+  if (window.Capacitor?.getPlatform?.() === "android")
+    return `google.navigation:q=${encodeURIComponent(destination)}&mode=d`;
+  return `comgooglemaps://?daddr=${encodeURIComponent(destination)}&directionsmode=driving`;
+}
+function reserveNavigationWindow() {
+  // Browser popup rules require reserving the tab while the driver still has
+  // an active tap. Native Capacitor apps use the operating-system launcher.
+  if (isNativeApp()) return null;
+  try { return window.open("", "_blank"); } catch { return null; }
+}
+function releaseNavigationWindow(reserved) {
+  try { if (reserved && !reserved.closed) reserved.close(); } catch {}
+}
+async function launchDriverNavigation(trip, reserved = null) {
+  const target = navigationTarget(trip);
+  if (!target.label && (target.lat === null || target.lng === null)) {
+    releaseNavigationWindow(reserved);
+    throw Error("No encontramos el punto de navegación de este viaje.");
+  }
+  const directions = googleMapsDirectionsUrl(target);
+  if (isNativeApp()) {
+    try {
+      await AppLauncher.openUrl({ url: nativeGoogleMapsUrl(target) });
+      notify(`Abrimos Google Maps para ${target.stage === "pickup" ? "la recolección" : "el destino"}. Regresa a Yavoi! para gestionar el viaje.`);
+      return true;
+    } catch {
+      // The universal URL opens the Maps app when available and otherwise
+      // preserves a usable route in the browser.
+      window.location.assign(directions);
+      return true;
+    }
+  }
+  if (reserved && !reserved.closed) {
+    reserved.location.href = directions;
+    notify("Abrimos Google Maps en otra pestaña. Yavoi! mantiene el viaje y las alertas.");
+    return true;
+  }
+  window.location.assign(directions);
+  return true;
+}
 function openDriverNavigation(trip) {
-  // Keep the driver in Yavoi!. The same live map switches to guidance and
-  // returns to the service controls as soon as GPS confirms the arrival.
-  S.driverNavigationMode = ["accepted", "arrived"].includes(trip.status) ? "pickup" : "destination";
+  S.driverNavigationMode = navigationStage(trip);
   return S.driverNavigationMode;
 }
 function driverMapNavigationMarkup(trip, conductor) {
@@ -2758,7 +2830,7 @@ async function tripView(id) {
     ? `<div class="row wrap section-gap">${button("Confirmar cuota recibida", "settle-cancel-fee", "secondary", "circle-dollar-sign")}${S.profile.role === "admin" ? button("Condonar cuota", "waive-cancel-fee", "secondary", "badge-x") : ""}</div>`
     : "";
   const driverNavigation = conductor && ["accepted", "in_progress"].includes(t.status)
-    ? '<p class="hint driver-navigation-note">La guía y el recorrido se muestran directamente en el mapa de Yavoi!.</p>'
+    ? `${button(t.status === "accepted" ? "Abrir navegación a la recolección" : "Abrir navegación al destino", "external-navigation", "secondary wide section-gap", "navigation")}<p class="hint driver-navigation-note">Google Maps guía la ruta y la voz. Al volver a Yavoi! conservas mensajes, estado del viaje y solicitudes en cola.</p>`
     : "";
   const tripFooter = `<div class="row wrap section-gap">${button("Compartir resumen", "share", "secondary", "share-2")}${terminalReport}</div>`;
   shell(
@@ -2769,9 +2841,17 @@ async function tripView(id) {
   await startMap(t);
   startWaitingClock();
   const startTrip = async (v = {}) => {
-    await rpc("transition", { trip_id: t.id, status: "in_progress", ...(v.pin ? { pin: v.pin } : {}) });
-    openDriverNavigation({ ...t, status: "in_progress" });
-    await tripView(t.id);
+    const navigationWindow = reserveNavigationWindow();
+    try {
+      await rpc("transition", { trip_id: t.id, status: "in_progress", ...(v.pin ? { pin: v.pin } : {}) });
+      const activeTrip = { ...t, status: "in_progress" };
+      openDriverNavigation(activeTrip);
+      await tripView(t.id);
+      await launchDriverNavigation(activeTrip, navigationWindow);
+    } catch (error) {
+      releaseNavigationWindow(navigationWindow);
+      throw error;
+    }
   };
   bindForm("#start-trip", startTrip);
   $('[data-action="start-trip"]')?.addEventListener("click", () => run(() => startTrip()));
@@ -5138,6 +5218,8 @@ async function handleAction(action, b) {
     const payment = S.trip.payments?.find((item) => item.kind === "trip_adjustment" && ["created", "pending", "in_process"].includes(item.status));
     if (payment) return cardCheckout(payment.id, t.id, payment.amount_cents, "trip");
   }
+  if (action === "external-navigation")
+    return run(() => launchDriverNavigation(t, reserveNavigationWindow()));
   if (action === "arrive")
     return run(async () => {
       await rpc("transition", { trip_id: t.id, status: "arrived" });
