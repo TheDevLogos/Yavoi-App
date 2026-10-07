@@ -525,7 +525,6 @@ function presentDriverOfferAlert(offer) {
       const trip = await rpc("accept", { offer_id: offer.offer_id });
       if (trip.error) throw Error(trip.error);
       const queued = Boolean(trip.queued_after_trip_id);
-      if (!queued) openDriverNavigation({ ...trip, status: "accepted" });
       closeModal();
       if (queued) {
         releaseNavigationWindow(navigationWindow);
@@ -533,7 +532,7 @@ function presentDriverOfferAlert(offer) {
         await syncDriverOffers({ present: false });
       } else {
         location.hash = "trip/" + trip.id;
-        await launchDriverNavigation({ ...trip, status: "accepted" }, navigationWindow);
+        await beginDriverNavigation({ ...trip, status: "accepted" }, navigationWindow);
       }
     } catch (error) {
       releaseNavigationWindow(navigationWindow);
@@ -1471,13 +1470,32 @@ function openDriverNavigation(trip) {
   S.driverNavigationMode = navigationStage(trip);
   return S.driverNavigationMode;
 }
+function embeddedDriverNavigation() {
+  // A PWA cannot run Google Navigation SDK itself: the SDK is native Android/iOS.
+  // Keep the same trip stage inside Yavoi! while the web version is being tested.
+  return !isNativeApp();
+}
+async function beginDriverNavigation(trip, reserved = null) {
+  openDriverNavigation(trip);
+  if (embeddedDriverNavigation()) {
+    releaseNavigationWindow(reserved);
+    notify("Navegación de Yavoi! activa. Puedes abrir Google Maps si necesitas guía por voz.");
+    return true;
+  }
+  return launchDriverNavigation(trip, reserved);
+}
 function driverMapNavigationMarkup(trip, conductor) {
-  if (!conductor || !["accepted", "in_progress"].includes(trip.status)) return "";
-  const pickup = trip.status === "accepted";
+  if (!conductor || !["accepted", "arrived", "in_progress"].includes(trip.status)) return "";
+  const pickup = ["accepted", "arrived"].includes(trip.status);
   const distance = pickup ? trip.pickup_distance_km : trip.distance_km;
   const minutes = pickup ? trip.pickup_eta_minutes : trip.trip_eta_minutes;
   const destination = pickup ? trip.origin : trip.destination;
-  return `<section class="in-app-navigation" aria-live="polite"><div><span>${I("navigation")} Navegación en Yavoi!</span><strong>${pickup ? "Ve por tu pasajero" : "Lleva al pasajero a su destino"}</strong><small>${decimal(distance)} km · ${minutes} min</small></div><p>${e(destination)}</p></section>`;
+  const phase = trip.status === "accepted"
+    ? { title: "Ve por tu pasajero", action: "arrive", label: "Avisar que ya llegué", icon: "map-pin" }
+    : trip.status === "arrived"
+      ? { title: "Estás en la recolección", action: "start-trip", label: "Iniciar viaje", icon: "navigation" }
+      : { title: "Lleva al pasajero a su destino", action: "finish", label: trip.payment_method === "cash" ? "Finalizar y cobrar" : "Finalizar viaje", icon: "flag" };
+  return `<section class="in-app-navigation" aria-live="polite"><div class="in-app-navigation-head"><span>${I("navigation")} Navegación Yavoi!</span><strong>${phase.title}</strong><small>${decimal(distance)} km · ${minutes} min</small></div><p>${e(destination)}</p><div class="in-app-navigation-actions"><button type="button" class="in-app-navigation-primary" data-action="${phase.action}">${I(phase.icon)} ${phase.label}</button><button type="button" class="in-app-navigation-external" data-action="external-navigation" aria-label="Abrir Google Maps">${I("external-link")}</button></div><small class="in-app-navigation-help">${embeddedDriverNavigation() ? "Vista de navegación en Yavoi!. Google Maps ofrece guía por voz." : "La navegación nativa mantiene el viaje activo."}</small></section>`;
 }
 async function refreshAvailableUnits({ fit = true } = {}) {
   if (!S.map || S.profile?.role !== "passenger" || !S.origin) return;
@@ -2845,16 +2863,17 @@ async function tripView(id) {
     try {
       await rpc("transition", { trip_id: t.id, status: "in_progress", ...(v.pin ? { pin: v.pin } : {}) });
       const activeTrip = { ...t, status: "in_progress" };
-      openDriverNavigation(activeTrip);
       await tripView(t.id);
-      await launchDriverNavigation(activeTrip, navigationWindow);
+      await beginDriverNavigation(activeTrip, navigationWindow);
     } catch (error) {
       releaseNavigationWindow(navigationWindow);
       throw error;
     }
   };
   bindForm("#start-trip", startTrip);
-  $('[data-action="start-trip"]')?.addEventListener("click", () => run(() => startTrip()));
+  $$('[data-action="start-trip"]').forEach((item) => {
+    item.onclick = () => run(() => startTrip());
+  });
   $$('[data-adjustment-decision]').forEach(button => button.onclick = () => run(async () => { await rpc('fare_adjustment',{trip_id:t.id,action:'decide',adjustment_id:button.dataset.adjustmentId,decision:button.dataset.adjustmentDecision}); await tripView(t.id); notify('Ajuste registrado.'); }));
   bindForm("#chat-form", async (v, f) => {
     await rpc("message", { trip_id: t.id, body: v.body });
