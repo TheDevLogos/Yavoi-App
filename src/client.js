@@ -7,7 +7,7 @@ export async function authProviderSettings(){
   const settings=await response.json();
   return {google:!!settings.external?.google};
 }
-export async function rpc(command,payload={}){const {data,error}=await db.rpc('yavoi',{command,payload});if(error)throw new Error(error.message);if(data?.error)throw new Error(data.error);return data;}
+export async function rpc(command,payload={}){const direct=command==='finance_manual_settlement'?{name:command,args:{payload}}:command==='finance_manual_settlements'?{name:command,args:{}}:{name:'yavoi',args:{command,payload}};const {data,error}=await db.rpc(direct.name,direct.args);if(error)throw new Error(error.message);if(data?.error)throw new Error(data.error);return data;}
 export async function inboxRpc(command,payload={}){const {data,error}=await db.rpc('yavoi_inbox',{command,payload});if(error)throw new Error(error.message);if(data?.error)throw new Error(data.error);return data;}
 export async function registerNativePushToken(payload){const {data,error}=await db.rpc('yavoi_register_native_push',{payload});if(error)throw new Error(error.message);if(data?.error)throw new Error(data.error);return data;}
 export const money=cents=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format((cents||0)/100);

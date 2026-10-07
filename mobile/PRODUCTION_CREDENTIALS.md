@@ -1,8 +1,10 @@
 # Credenciales de producción: Maps, pagos y notificaciones
 
-Las aplicaciones se mantienen en modo seguro mientras falten las credenciales.
-No se deben activar cobros, retiros ni notificaciones nativas hasta concluir
-la prueba correspondiente.
+La primera publicación se prepara en modo piloto de efectivo. Los cobros con
+tarjeta y los retiros iniciados por conductores permanecen desactivados. Las
+liquidaciones excepcionales de saldo a favor se concilian y documentan a mano
+por Operaciones cada semana; el efectivo del viaje lo recibe directamente el
+conductor. No activar funciones de pago electrónico antes de cerrar sus pruebas.
 
 ## Google Maps Platform
 
@@ -22,14 +24,13 @@ la prueba correspondiente.
 1. Crear la aplicación de producción en la cuenta empresarial de Yavoi!.
 2. Configurar el webhook a `https://asjlyureqokifjkpdwgc.supabase.co/functions/v1/mercado-pago-webhook`.
 3. Registrar en secretos de Supabase `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET` y
-   `APP_ORIGINS`. Para retiros automatizados, agregar únicamente después de la
-   aprobación de Mercado Pago `MP_PAYOUT_SIGNING_PRIVATE_KEY` y
-   `MP_PAYOUTS_ENABLED=true`.
-4. Mantener `mercado_pago_enabled=false` hasta confirmar con pagos de prueba:
-   cobro, webhook firmado, rechazo, reembolso, propina y ajuste posterior.
-5. Activar la clave pública y el interruptor mediante el cambio controlado
-   documentado en `docs/mercado-pago.md`. Confirmar primero que la llave
-   pública pertenece al mismo entorno que el Access Token.
+   `APP_ORIGINS` sólo para la fase posterior de pagos electrónicos. No configurar
+   ni activar retiros automatizados para la publicación piloto.
+4. Mantener `mercado_pago_enabled=false` durante el piloto. Antes de una versión
+   posterior, probar cobro, webhook firmado, rechazo, reembolso, propina y ajuste.
+5. Activar la clave pública y el interruptor sólo con un cambio separado,
+   revisado y documentado en `docs/mercado-pago.md`; confirmar que la llave
+   pública y el Access Token pertenecen al mismo entorno.
 
 ## Firebase Cloud Messaging
 
@@ -43,8 +44,8 @@ la prueba correspondiente.
 
 ## Comprobación antes de activar cada proveedor
 
-La evidencia mínima es un caso de prueba fechado con resultado para éxito,
-rechazo y recuperación: Maps sin resultado; pago rechazado y reembolso;
-notificación sin permiso, en segundo plano y al abrirla. Los secretos se
-introducen desde los paneles de cada proveedor y nunca se copian a archivos del
-repositorio.
+Para el piloto, documentar cotización, viaje pagado en efectivo, recibo,
+conciliación operativa y notificaciones. Antes de habilitar tarjeta en una
+versión futura, adjuntar casos fechados de pago aprobado, rechazo, reembolso y
+recuperación. Los secretos se introducen desde los paneles de cada proveedor y
+nunca se copian a archivos del repositorio.

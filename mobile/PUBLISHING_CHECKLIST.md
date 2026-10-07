@@ -34,6 +34,9 @@ interna. Ambas aparecen como disponibles para verificadores internos y sin
 revisión; Google Play mostrará el nombre temporal del paquete hasta que se
 complete la ficha y la revisión de cada aplicación.
 
+La siguiente compilación preparada en el proyecto es `1.0.2` (`versionCode`
+3) para ambas apps, con el piloto de efectivo y la conciliación manual semanal.
+
 La prueba interna admite hasta 100 personas, pero no queda disponible hasta
 crear el segmento de verificadores. Para solicitar acceso a producción, Google
 Play exige una prueba cerrada con al menos 12 verificadores inscritos durante
@@ -48,14 +51,15 @@ Play exige una prueba cerrada con al menos 12 verificadores inscritos durante
 | Recursos de Play | Íconos y gráficos destacados listos en `mobile/store-assets/` | Cargar un ícono y gráfico destacado por app, y añadir entre 2 y 8 capturas de teléfono; se recomiendan cuatro de 1080 px o más por lado. |
 | Ficha y cumplimiento | Política, contacto y URL pública de eliminación de cuenta preparadas; cuestionario documentado | Validar los datos comerciales reales y completar en Play Console seguridad de datos, clasificación de contenido y acceso de revisión. Consultar `STORE_COMPLIANCE.md`. |
 | Push nativo Android | Integración lista; envío pendiente | Cargar el secreto privado `FIREBASE_SERVICE_ACCOUNT_JSON` en Supabase y validarlo en teléfonos reales. Consultar `FIREBASE_SETUP.md` y `PRODUCTION_CREDENTIALS.md`. |
-| Mapas y pagos | Funcionalidad en desarrollo; activación bloqueada de forma segura sin credenciales | Restringir claves de Maps, agregar credenciales productivas de Mercado Pago y validar webhooks antes de cobrar a público real. Consultar `PRODUCTION_CREDENTIALS.md`. |
+| Mapas y pagos | Piloto de viajes con pago en efectivo. Tarjeta y retiros iniciados por conductor desactivados | Restringir claves de Maps y probar cotización y viajes en efectivo. Mantener `mercado_pago_enabled=false` y `payouts_enabled=false`; tarjeta y retiros requieren una versión futura y revisión separada. Consultar `PRODUCTION_CREDENTIALS.md`. |
 | Seguimiento del conductor | Pendiente de implementación nativa completa | Antes de solicitar ubicación en segundo plano, añadir el servicio visible de seguimiento, aviso previo y sus declaraciones en Play. |
 | Prueba cerrada | En espera de verificadores | Crear dos listas de al menos 12 cuentas de Google, publicar las dos versiones de prueba cerrada y conservar la inscripción durante 14 días. |
 | iOS | Proyectos nativos de Yavoi! y Yavoi! Drive creados con push y ubicación preparados | Instalar Xcode, configurar Apple Developer, APNs/Firebase, firma y pruebas físicas antes de App Review. |
 
 No se debe solicitar producción ni publicar a usuarios generales hasta completar
 los recursos obligatorios, las declaraciones de Play y las pruebas reales de
-los recorridos, cobros, notificaciones y eliminación de cuenta.
+los recorridos en efectivo, notificaciones y eliminación de cuenta. La ficha y
+las capturas deben reflejar que los pagos con tarjeta no están disponibles.
 
 ## Antes de subir a Play Console
 
@@ -70,8 +74,8 @@ los recorridos, cobros, notificaciones y eliminación de cuenta.
    reutilizar la clave web.
 5. Añadir el `google-services.json` de Firebase correspondiente a cada paquete.
    Nunca confirmar esos archivos al repositorio.
-6. Configurar Firebase Cloud Messaging y las credenciales oficiales de Mercado
-   Pago antes de abrir una prueba cerrada.
+6. Configurar Firebase Cloud Messaging antes de abrir una prueba cerrada. No se
+   requieren credenciales de Mercado Pago para el piloto en efectivo.
 
 ## Permisos actuales
 

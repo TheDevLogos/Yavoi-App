@@ -10,8 +10,8 @@ con cuenta de pasajero y conductor de demostración separadas.
 - Búsqueda de dirección, destino frecuente, cotización y tarifa fija.
 - Solicitud, asignación, seguimiento, mensajes, cancelación y reporte.
 - Viaje en efectivo: llegada, espera, inicio, finalización y comprobante.
-- Pago electrónico: sólo después de activar el entorno de pruebas de Mercado
-  Pago; validar rechazo, aprobación y reembolso.
+- Confirmar que tarjeta está deshabilitada en cotización y propina durante el
+  piloto y que el servidor rechaza intentos directos de iniciar un cobro.
 - Solicitud de eliminación de cuenta mediante la URL pública.
 
 ## Conductor
@@ -22,11 +22,12 @@ con cuenta de pasajero y conductor de demostración separadas.
 - Aceptación, navegación a recolección, llegada, inicio y navegación a destino.
 - Cobro efectivo, monto distinto, ajuste autorizado, finalización y siguiente
   viaje en cola.
-- Datos de ingresos, billetera, comisiones, retenciones y solicitud de retiro.
+- Resumen semanal, viajes en efectivo, adeudo/comisión y datos bancarios para
+  liquidación manual; confirmar que no existe solicitud de retiro en la app.
 - Pérdida y recuperación de red, cierre temporal de la app y sesión renovada.
 
 ## Evidencia mínima
 
 Anotar versión, dispositivo, sistema operativo, resultado y captura para cada
-caso. Bloquear el lanzamiento si fallan cobro, asignación, cierre de viaje,
-notificación de oferta o eliminación de cuenta.
+caso. Bloquear el lanzamiento si fallan pago en efectivo, asignación, cierre de
+viaje, notificación de oferta, bloqueo de tarjeta o eliminación de cuenta.

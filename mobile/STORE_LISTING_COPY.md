@@ -33,8 +33,8 @@ Con Yavoi! puedes:
 • Reportar un incidente o solicitar soporte desde el detalle del viaje.
 
 La disponibilidad de servicios puede variar según la zona, los conductores
-conectados y las condiciones operativas. Algunas funciones de pago electrónico
-se habilitan cuando estén disponibles en tu zona.
+conectados y las condiciones operativas. Durante el piloto, los viajes se pagan
+en efectivo directamente al conductor.
 ```
 
 ## Google Play — Yavoi! Drive
@@ -56,7 +56,8 @@ Yavoi! Drive es la aplicación para conductores autorizados de Yavoi!.
 Conéctate cuando estés listo para conducir, recibe solicitudes de viaje y usa
 la navegación integrada para llegar a la recolección y al destino. Consulta los
 detalles necesarios para completar cada servicio y revisa el resumen de tus
-ganancias.
+ganancias. Durante el piloto, los viajes se cobran en efectivo directamente al
+conductor; Operaciones concilia semanalmente los importes pendientes.
 
 Con Yavoi! Drive puedes:
 • Activar o desactivar tu disponibilidad de forma manual.
@@ -64,7 +65,7 @@ Con Yavoi! Drive puedes:
 • Navegar a la recolección y al destino dentro de la experiencia de Yavoi!.
 • Avisar llegada, iniciar y finalizar servicios.
 • Registrar cobros en efectivo y consultar el detalle de cada viaje.
-• Revisar ingresos, billetera, comisiones, retenciones, incentivos y retiros.
+• Consultar el resumen de ingresos y las liquidaciones que concilia Operaciones.
 • Mantener tus documentos y datos de conductor listos para revisión de Operaciones.
 
 El uso de Yavoi! Drive requiere autorización previa de Operaciones. La
