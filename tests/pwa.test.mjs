@@ -34,7 +34,7 @@ test("PWA manifest and platform icons are complete", async () => {
 });
 
 test("installed PWA checks for releases and reloads after the new worker takes control", () => {
-  assert.match(serviceWorker, /yavoi-shell-v7/);
+  assert.match(serviceWorker, /yavoi-shell-v8/);
   assert.match(landing, /updateViaCache:'none'/);
   assert.match(portal, /updateViaCache: "none"/);
   assert.match(landing, /controllerchange/);
@@ -52,6 +52,7 @@ test("landing and portal advertise the PWA and the new access call to action", a
   for (const html of [landing, portal]) {
     assert.match(html, /manifest\.webmanifest/);
     assert.match(html, /apple-touch-icon/);
+    assert.match(html, /icons\/yavoi-192\.png/);
   }
   assert.match(landing, /¡Entra ya!/);
   assert.match(worker, /request\.method !== "GET"/);
