@@ -5,6 +5,7 @@ import Leaflet from "leaflet";
 import { createIcons, icons } from "lucide";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { AppLauncher } from "@capacitor/app-launcher";
+import { registerPlugin } from "@capacitor/core";
 import { authProviderSettings, db, rpc, inboxRpc, registerNativePushToken } from "./client.js";
 import { createGoogleNonce, loadGoogleIdentity, validGoogleClientId } from "./google-auth.js";
 import {
@@ -59,6 +60,7 @@ const GOOGLE_MAP_ID = String(import.meta.env.VITE_GOOGLE_MAP_ID || "").trim();
 // VAPID public keys are intentionally public. The matching private key only
 // exists in Supabase Edge Function secrets and signs the delivery request.
 const WEB_PUSH_VAPID_PUBLIC_KEY = String(import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY || "BPP4SxptAGWXO4pfNp5yZ4Qa75ouZDZNXG3UjLnl3pC2wJ9d1HpTkR1r8zZ4YGvtLAEd0IZ_-GkfadDOAohUmcs").trim();
+const YavoiNavigation = registerPlugin("YavoiNavigation");
 let nativePushSetupPromise = null;
 let nativePushRegistrationError = null;
 let L = Leaflet;
@@ -1482,7 +1484,32 @@ async function beginDriverNavigation(trip, reserved = null) {
     notify("Navegación de Yavoi! activa. Puedes abrir Google Maps si necesitas guía por voz.");
     return true;
   }
-  return launchDriverNavigation(trip, reserved);
+  const target = navigationTarget(trip);
+  try {
+    if (target.lat === null || target.lng === null) throw Error("No encontramos coordenadas para este destino.");
+    const result = await YavoiNavigation.start({
+      tripId: trip.id,
+      stage: target.stage,
+      destination: target.label,
+      lat: target.lat,
+      lng: target.lng,
+      paymentMethod: trip.payment_method || "cash",
+    });
+    releaseNavigationWindow(reserved);
+    if (result?.action && result.action !== "resume") {
+      // The native activity never mutates a trip directly. It returns to this
+      // verified web flow so Supabase remains the source of truth.
+      S.busy = false;
+      await handleAction(result.action, document.body);
+    }
+    return true;
+  } catch (error) {
+    releaseNavigationWindow(reserved);
+    // Native SDK may be unavailable while an internal build is awaiting its
+    // restricted key. Google Maps remains a usable fallback for the driver.
+    notify("Abriremos Google Maps mientras se configura la navegación nativa.");
+    return launchDriverNavigation(trip);
+  }
 }
 function driverMapNavigationMarkup(trip, conductor) {
   if (!conductor || !["accepted", "arrived", "in_progress"].includes(trip.status)) return "";

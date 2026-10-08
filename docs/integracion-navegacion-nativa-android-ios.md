@@ -1,7 +1,7 @@
 # Integración nativa de navegación para Yavoi! Drive
 
-**Estado:** pendiente de integrar en los contenedores nativos Android e iOS.  
-**Última actualización:** 7 de octubre de 2026.
+**Estado:** Android integrado y compilado; activación en dispositivo pendiente de clave Android restringida. iOS pendiente.
+**Última actualización:** 8 de octubre de 2026.
 
 ## Objetivo
 
@@ -39,27 +39,37 @@ Servicios ya habilitados o previstos:
 - La clave Android debe restringirse por el certificado SHA-1 de **Play App Signing** y por el paquete `mx.yavoi.conductor`.
 - Nunca guardar claves de Google en el repositorio ni mostrarlas en la interfaz.
 
-## Android: trabajo pendiente
+## Android: integrado en Yavoi! Drive
 
-1. Abrir el proyecto de conductor en `mobile/driver/android` con Android Studio.
-2. Confirmar el identificador de aplicación `mx.yavoi.conductor`.
-3. Obtener la huella SHA-1 de Play App Signing desde Google Play Console tras cargar la primera compilación firmada.
-4. Crear o restringir la clave Android con el paquete y esa huella.
-5. Agregar Navigation SDK for Android y su clave mediante secretos locales o configuración de compilación; no en código fuente.
-6. Crear un puente Capacitor, por ejemplo `YavoiNavigation`, que reciba:
-   - `tripId`
-   - etapa: `pickup` o `destination`
-   - coordenadas y texto del destino
-   - datos resumidos del pasajero y servicio
-7. Presentar la navegación como pantalla o vista nativa sobre el mapa.
-8. Mantener visibles estos controles nativos:
-   - **Avisar que ya llegué** durante recolección.
-   - **Iniciar viaje** cuando el conductor llegó.
-   - **Finalizar y recolectar dinero** para viajes en efectivo.
-   - **Finalizar viaje** para pago electrónico.
-   - **Abrir detalle**, mensajes, seguridad y nuevas solicitudes.
-9. En cada cambio de etapa, actualizar el destino de la sesión de navegación sin cerrar la vista.
-10. Al detectar llegada mediante geocerca y GPS, regresar al panel operativo del viaje y conservar el estado que confirme el servidor.
+La versión `1.0.3` (`versionCode` 4) incorpora el Navigation SDK for Android en el contenedor Capacitor de Yavoi! Drive.
+
+- `YavoiNavigationPlugin` recibe la etapa, el viaje y las coordenadas desde la interfaz web.
+- `YavoiNavigationActivity` muestra `SupportNavigationFragment` de Google: guía giro a giro, voz, ETA, trayecto, indicador de velocidad y recálculo de ruta nativos.
+- Una tarjeta Yavoi! superpuesta conserva los controles **Avisar que ya llegué**, **Iniciar viaje**, **Finalizar y recolectar dinero** o **Finalizar viaje**, según la etapa y método de pago.
+- Al terminar cada interacción se devuelve a la interfaz de Yavoi! para aplicar la transición que valida el servidor.
+- Las notificaciones existentes siguen disponibles mientras está abierta la navegación.
+- El paquete firmado se genera en `mobile/driver/android/app/build/outputs/bundle/release/app-release.aab`.
+
+### Configuración obligatoria antes de subir esta versión a Play
+
+1. En Play Console, abrir **Integridad de la app > Firma de apps** y copiar el SHA-1 del **certificado de firma de la aplicación** (no el de carga).
+2. En Google Cloud, crear o actualizar una clave Android restringida a `mx.yavoi.conductor`, ese SHA-1 y las APIs **Navigation SDK for Android** y **Maps SDK for Android**.
+3. En el equipo de compilación, agregar la clave sin comillas a `mobile/driver/android/local.properties`:
+
+   ```properties
+   YAVOI_NAVIGATION_API_KEY=clave_android_restringida
+   ```
+
+   También se admite la variable de entorno `YAVOI_NAVIGATION_API_KEY` durante la compilación. El archivo está ignorado por Git.
+4. Compilar y subir de nuevo el AAB. Sin esta clave, la aplicación compila pero la navegación nativa no podrá cargar en un dispositivo.
+
+### Clave de carga
+
+La clave de carga de Drive está disponible, coincide con la configuración `release` y se verificó al firmar el AAB de versión 4. Su certificado SHA-1 es `24:5B:EF:5A:35:BE:37:34:D6:9B:F3:C4:AF:78:4D:AF:99:0D:5C:90`. Esta huella sirve para la carga local; para la clave de Maps distribuida por Play se utiliza la huella de **firma de la aplicación** mostrada por Play Console.
+
+### Android Auto
+
+La integración de teléfono queda preparada para compartir el mismo contrato de viaje y las transiciones validadas por el servidor. Android Auto requiere una integración adicional de Google en vista previa: `CarAppService`, la biblioteca Android for Cars y `NavigationViewForAuto`, además de la aprobación específica de Google para apps de navegación. No se declara soporte de Android Auto en esta compilación hasta completar esa revisión, para que las pruebas internas no presenten una función incompleta.
 
 ## iOS: trabajo pendiente
 

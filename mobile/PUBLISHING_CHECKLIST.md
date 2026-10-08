@@ -23,7 +23,7 @@ deben respaldarse en un almacén seguro de Yavoi! antes de publicar.
 | Aplicación | SHA-1 de la firma de carga |
 | --- | --- |
 | Yavoi! | `4E:F5:34:08:96:66:6B:F1:45:91:2E:38:61:5A:34:E1:29:AC:58:CC` |
-| Yavoi! Drive | `83:00:E6:9F:EB:9A:F0:F8:0C:DB:9A:34:71:2D:89:1D:96:4C:22:3D` |
+| Yavoi! Drive | `24:5B:EF:5A:35:BE:37:34:D6:9B:F3:C4:AF:78:4D:AF:99:0D:5C:90` |
 
 ## Estado en Google Play Console
 
@@ -34,8 +34,7 @@ interna. Ambas aparecen como disponibles para verificadores internos y sin
 revisión; Google Play mostrará el nombre temporal del paquete hasta que se
 complete la ficha y la revisión de cada aplicación.
 
-La siguiente compilación preparada en el proyecto es `1.0.2` (`versionCode`
-3) para ambas apps, con el piloto de efectivo y la conciliación manual semanal.
+La siguiente compilación de **Yavoi! Drive** es `1.0.3` (`versionCode` 4): integra el Navigation SDK nativo. Requiere configurar una clave Android restringida antes de cargarla. La versión de Pasajero se mantiene independiente.
 
 La prueba interna admite hasta 100 personas, pero no queda disponible hasta
 crear el segmento de verificadores. Para solicitar acceso a producción, Google

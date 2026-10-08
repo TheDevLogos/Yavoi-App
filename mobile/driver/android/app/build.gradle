@@ -6,6 +6,13 @@ if (releasePropertiesFile.exists()) {
     releasePropertiesFile.withInputStream { releaseProperties.load(it) }
 }
 
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+def navigationApiKey = System.getenv('YAVOI_NAVIGATION_API_KEY') ?: localProperties.getProperty('YAVOI_NAVIGATION_API_KEY', '')
+
 android {
     namespace = "mx.yavoi.conductor"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -13,14 +20,20 @@ android {
         applicationId "mx.yavoi.conductor"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.0.2"
+        versionCode 4
+        versionName "1.0.3"
+        manifestPlaceholders = [YAVOI_NAVIGATION_API_KEY: navigationApiKey]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
+    }
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
     }
     signingConfigs {
         release {
@@ -59,6 +72,11 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+
+    // Navigation SDK replaces the native Maps SDK for the guided driver experience.
+    implementation 'com.google.android.libraries.navigation:navigation:7.9.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs_nio:2.1.5'
 }
 
 apply from: 'capacitor.build.gradle'
