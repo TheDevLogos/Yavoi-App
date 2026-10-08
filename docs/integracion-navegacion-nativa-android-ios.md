@@ -50,18 +50,20 @@ La versión `1.0.3` (`versionCode` 4) incorpora el Navigation SDK for Android en
 - Las notificaciones existentes siguen disponibles mientras está abierta la navegación.
 - El paquete firmado se genera en `mobile/driver/android/app/build/outputs/bundle/release/app-release.aab`.
 
-### Configuración obligatoria antes de subir esta versión a Play
+### Configuración aplicada y cierre de seguridad pendiente
 
-1. En Play Console, abrir **Integridad de la app > Firma de apps** y copiar el SHA-1 del **certificado de firma de la aplicación** (no el de carga).
-2. En Google Cloud, crear o actualizar una clave Android restringida a `mx.yavoi.conductor`, ese SHA-1 y las APIs **Navigation SDK for Android** y **Maps SDK for Android**.
-3. En el equipo de compilación, agregar la clave sin comillas a `mobile/driver/android/local.properties`:
+Se creó `Yavoi Drive Android Navigation` con acceso limitado a **Navigation SDK** y **Maps SDK for Android**. La clave se agregó al equipo de compilación sin incluirla en Git.
+
+1. En Play Console, abrir la versión que se firme con Play y copiar el SHA-1 del **certificado de firma de la aplicación** (no el de carga).
+2. Editar esta misma clave en Google Cloud y restringirla a `mx.yavoi.conductor` y a ese SHA-1.
+3. La clave ya está guardada sin comillas en `mobile/driver/android/local.properties`:
 
    ```properties
    YAVOI_NAVIGATION_API_KEY=clave_android_restringida
    ```
 
    También se admite la variable de entorno `YAVOI_NAVIGATION_API_KEY` durante la compilación. El archivo está ignorado por Git.
-4. Compilar y subir de nuevo el AAB. Sin esta clave, la aplicación compila pero la navegación nativa no podrá cargar en un dispositivo.
+4. Se recompiló el AAB firmado con esta clave. Tras publicar la versión interna, aplicar la restricción de aplicación indicada en los pasos 1 y 2.
 
 ### Clave de carga
 
