@@ -462,8 +462,8 @@ test("passenger price and driver contractual earnings stay distinct on trip deta
 test("driver income is compact and filterable by period and concept", () => {
   assert.match(portal, /EFECTIVO COBRADO/);
   assert.match(portal, /PAGOS ELECTRÓNICOS/);
-  assert.match(portal, /SALDO ELECTRÓNICO REGISTRADO/);
-  assert.match(portal, /retiro bancario automático todavía no está habilitado/);
+  assert.match(portal, /LIQUIDACIÓN/);
+  assert.match(portal, /No hay saldo retirable ni pagos con tarjeta desde la app/);
   assert.ok(css.includes(".driver-money-summary"));
   assert.match(portal, /class="panel profile-section income-movements/);
   assert.match(portal, /data-ledger-period="today"/);

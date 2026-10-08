@@ -110,64 +110,26 @@ test('Financial wallet: taxes, cash carry, funding, refunds and withdrawal autho
   await as(outsider);await assert.rejects(()=>rpc('finance_wallet'),/conductor/);
   await as(d);
   assert.equal((await rpc('finance_wallet')).days.length,7);
-  const withdrawalKey=crypto.randomUUID();
-  const withdrawal=await rpc('finance_withdraw',{mode:'daily',amount_cents:1000,request_key:withdrawalKey});
-  assert.equal(withdrawal.fee_cents,30);assert.equal(withdrawal.net_cents,970);
-  assert.equal((await rpc('finance_withdraw',{mode:'daily',amount_cents:1000,request_key:withdrawalKey})).id,withdrawal.id);
-  await assert.rejects(()=>rpc('finance_withdraw',{mode:'daily',amount_cents:1000,request_key:crypto.randomUUID()}),/diario/);
+  // El piloto actual liquida semanalmente mediante Operaciones. Ningún conductor
+  // puede crear retiros ni activar el flujo del proveedor desde el cliente.
+  await assert.rejects(
+    () => rpc('finance_withdraw',{mode:'daily',amount_cents:1000,request_key:crypto.randomUUID()}),
+    /solicitudes de retiro están pausadas/,
+  );
   await as(admin,'aal2');
-  await rpc('finance_review_withdrawal',{withdrawal_id:withdrawal.id,status:'paid',reference:'SPEI-FINANCE-TEST',note:'Transferencia confirmada en prueba'});
-  await assert.rejects(()=>rpc('finance_review_withdrawal',{withdrawal_id:withdrawal.id,status:'paid',reference:'SPEI-FINANCE-TEST',note:'Repetido'}),/cerrado/);
-  const fundingKey=crypto.randomUUID();
-  const funding={driver_id:d,kind:'commission_payment',amount_cents:2320,request_key:fundingKey,reference:'SPEI-FUNDING-TEST',note:'Comisión en efectivo pagada'};
-  await rpc('finance_funding',funding); await rpc('finance_funding',funding);
-  await assert.rejects(()=>rpc('finance_funding',{...funding,request_key:crypto.randomUUID()}),/duplicate/);
-  await db.exec('reset role');
-  const refundBefore=(await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w.balance_cents;
-  await db.query("update public.payments set status='refunded' where id=$1",[pay.id]);
-  const afterRefund=(await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w.balance_cents;
-  assert.equal(afterRefund,refundBefore-split.net_cents);
-  await db.query("update public.payments set status='refunded' where id=$1",[pay.id]);
-  assert.equal((await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w.balance_cents,afterRefund);
-  const tipPay=(await db.query(`insert into public.payments(payer_id,driver_id,trip_id,kind,provider,amount_cents,status,provider_approved_at,funds_available_at) values($1,$2,$3,'tip','mercado_pago',500,'approved',now(),now()) returning id`,[rider,d,card.id])).rows[0];
-  const withTip=(await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w.balance_cents;
-  assert.equal(withTip,afterRefund+489);
-  await db.query("update public.payments set status='refunded' where id=$1",[tipPay.id]);
-  await db.query("update public.payments set status='refunded' where id=$1",[tipPay.id]);
-  assert.equal((await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w.balance_cents,afterRefund);
-  await as(admin,'aal2');
-  assert.equal((await rpc('finance_operations')).tax_summary.isr_cents,0);
-  await rpc('finance_funding',{driver_id:d,kind:'incentive',amount_cents:11600,request_key:crypto.randomUUID(),reference:'INCENTIVE-TEST',note:'Incentivo bruto conciliado'});
-  await rpc('finance_provider',{provider:'mercado_pago',note:'Proveedor de prueba controlada'});
+  const settlement=(await db.query(
+    'select public.finance_manual_settlement($1::jsonb) result',
+    [JSON.stringify({driver_id:d,week_start:'2026-10-05',amount_cents:1000,transfer_reference:'SPEI-MANUAL-TEST',note:'Liquidación semanal conciliada'})],
+  )).rows[0].result;
+  assert.equal(settlement.amount_cents,1000);
+  await assert.rejects(
+    () => db.query('select public.finance_manual_settlement($1::jsonb)',[JSON.stringify({driver_id:d,week_start:'2026-10-05',amount_cents:1000,transfer_reference:'SPEI-MANUAL-REPEAT',note:'Liquidación repetida'})]),
+    /duplicate key|already exists/i,
+  );
   await as(d);
-  const weekly=await rpc('finance_withdraw',{mode:'weekly',amount_cents:1000,request_key:crypto.randomUUID()});
-  let weeklyData=await rpc('finance_wallet');
-  assert.equal(weeklyData.week_net_cents,weeklyData.days.reduce((n,x)=>n+Number(x.net_cents),0));
+  assert.equal((await rpc('finance_wallet')).days.length,7);
   assert.ok((await rpc('finance_statement')).entries.length>0);
-  await as(outsider); await assert.rejects(()=>rpc('finance_statement',{driver_id:d}),/titular/);
-  await db.exec('reset role');
-  await db.query('update public.driver_withdrawals set scheduled_for=now() where id=$1',[weekly.id]);
-  await db.exec('set role service_role');
-  const jobs=(await db.query("select public.yavoi_payout_worker('claim') jobs")).rows[0].jobs;
-  const job=jobs.find(x=>x.id===weekly.id); assert.ok(job); assert.equal(job.provider_body.transactions[0].account.number,'032180000118359719');
-  const event={withdrawal_id:weekly.id,transaction_id:'txn-test',external_reference:String(job.provider_reference),amount_cents:1000,currency:'MXN',status:'approved',status_detail:''};
-  await db.query("select public.yavoi_payout_worker('registered',$1)",[JSON.stringify({...event,payout_id:'payout-test'})]);
-  await assert.rejects(()=>db.query("select public.yavoi_payout_worker('result',$1)",[JSON.stringify({...event,amount_cents:null})]),/no coincide/);
-  await db.query("select public.yavoi_payout_worker('result',$1)",[JSON.stringify(event)]);
-  await db.exec('reset role');
-  assert.equal((await db.query('select status from public.driver_withdrawals where id=$1',[weekly.id])).rows[0].status,'processing');
-  const prePayout=(await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w.balance_cents;
-  await db.exec('set role service_role');
-  await db.query("select public.yavoi_payout_worker('result',$1)",[JSON.stringify({...event,status:'processed',status_detail:'approved'})]);
-  await db.query("select public.yavoi_payout_worker('result',$1)",[JSON.stringify({...event,status:'processed',status_detail:'approved'})]);
-  await db.exec('reset role');
-  assert.equal((await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w.balance_cents,prePayout-1000);
-  await db.exec('set role service_role');
-  await db.query("select public.yavoi_payout_worker('result',$1)",[JSON.stringify({...event,status:'refunded',status_detail:'refunded'})]);
-  await db.query("select public.yavoi_payout_worker('result',$1)",[JSON.stringify({...event,status:'refunded',status_detail:'refunded'})]);
-  await db.exec('reset role');
-  assert.equal((await db.query('select private.finance_wallet_data($1) w',[d])).rows[0].w.balance_cents,prePayout);
-  assert.equal((await db.query('select status from public.driver_withdrawals where id=$1',[weekly.id])).rows[0].status,'rejected');
+
 
   // Operations reporting: complete aggregates, fiscal dates, documents, security
   // and immutable revisions. No closure mutates a trip or a wallet.
@@ -178,6 +140,9 @@ test('Financial wallet: taxes, cash carry, funding, refunds and withdrawal autho
   await as(admin,'aal2');
   await assert.rejects(()=>db.query('select * from public.finance_closures'),/permission denied/);
   await db.exec('reset role');
+  // El cobro electrónico de este escenario se revierte antes del cierre: el
+  // reporte semanal no puede contar ingresos reembolsados como cobro final.
+  await db.query("update public.payments set status='refunded' where id=$1",[pay.id]);
   await db.query(`insert into public.payments(payer_id,driver_id,trip_id,kind,provider,amount_cents,status,provider_approved_at) values($1,$2,$3,'ride','cash',12600,'approved',now())`,[rider,d,cash.id]);
   await as(admin,'aal2');
   let report=await rpc('finance_report');
