@@ -61,6 +61,7 @@ const GOOGLE_MAP_ID = String(import.meta.env.VITE_GOOGLE_MAP_ID || "").trim();
 // exists in Supabase Edge Function secrets and signs the delivery request.
 const WEB_PUSH_VAPID_PUBLIC_KEY = String(import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY || "BPP4SxptAGWXO4pfNp5yZ4Qa75ouZDZNXG3UjLnl3pC2wJ9d1HpTkR1r8zZ4YGvtLAEd0IZ_-GkfadDOAohUmcs").trim();
 const YavoiNavigation = registerPlugin("YavoiNavigation");
+const YavoiGoogleAuth = registerPlugin("YavoiGoogleAuth");
 let nativePushSetupPromise = null;
 let nativePushRegistrationError = null;
 let L = Leaflet;
@@ -252,6 +253,7 @@ const socialIcons = {
 };
 function googleAuthMarkup() {
   if (S.socialProviders.google && validGoogleClientId(GOOGLE_CLIENT_ID)) {
+    if (isNativeApp()) return `<button type="button" class="native-google-button" id="native-google-button">${socialIcons.google}<span>Continuar con Google</span></button>`;
     return '<div id="google-button" class="google-auth-host"><span>Cargando acceso seguro de Google...</span></div>';
   }
   const detail = validGoogleClientId(GOOGLE_CLIENT_ID)
@@ -315,6 +317,24 @@ async function renderOfficialGoogleButton(view) {
     unavailable.textContent = "Google no está disponible en este momento";
     host.append(unavailable);
     notify(errorMessage(error));
+  }
+}
+async function nativeGoogleSignIn(view) {
+  if (S.busy) return;
+  S.busy = true;
+  authLoading = true;
+  try {
+    const response = await YavoiGoogleAuth.signIn({ serverClientId: GOOGLE_CLIENT_ID });
+    const token = String(response?.idToken || "");
+    if (!token) throw new Error("Google no entregó un identificador de acceso válido.");
+    const { error } = await db.auth.signInWithIdToken({ provider: "google", token });
+    if (error) throw error;
+    await loadSession();
+  } catch (error) {
+    authPage(view, errorMessage(error));
+  } finally {
+    S.busy = false;
+    authLoading = false;
   }
 }
 function iconsNow() {
@@ -820,10 +840,11 @@ function authPage(view = "login", message = "") {
         ? "Elige una nueva contraseña"
         : "Bienvenido a Yavoi!";
   $("#app").innerHTML =
-    `<div class="auth-layout"><aside class="auth-art"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><h1>Tu ciudad.<br>Tu camino.<br><span>Tu Yavoi!</span></h1><p>${targetRole === "driver" ? "Conduce con una cuenta autorizada. Tus solicitudes, ingresos y navegación se mantienen en un solo lugar." : targetRole === "passenger" ? "Pide y sigue tus viajes con una cuenta personal, precio claro y atención en cada etapa." : "Una sola cuenta para moverte o conducir. Tu espacio, tu información y el control de cada viaje."}</p><div class="auth-values"><div>${I("shield-check")} Acceso personal y datos protegidos</div><div>${I("banknote")} Precio claro antes de confirmar</div><div>${I("map-pin")} Hecho para Delicias y su gente</div></div></aside><main class="auth-main"><div class="auth-box"><img class="auth-logo-mobile" src="/assets/yavoi-logo.png" alt="Yavoi!"><a class="top-back" href="/">${I("arrow-left")} Volver a Yavoi!</a><div class="eyebrow">${e(appName.toUpperCase())}</div><h2>${title}</h2><p>${signup ? targetRole ? `Crea tu acceso para ${e(targetRole === "driver" ? "conducir" : "pedir viajes")}.` : "Crea tu acceso. Después podrás completar tu perfil de pasajero o conductor." : forgot ? "Te enviaremos un enlace si existe una cuenta con ese correo." : recovery ? "Usa al menos 12 caracteres y una contraseña que no utilices en otro lugar." : targetRole ? `Ingresa con tu cuenta de ${e(targetRole === "driver" ? "conductor" : "pasajero")}.` : "Ingresa con tu cuenta. Te llevaremos al espacio que corresponde a tu perfil."}</p>${message ? `<div class="hint" role="status">${e(message)}</div>` : ""}${!forgot && !recovery ? `<div class="social-auth">${googleAuthMarkup()}</div><div class="auth-divider"><span>o usa tu correo</span></div>` : ""}<form id="auth-form">${!recovery ? '<label>Correo electrónico<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="tu@correo.com"></label>' : ""}${!forgot ? `<label>Contraseña<input name="password" type="password" autocomplete="${signup || recovery ? "new-password" : "current-password"}" required minlength="${signup || recovery ? 12 : 1}" maxlength="128" placeholder="${signup || recovery ? "Al menos 12 caracteres" : "Tu contraseña"}"></label>` : ""}${signup ? `<label>Código de invitación <small>(opcional)</small><input name="referral_code" maxlength="10" pattern="YV[A-Fa-f0-9]{8}" value="${e(S.referralCode)}" placeholder="YV1234ABCD"></label><label class="check"><input required type="checkbox" name="consent">Entiendo que mi cuenta es personal y que debo verificar mi correo.</label>` : ""}<button class="btn wide" type="submit">${signup ? "Crear cuenta" : forgot ? "Enviar enlace" : recovery ? "Guardar contraseña" : "Ingresar"}${I("arrow-right")}</button></form><div class="auth-links"><button class="link" id="auth-switch">${signup || forgot || recovery ? "Ya tengo cuenta" : "Crear una cuenta"}</button>${!signup && !forgot && !recovery ? '<button class="link" id="forgot">Olvidé mi contraseña</button>' : ""}</div><p class="auth-note">Tu navegador puede guardar la contraseña en su administrador seguro. Nunca la guardamos en el historial de viajes.</p></div></main></div>`;
+    `<div class="auth-layout"><aside class="auth-art"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><h1>Tu ciudad.<br>Tu camino.<br><span>Tu Yavoi!</span></h1><p>${targetRole === "driver" ? "Conduce con una cuenta autorizada. Tus solicitudes, ingresos y navegación se mantienen en un solo lugar." : targetRole === "passenger" ? "Pide y sigue tus viajes con una cuenta personal, precio claro y atención en cada etapa." : "Una sola cuenta para moverte o conducir. Tu espacio, tu información y el control de cada viaje."}</p><div class="auth-values"><div>${I("shield-check")} Acceso personal y datos protegidos</div><div>${I("banknote")} Precio claro antes de confirmar</div><div>${I("map-pin")} Hecho para Delicias y su gente</div></div></aside><main class="auth-main"><div class="auth-box"><img class="auth-logo-mobile" src="/assets/yavoi-logo.png" alt="Yavoi!"><div class="auth-mobile-journey"><img src="${targetRole === "driver" ? "/assets/landing-characters/driver-services-character.png" : "/assets/landing-characters/passengers-plan-trip.png"}" alt=""><span>${targetRole === "driver" ? "Conduce a tu ritmo" : "Tu raite, al instante"}</span></div><a class="top-back" href="/">${I("arrow-left")} Volver a Yavoi!</a><div class="eyebrow">${e(appName.toUpperCase())}</div><h2>${title}</h2><p>${signup ? targetRole ? `Crea tu acceso para ${e(targetRole === "driver" ? "conducir" : "pedir viajes")}.` : "Crea tu acceso. Después podrás completar tu perfil de pasajero o conductor." : forgot ? "Te enviaremos un enlace si existe una cuenta con ese correo." : recovery ? "Usa al menos 12 caracteres y una contraseña que no utilices en otro lugar." : targetRole ? `Ingresa con tu cuenta de ${e(targetRole === "driver" ? "conductor" : "pasajero")}.` : "Ingresa con tu cuenta. Te llevaremos al espacio que corresponde a tu perfil."}</p>${message ? `<div class="hint" role="status">${e(message)}</div>` : ""}${!forgot && !recovery ? `<div class="social-auth">${googleAuthMarkup()}</div><div class="auth-divider"><span>o usa tu correo</span></div>` : ""}<form id="auth-form">${!recovery ? '<label>Correo electrónico<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="tu@correo.com"></label>' : ""}${!forgot ? `<label>Contraseña<input name="password" type="password" autocomplete="${signup || recovery ? "new-password" : "current-password"}" required minlength="${signup || recovery ? 12 : 1}" maxlength="128" placeholder="${signup || recovery ? "Al menos 12 caracteres" : "Tu contraseña"}"></label>` : ""}${signup ? `<label>Código de invitación <small>(opcional)</small><input name="referral_code" maxlength="10" pattern="YV[A-Fa-f0-9]{8}" value="${e(S.referralCode)}" placeholder="YV1234ABCD"></label><label class="check"><input required type="checkbox" name="consent">Entiendo que mi cuenta es personal y que debo verificar mi correo.</label>` : ""}<button class="btn wide" type="submit">${signup ? "Crear cuenta" : forgot ? "Enviar enlace" : recovery ? "Guardar contraseña" : "Ingresar"}${I("arrow-right")}</button></form><div class="auth-links"><button class="link" id="auth-switch">${signup || forgot || recovery ? "Ya tengo cuenta" : "Crear una cuenta"}</button>${!signup && !forgot && !recovery ? '<button class="link" id="forgot">Olvidé mi contraseña</button>' : ""}</div><p class="auth-note">Tu navegador puede guardar la contraseña en su administrador seguro. Nunca la guardamos en el historial de viajes.</p></div></main></div>`;
   iconsNow();
   if (!forgot && !recovery && S.socialProviders.google && validGoogleClientId(GOOGLE_CLIENT_ID)) {
-    renderOfficialGoogleButton(view);
+    if (isNativeApp()) $("#native-google-button")?.addEventListener("click", () => nativeGoogleSignIn(view));
+    else renderOfficialGoogleButton(view);
   }
   $("#auth-switch").onclick = () => authPage(view === "login" ? "signup" : "login");
   $("#forgot")?.addEventListener("click", () => authPage("forgot"));

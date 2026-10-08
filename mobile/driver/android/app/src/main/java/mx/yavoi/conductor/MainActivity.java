@@ -7,5 +7,6 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(android.os.Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         registerPlugin(YavoiNavigationPlugin.class);
+        registerPlugin(YavoiGoogleAuthPlugin.class);
     }
 }

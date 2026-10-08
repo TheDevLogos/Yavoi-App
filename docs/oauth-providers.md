@@ -1,6 +1,6 @@
 # Activar acceso con Google
 
-La aplicación integra Google Identity Services con el botón oficial generado por Google. El navegador recibe una credencial de identidad, Supabase la valida y crea o recupera la sesión. Cada intento usa un nonce aleatorio: Google recibe su huella SHA-256 y Supabase recibe el valor original. El Client Secret nunca llega al navegador ni se guarda en el repositorio. Por ahora no se muestran accesos de Microsoft ni Apple.
+La aplicación integra Google Identity Services con el botón oficial generado por Google en la web. En Android, Yavoi! usa el selector nativo de cuentas de Google: el navegador integrado no se usa para OAuth. El token de identidad llega a Supabase, que valida y crea o recupera la sesión. Cada intento web usa un nonce aleatorio: Google recibe su huella SHA-256 y Supabase recibe el valor original. El Client Secret nunca llega al navegador ni se guarda en el repositorio. Por ahora no se muestran accesos de Microsoft ni Apple.
 
 El correo `admin.yavoi@gmail.com` puede ser propietario del proyecto de Google Cloud y correo de soporte. No se necesita ni se debe compartir su contraseña. El rol de Operaciones se conserva por separado y nunca se obtiene por iniciar sesión con Google.
 
@@ -23,6 +23,17 @@ También se necesita definir en Google Auth Platform:
 - Política de Privacidad pública: `https://yavoi-app.vercel.app/privacidad`.
 - Condiciones del Servicio públicas: `https://yavoi-app.vercel.app/terminos`.
 
+## Android: clientes OAuth nativos
+
+Cada aplicación Android necesita su propio cliente OAuth de tipo **Android**. El paquete y la huella SHA-1 deben ser los de la firma de aplicaciones de Google Play; la clave de carga local no sirve para el acceso de una instalación distribuida por Play.
+
+| Aplicación | Paquete | SHA-1 de la firma de Play |
+| --- | --- | --- |
+| Yavoi! Drive | `mx.yavoi.conductor` | `ED:C4:D1:36:8B:2A:C2:15:EB:AC:3C:46:95:6E:E4:60:87:71:20:24` |
+| Yavoi! | `mx.yavoi.pasajero` | Copiarla desde **Play Console > Integridad de la app > Firma de apps** de Yavoi! |
+
+El cliente web existente continúa como `serverClientId`; no se sustituye por los clientes Android. Al crear ambos clientes, probar el selector nativo desde un dispositivo instalado por Play. La compilación Android inicia en `portal.html`, por lo que abre el acceso y nunca la landing de la PWA.
+
 ## Configuración exacta de Google
 
 1. Entrar a Google Cloud con la cuenta propietaria del proyecto y abrir **Google Auth Platform**. La propiedad puede permanecer en `alonsovl.logos@gmail.com`; usar `admin.yavoi@gmail.com` como soporte, contacto de desarrollador y usuario de prueba no transfiere la propiedad ni afecta OAuth.
@@ -34,6 +45,8 @@ También se necesita definir en Google Auth Platform:
 5. Confirmar que el Client ID mostrado arriba pertenece a ese cliente web.
 6. En Supabase, abrir **Authentication > Sign In / Providers > Google**, activar el proveedor y guardar ese Client ID junto con su Client Secret privado.
 7. Dejar la aplicación de Google en prueba mientras se valida con las cuentas autorizadas; después publicarla para usuarios externos.
+
+Para Android, además crear los dos clientes indicados arriba en **Clients > Create client > Android**. No hay que agregar `https://localhost` a los orígenes JavaScript: ya no se ejecuta OAuth web dentro de la app.
 
 El flujo oficial implementado no necesita iniciar el acceso mediante una URI de redirección de Supabase: el botón entrega el token al código de Yavoi! y éste lo intercambia con `signInWithIdToken`. Si en el futuro se agrega también el flujo OAuth con redirección, su callback será `https://asjlyureqokifjkpdwgc.supabase.co/auth/v1/callback`.
 
@@ -55,3 +68,4 @@ La pantalla consulta el estado público de Supabase. Sólo muestra el botón ofi
 6. Cancelar el selector de Google o bloquear cookies debe dejar la pantalla utilizable y sin sesión parcial.
 7. Revisar el modo móvil y confirmar que el botón no se corta ni rebasa el formulario.
 8. Operaciones debe seguir reservado a `admin.yavoi@gmail.com` y exigir autenticación en dos pasos.
+9. En una instalación interna desde Play, tocar **Continuar con Google** y confirmar que aparece el selector nativo de cuentas, sin abrir una pestaña ni mostrar `origin_mismatch`.

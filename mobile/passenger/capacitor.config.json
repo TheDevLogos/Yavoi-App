@@ -3,5 +3,11 @@
   "appName": "Yavoi!",
   "webDir": "../../dist",
   "bundledWebRuntime": false,
-  "android": { "allowMixedContent": false }
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https",
+    "appStartPath": "portal.html"
+  }
 }

@@ -59,6 +59,8 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+    // Native Google Sign-In avoids unsupported OAuth flows inside WebView.
+    implementation "com.google.android.gms:play-services-auth:21.2.0"
 }
 
 apply from: 'capacitor.build.gradle'

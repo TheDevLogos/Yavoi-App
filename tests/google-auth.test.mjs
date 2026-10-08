@@ -34,6 +34,9 @@ test("portal exchanges the Google credential directly with Supabase", async () =
     readFile(new URL("../src/portal.js", import.meta.url), "utf8"),
   );
   assert.match(portal, /accounts\.id\.renderButton/);
+  assert.match(portal, /registerPlugin\("YavoiGoogleAuth"\)/);
+  assert.match(portal, /YavoiGoogleAuth\.signIn/);
+  assert.match(portal, /if \(isNativeApp\(\)\).*native-google-button/);
   assert.match(portal, /signInWithIdToken/);
   assert.match(portal, /provider:\s*"google"/);
   assert.match(portal, /nonce:\s*raw/);
