@@ -67,7 +67,9 @@ Se creó `Yavoi Drive Android Navigation` con acceso limitado a **Navigation SDK
 
 ### Clave de carga
 
-La clave de carga de Drive está disponible, coincide con la configuración `release` y se verificó al firmar el AAB de versión 4. Su certificado SHA-1 es `24:5B:EF:5A:35:BE:37:34:D6:9B:F3:C4:AF:78:4D:AF:99:0D:5C:90`. Esta huella sirve para la carga local; para la clave de Maps distribuida por Play se utiliza la huella de **firma de la aplicación** mostrada por Play Console.
+La nueva clave de carga de Drive coincide con la configuración `release` y se verificó al firmar el AAB de versión 4. Su certificado SHA-1 es `24:5B:EF:5A:35:BE:37:34:D6:9B:F3:C4:AF:78:4D:AF:99:0D:5C:90`.
+
+El 8 de octubre de 2026 se solicitó en Play Console el restablecimiento de la clave de carga porque la clave anterior no está disponible. La consola confirma que la solicitud está pendiente. Hasta que Google la active, Play rechazará AAB firmados con la nueva clave; no hay una corrección local que sustituya esa aprobación. Tras su activación, se descarta el borrador que contiene el AAB firmado con una clave ajena y se carga el AAB de versión 4. Esta huella sirve para la carga local; para la clave de Maps distribuida por Play se utiliza la huella de **firma de la aplicación** mostrada por Play Console.
 
 ### Android Auto
 
