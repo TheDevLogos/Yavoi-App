@@ -111,9 +111,6 @@ const S = {
   roadRoute: null,
   units: [],
   selectedUnit: null,
-  cardEnabled: false,
-  mercadoPagoPublicKey: "",
-  mpController: null,
   trackingWatch: null,
   heartbeatTimer: null,
   latestPosition: null,
@@ -512,7 +509,7 @@ function presentDriverOfferAlert(offer) {
   const responseSeconds = Number.isFinite(expiresAt) ? Math.max(1, Math.min(8, Math.ceil((expiresAt - Date.now()) / 1000))) : 8;
   openModal(
     "Nueva solicitud",
-    `<section class="driver-offer-alert compact" role="alert" aria-live="assertive"><div class="driver-offer-alert-head"><span class="badge pending">NUEVO VIAJE</span><strong>Neto estimado ${money(offer.net_cents)}</strong></div><div class="offer-countdown" aria-label="Tiempo para responder"><span id="offer-countdown-bar"></span></div><div class="row between offer-countdown-copy"><small>Decide en <strong id="offer-countdown-seconds">${responseSeconds}</strong> s</small><small>${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min</small></div><div id="offer-route-map" class="offer-route-map" aria-label="Mapa del recorrido programado"></div><div class="route-line">${I("circle-dot")}${e(offer.origin)}</div><div class="route-line destination">${I("map-pin")}${e(offer.destination)}</div><div class="driver-offer-legal"><span>Yavoi! ${e(S.categories.find((category) => category.id === offer.category)?.name || offer.category)}</span><span>${offer.party_size} pasajero${Number(offer.party_size) === 1 ? "" : "s"}</span><span>${offer.payment_method === "card" ? "Pago electrónico" : "Pago en efectivo"}</span></div>${offerFinanceDetail(offer.financial_breakdown)}<div class="offer-decisions compact"><button class="btn danger" type="button" id="reject-driver-offer">Rechazar ${I("x")}</button><button class="btn" type="button" id="accept-driver-offer">Aceptar ${I("check")}</button></div></section>`,
+    `<section class="driver-offer-alert compact" role="alert" aria-live="assertive"><div class="driver-offer-alert-head"><span class="badge pending">NUEVO VIAJE</span><strong>Neto estimado ${money(offer.net_cents)}</strong></div><div class="offer-countdown" aria-label="Tiempo para responder"><span id="offer-countdown-bar"></span></div><div class="row between offer-countdown-copy"><small>Decide en <strong id="offer-countdown-seconds">${responseSeconds}</strong> s</small><small>${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min</small></div><div id="offer-route-map" class="offer-route-map" aria-label="Mapa del recorrido programado"></div><div class="route-line">${I("circle-dot")}${e(offer.origin)}</div><div class="route-line destination">${I("map-pin")}${e(offer.destination)}</div><div class="driver-offer-legal"><span>Yavoi! ${e(S.categories.find((category) => category.id === offer.category)?.name || offer.category)}</span><span>${offer.party_size} pasajero${Number(offer.party_size) === 1 ? "" : "s"}</span><span>${"Pago en efectivo al finalizar"}</span></div>${offerFinanceDetail(offer.financial_breakdown)}<div class="offer-decisions compact"><button class="btn danger" type="button" id="reject-driver-offer">Rechazar ${I("x")}</button><button class="btn" type="button" id="accept-driver-offer">Aceptar ${I("check")}</button></div></section>`,
   );
   renderOfferRouteMap(offer).catch(() => {});
   let remaining = responseSeconds;
@@ -996,8 +993,7 @@ async function loadSession() {
   S.transportComplianceAvailable = b.transport_compliance_version === "2026-09-15";
   if (!S.transportComplianceAvailable) S.transportCompliance = null;
   S.categories = b.categories || [];
-  S.cardEnabled = false;
-  S.mercadoPagoPublicKey = b.mercado_pago_public_key || "";
+
   if (!S.profile.onboarding_complete) {
     onboarding();
     requestInitialLocation();
@@ -2044,151 +2040,24 @@ function paymentModal() {
   const tripRewards = (S.data.marketing?.rewards_enabled === false ? [] : S.data.reward_wallet?.redemptions || []).filter(
     (reward) => reward.status === "available" && rewardEligibleForTrip(reward, q),
   );
-  const pickupBasis =
-    q.preferred_driver_id
-      ? "Unidad elegida por ti"
-      : q.estimate_source === "nearby_online_unit"
-      ? "Unidad disponible cercana"
-      : "Referencia operativa de la zona";
-  const transparentFare =
-    Number(category?.base_cents || 0) +
-    Number(q.distance_charge_cents || 0) +
-    Number(q.time_charge_cents || 0) +
-    Number(q.minimum_adjustment_cents || 0) +
-    Number(q.pickup_surcharge_cents || 0) +
-    Number(q.zone_surcharge_cents || 0) +
-    Number(q.accessibility_surcharge_cents || 0) + Number(q.financial_terms?.dynamic_cents || 0);
-  if (transparentFare !== Number(q.fare_cents)) {
-    S.quote = null;
-    notify("La cotización no pasó la validación de suma. Calcula nuevamente para proteger tu cobro.");
-    return;
-  }
-  const rewardOptions = tripRewards.length
-    ? `<label>Aplicar recompensa<select name="reward_code"><option value="">No aplicar en este viaje</option>${tripRewards.map((reward) => `<option value="${e(reward.code)}">${e(reward.name)} · ${e(reward.code)}</option>`).join("")}</select></label>`
-    : `<p class="hint">Aún no tienes recompensas disponibles para aplicar a este viaje. Puedes conseguirlas en Puntos Viajeros.</p>`;
-  const assignmentMessage = q.preferred_driver_id
-    ? "Usaremos la unidad que seleccionaste para este viaje."
-    : "Al confirmar, buscaremos automáticamente la unidad compatible más cercana que esté disponible.";
-  openModal(
-    "Tu viaje, con todo claro",
-    `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.distance_km)} km · ${q.trip_eta_minutes} min</strong><span>${zoneLabel(q.service_zone)}</span></div></div>${q.scheduled_at ? `<div class="scheduled-confirmation">${I("calendar-check")}<div><strong>${q.recurrence === "once" ? "Viaje programado" : `${q.recurrence_count} viajes programados`}</strong><small>${date(q.scheduled_at)}${q.recurrence !== "once" ? ` · ${e({ daily: "diarios", weekly: "semanales", monthly: "mensuales" }[q.recurrence])}` : ""}</small></div></div>` : ""}<p class="hint">El precio usa la distancia y duración estimadas por el servidor. Puede variar en una nueva cotización por tráfico, cierre de calles o disponibilidad.</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Distancia · ${decimal(q.distance_km)} km</span><span>${money(q.distance_charge_cents)}</span></div><div class="receipt-row"><span>Tiempo estimado · ${q.trip_eta_minutes} min</span><span>${money(q.time_charge_cents)}</span></div>${q.minimum_adjustment_cents ? `<div class="receipt-row"><span>Ajuste a tarifa mínima</span><span>${money(q.minimum_adjustment_cents)}</span></div>` : ""}${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Unidad elegida a más de 7 km · sólo excedente</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Servicio para personas con alguna discapacidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}${q.financial_terms?.dynamic_cents ? `<div class="receipt-row"><span>Demanda · ${(q.financial_terms.dynamic_bps / 10000).toFixed(2)}×</span><strong>${money(q.financial_terms.dynamic_cents)}</strong></div>` : ""}<div class="receipt-row"><span>IVA incluido · 16%</span><span id="fare-vat-preview">${money(q.fare_vat_cents ?? (q.fare_cents - Math.round(q.fare_cents / 1.16)))}</span></div><div class="receipt-row reward-discount-row hidden"><span id="reward-preview-name">Recompensa</span><strong id="reward-preview-value">-$0.00</strong></div><div class="receipt-row"><span>Propina voluntaria</span><strong id="tip-preview">$0.00</strong></div><div class="receipt-row total"><span>Total</span><strong id="total-preview">${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>Tu recompensa</h3>${rewardOptions}<h3>Agrega una propina (opcional)</h3><div class="tip-options"><label><input type="radio" name="tip" value="0" checked>Sin propina</label><label><input type="radio" name="tip" value="10">10%</label><label><input type="radio" name="tip" value="15">15%</label><label><input type="radio" name="tip" value="custom">Otro</label></div><label id="custom-tip-label" class="hidden">Propina (MXN)<input name="custom_tip" type="number" min="1" max="1000" step="0.01"></label><h3>¿Cómo quieres pagar?</h3><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo al finalizar el viaje</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input id="card-payment-choice" type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago ${S.cardEnabled ? "" : "· no disponible durante el piloto"}</label><p class="hint">El piloto opera con efectivo al finalizar cada viaje. Los pagos con tarjeta aún no están habilitados.</p><div id="cash-options"><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="3000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p></div><div class="automatic-assignment-note">${I("car")}<div><strong>Asignación al confirmar</strong><small>${assignmentMessage}</small></div></div><label class="check payment-consent"><input name="confirm_terms" type="checkbox" required><span>Confirmo la tarifa, el método de pago y las condiciones de cancelación.</span></label>${S.transportComplianceAvailable ? `<label class="check payment-consent"><input name="confirm_transport_terms" type="checkbox" required><span>Autorizo el registro de identidad, ruta GPS, comunicaciones, pago y eventos de este servicio durante al menos cinco años. Antes y durante el viaje podré consultar conductor, fotografía, unidad, placas, tarifa, ubicación y tiempo estimado.</span></label>` : ""}<button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`,
-  );
-  const tipCents = () => {
-    const choice = $('[name=tip]:checked').value;
-    return choice === "custom" ? cents($('[name=custom_tip]').value || 0) : Math.round(q.fare_cents * Number(choice) / 100);
-  };
+  const pickupBasis = q.preferred_driver_id ? "Unidad elegida por ti" : q.estimate_source === "nearby_online_unit" ? "Unidad disponible cercana" : "Referencia operativa de la zona";
+  const transparentFare = Number(category?.base_cents || 0) + Number(q.distance_charge_cents || 0) + Number(q.time_charge_cents || 0) + Number(q.minimum_adjustment_cents || 0) + Number(q.pickup_surcharge_cents || 0) + Number(q.zone_surcharge_cents || 0) + Number(q.accessibility_surcharge_cents || 0) + Number(q.financial_terms?.dynamic_cents || 0);
+  if (transparentFare !== Number(q.fare_cents)) { S.quote = null; notify("La cotización no pasó la validación de suma. Calcula nuevamente para proteger tu cobro."); return; }
+  const rewardOptions = tripRewards.length ? `<label>Aplicar recompensa<select name="reward_code"><option value="">No aplicar en este viaje</option>${tripRewards.map((reward) => `<option value="${e(reward.code)}">${e(reward.name)} · ${e(reward.code)}</option>`).join("")}</select></label>` : `<p class="hint">Aún no tienes recompensas disponibles para aplicar a este viaje. Puedes conseguirlas en Puntos Viajeros.</p>`;
+  const assignmentMessage = q.preferred_driver_id ? "Usaremos la unidad que seleccionaste para este viaje." : "Al confirmar, buscaremos automáticamente la unidad compatible más cercana que esté disponible.";
+  openModal("Tu viaje, con todo claro", `<div class="route-line">${I("circle-dot")}${e(q.origin)}</div><div class="route-line destination">${I("map-pin")}${e(q.destination)}</div><div class="estimate-grid"><div><small>Conductor a recogerte</small><strong>${decimal(q.pickup_distance_km)} km · ${q.pickup_eta_minutes} min</strong><span>${pickupBasis}</span></div><div><small>Tu recorrido</small><strong>${decimal(q.distance_km)} km · ${q.trip_eta_minutes} min</strong><span>${zoneLabel(q.service_zone)}</span></div></div>${q.scheduled_at ? `<div class="scheduled-confirmation">${I("calendar-check")}<div><strong>${q.recurrence === "once" ? "Viaje programado" : `${q.recurrence_count} viajes programados`}</strong><small>${date(q.scheduled_at)}${q.recurrence !== "once" ? ` · ${e({ daily: "diarios", weekly: "semanales", monthly: "mensuales" }[q.recurrence])}` : ""}</small></div></div>` : ""}<p class="hint">El precio usa la distancia y duración estimadas por el servidor. Puede variar en una nueva cotización por tráfico, cierre de calles o disponibilidad.</p><div class="fare-breakdown"><div class="receipt-row"><span>Inicio del servicio</span><span>${money(category?.base_cents)}</span></div><div class="receipt-row"><span>Distancia · ${decimal(q.distance_km)} km</span><span>${money(q.distance_charge_cents)}</span></div><div class="receipt-row"><span>Tiempo estimado · ${q.trip_eta_minutes} min</span><span>${money(q.time_charge_cents)}</span></div>${q.minimum_adjustment_cents ? `<div class="receipt-row"><span>Ajuste a tarifa mínima</span><span>${money(q.minimum_adjustment_cents)}</span></div>` : ""}${q.pickup_surcharge_cents ? `<div class="receipt-row"><span>Unidad elegida a más de 7 km · sólo excedente</span><span>${money(q.pickup_surcharge_cents)}</span></div>` : ""}${q.zone_surcharge_cents ? `<div class="receipt-row"><span>Ajuste por ${zoneLabel(q.service_zone).toLowerCase()}</span><span>${money(q.zone_surcharge_cents)}</span></div>` : ""}${q.accessibility_surcharge_cents ? `<div class="receipt-row"><span>Servicio para personas con alguna discapacidad</span><span>${money(q.accessibility_surcharge_cents)}</span></div>` : ""}${q.financial_terms?.dynamic_cents ? `<div class="receipt-row"><span>Demanda · ${(q.financial_terms.dynamic_bps / 10000).toFixed(2)}×</span><strong>${money(q.financial_terms.dynamic_cents)}</strong></div>` : ""}<div class="receipt-row"><span>IVA incluido · 16%</span><span id="fare-vat-preview">${money(q.fare_vat_cents ?? (q.fare_cents - Math.round(q.fare_cents / 1.16)))}</span></div><div class="receipt-row reward-discount-row hidden"><span id="reward-preview-name">Recompensa</span><strong id="reward-preview-value">-$0.00</strong></div><div class="receipt-row"><span>Propina voluntaria en efectivo</span><strong id="tip-preview">$0.00</strong></div><div class="receipt-row total"><span>Total a pagar al conductor</span><strong id="total-preview">${money(q.fare_cents)}</strong></div></div><form id="payment"><h3>Tu recompensa</h3>${rewardOptions}<h3>Agrega una propina (opcional)</h3><div class="tip-options"><label><input type="radio" name="tip" value="0" checked>Sin propina</label><label><input type="radio" name="tip" value="10">10%</label><label><input type="radio" name="tip" value="15">15%</label><label><input type="radio" name="tip" value="custom">Otro</label></div><label id="custom-tip-label" class="hidden">Propina (MXN)<input name="custom_tip" type="number" min="1" max="1000" step="0.01"></label><h3>Pago al finalizar</h3><p class="hint">Pagarás directamente en efectivo al conductor al finalizar. Yavoi! no guarda tarjetas, cuentas ni datos de pago.</p><div id="cash-options"><label class="check"><input id="need-change" type="checkbox">Voy a necesitar cambio</label><label id="tender-label" class="hidden">Pagaré con (MXN)<input name="cash_tender" type="number" step="0.01" min="${q.fare_cents / 100}" max="3000" value="${q.fare_cents / 100}"></label><p id="change-preview" class="hint">Paga el importe exacto al llegar a tu destino.</p></div><div class="automatic-assignment-note">${I("car")}<div><strong>Asignación al confirmar</strong><small>${assignmentMessage}</small></div></div><label class="check payment-consent"><input name="confirm_terms" type="checkbox" required><span>Confirmo la tarifa, el pago en efectivo y las condiciones de cancelación.</span></label>${S.transportComplianceAvailable ? `<label class="check payment-consent"><input name="confirm_transport_terms" type="checkbox" required><span>Autorizo el registro de identidad, ruta GPS, comunicaciones y eventos de este servicio durante al menos cinco años. Antes y durante el viaje podré consultar conductor, fotografía, unidad, placas, tarifa, ubicación y tiempo estimado.</span></label>` : ""}<button class="btn wide" type="submit">Confirmar y solicitar ${I("arrow-right")}</button></form>`);
+  const tipCents = () => { const choice = $('[name=tip]:checked').value; return choice === "custom" ? cents($('[name=custom_tip]').value || 0) : Math.round(q.fare_cents * Number(choice) / 100); };
   const selectedReward = () => tripRewards.find((reward) => reward.code === $('[name=reward_code]')?.value);
   const payableTotal = () => q.fare_cents - rewardDiscountCents(selectedReward(), q) + tipCents();
-  const updateTotal = () => {
-    let tip = 0;
-    try { tip = tipCents(); } catch {}
-    const reward = selectedReward();
-    const discount = rewardDiscountCents(reward, q);
-    const total = q.fare_cents - discount + tip;
-    $("#custom-tip-label").classList.toggle("hidden", $('[name=tip]:checked').value !== "custom");
-    $("#tip-preview").textContent = money(tip);
-    $(".reward-discount-row").classList.toggle("hidden", !reward);
-    $("#reward-preview-name").textContent = reward?.kind === "ride_amenity" ? `Amenidad · ${reward.name}` : `Recompensa · ${reward?.name || ""}`;
-    $("#reward-preview-value").textContent = discount ? `-${money(discount)}` : "Incluida";
-    $("#total-preview").textContent = money(total);
-    if ($("#fare-vat-preview")) $("#fare-vat-preview").textContent = money(q.fare_cents - discount - Math.round((q.fare_cents - discount) / 1.16));
-    $("#card-payment-choice").disabled = !S.cardEnabled || total === 0;
-    if (total === 0 && $("#card-payment-choice").checked) $('[name=payment_method][value=cash]').checked = true;
-    $('[name=cash_tender]').min = total / 100;
-    if (!$("#need-change").checked) $('[name=cash_tender]').value = total / 100;
-    $("#cash-options").classList.toggle("hidden", $('[name=payment_method]:checked').value === "card");
-    updateChange();
-  };
+  const updateTotal = () => { let tip = 0; try { tip = tipCents(); } catch {} const reward = selectedReward(); const discount = rewardDiscountCents(reward, q); const total = q.fare_cents - discount + tip; $("#custom-tip-label").classList.toggle("hidden", $('[name=tip]:checked').value !== "custom"); $("#tip-preview").textContent = money(tip); $(".reward-discount-row").classList.toggle("hidden", !reward); $("#reward-preview-name").textContent = reward?.kind === "ride_amenity" ? `Amenidad · ${reward.name}` : `Recompensa · ${reward?.name || ""}`; $("#reward-preview-value").textContent = discount ? `-${money(discount)}` : "Incluida"; $("#total-preview").textContent = money(total); if ($("#fare-vat-preview")) $("#fare-vat-preview").textContent = money(q.fare_cents - discount - Math.round((q.fare_cents - discount) / 1.16)); $('[name=cash_tender]').min = total / 100; if (!$("#need-change").checked) $('[name=cash_tender]').value = total / 100; updateChange(); };
   $$('[name=tip]').forEach((input) => input.onchange = updateTotal);
   $('[name=custom_tip]').oninput = updateTotal;
   $('[name=reward_code]')?.addEventListener("change", updateTotal);
-  $$('[name=payment_method]').forEach((input) => input.onchange = () => $("#cash-options").classList.toggle("hidden", input.value === "card" && input.checked));
-  $("#need-change").onchange = (ev) => {
-    $("#tender-label").classList.toggle("hidden", !ev.target.checked);
-    if (!ev.target.checked) $("[name=cash_tender]").value = q.fare_cents / 100;
-    updateChange();
-  };
-  function updateChange() {
-    try {
-      $("#change-preview").textContent =
-        "Cambio estimado: " + money(changeDue(payableTotal(), cents($("[name=cash_tender]").value)));
-    } catch {}
-  }
+  $("#need-change").onchange = (ev) => { $("#tender-label").classList.toggle("hidden", !ev.target.checked); if (!ev.target.checked) $("[name=cash_tender]").value = payableTotal() / 100; updateChange(); };
+  function updateChange() { try { $("#change-preview").textContent = "Cambio estimado: " + money(changeDue(payableTotal(), cents($("[name=cash_tender]").value))); } catch {} }
   $("[name=cash_tender]").oninput = updateChange;
   const requestKey = crypto.randomUUID();
-  bindForm("#payment", async (v) => {
-    const tip = tipCents();
-    const method = v.payment_method;
-    const total = payableTotal();
-    const t = await rpc("request_trip", {
-      quote_id: q.id,
-      request_key: requestKey,
-      payment_method: method,
-      cash_tender_cents: method === "cash" ? ($("#need-change").checked ? cents(v.cash_tender) : total) : null,
-      tip_cents: tip,
-      preferred_driver_id: q.preferred_driver_id,
-      reward_code: v.reward_code || null,
-      planned_route: q.planned_route,
-      recurrence: q.recurrence || "once",
-      recurrence_count: q.recurrence_count || 1,
-      ...(S.transportComplianceAvailable ? {
-        confirm_transport_terms: v.confirm_transport_terms === "on",
-        regulatory_terms_version: TRANSPORT_TERMS_VERSION,
-      } : {}),
-    });
-    closeModal();
-    const scheduled = Boolean(t.scheduled_at || q.scheduled_at);
-    S.scheduleConfirmation = scheduled
-      ? {
-          trip_id: t.id,
-          recurrence: t.recurrence || q.recurrence || "once",
-          scheduled_count: Number(t.scheduled_count || q.recurrence_count || 1),
-        }
-      : null;
-    S.quote = null;
-    S.data.ride_draft = null;
-    if (t.payment_method === "card" && t.total_cents > 0)
-      return cardCheckout(t.payment_id, t.id, t.total_cents, scheduled ? "schedule-confirmation" : "trip");
-    S.data = await rpc("dashboard");
-    location.hash = `${scheduled ? "schedule-confirmation" : "trip"}/${t.id}`;
-  });
-}
-async function loadMercadoPago() {
-  if (window.MercadoPago) return;
-  await new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://sdk.mercadopago.com/js/v2";
-    script.onload = resolve;
-    script.onerror = () => reject(new Error("No pudimos cargar el formulario seguro de Mercado Pago."));
-    document.head.append(script);
-  });
-}
-async function cardCheckout(paymentId, tripId, amountCents, approvedView = "trip") {
-  openModal("Pago seguro con tarjeta", `<div class="secure-payment">${I("shield-check")} Mercado Pago procesa los datos de tu tarjeta.</div><div id="card-payment-brick"><div class="hint">Cargando formulario seguro…</div></div>`);
-  try {
-    await loadMercadoPago();
-    const mp = new window.MercadoPago(S.mercadoPagoPublicKey, { locale: "es-MX" });
-    S.mpController = await mp.bricks().create("cardPayment", "card-payment-brick", {
-      initialization: { amount: amountCents / 100, payer: { email: S.user.email } },
-      customization: { visual: { style: { theme: "default" } }, paymentMethods: { maxInstallments: 1 } },
-      callbacks: {
-        onReady: () => {},
-        onError: () => notify("Revisa el formulario seguro de la tarjeta."),
-        onSubmit: async (formData) => {
-          const { data, error } = await db.functions.invoke("mercado-pago-payment", { body: { payment_id: paymentId, form_data: formData } });
-          if (error || data?.error) throw new Error(data?.error || error.message);
-          closeModal();
-          S.data = await rpc("dashboard");
-          location.hash = `${approvedView}/${tripId}`;
-          notify(data.status === "approved" ? (approvedView === "schedule-confirmation" ? "Pago aprobado. Tu programación quedó registrada." : "Pago aprobado. Buscamos tu unidad.") : "Mercado Pago está confirmando el pago.");
-        },
-      },
-    });
-  } catch (error) {
-    closeModal();
-    notify(errorMessage(error));
-    location.hash = "trip/" + tripId;
-  }
+  bindForm("#payment", async (v) => { const tip = tipCents(); const total = payableTotal(); const t = await rpc("request_trip", { quote_id: q.id, request_key: requestKey, payment_method: "cash", cash_tender_cents: $("#need-change").checked ? cents(v.cash_tender) : total, tip_cents: tip, preferred_driver_id: q.preferred_driver_id, reward_code: v.reward_code || null, planned_route: q.planned_route, recurrence: q.recurrence || "once", recurrence_count: q.recurrence_count || 1, ...(S.transportComplianceAvailable ? { confirm_transport_terms: v.confirm_transport_terms === "on", regulatory_terms_version: TRANSPORT_TERMS_VERSION } : {}) }); closeModal(); const scheduled = Boolean(t.scheduled_at || q.scheduled_at); S.scheduleConfirmation = scheduled ? { trip_id: t.id, recurrence: t.recurrence || q.recurrence || "once", scheduled_count: Number(t.scheduled_count || q.recurrence_count || 1) } : null; S.quote = null; S.data.ride_draft = null; S.data = await rpc("dashboard"); location.hash = `${scheduled ? "schedule-confirmation" : "trip"}/${t.id}`; });
 }
 function stats() {
   const ts = S.data.trips,
@@ -2386,7 +2255,7 @@ async function driverHome() {
 function scheduledTripsMarkup() {
   const scheduled = S.data.scheduling?.upcoming || [];
   if (!scheduled.length) return "";
-  return `<section class="panel scheduled-trips"><div class="row between wrap"><div><div class="eyebrow">VIAJES PROGRAMADOS</div><h2>${S.profile.role === "admin" ? "Aparta una unidad con anticipación" : "Próximos viajes programados"}</h2><p>${S.profile.role === "admin" ? "Asigna o libera conductores antes de la hora de salida." : "Tus fechas permanecen guardadas. Abre Ver viaje desde 15 minutos antes para seguir la unidad y usar el flujo normal."}</p></div>${I("calendar-clock")}</div><div class="scheduled-list">${scheduled.map((trip) => `<article class="scheduled-card"><div><strong>${e(trip.origin)}</strong><span>${I("arrow-down")} ${e(trip.destination)}</span><small>${date(trip.scheduled_at)} · Yavoi! ${e(S.categories.find((category) => category.id === trip.category)?.name || trip.category)} · ${money(trip.total_cents || 0)}</small>${trip.schedule_total > 1 ? `<small>Serie ${trip.schedule_sequence}/${trip.schedule_total}</small>` : ""}</div><div class="scheduled-actions">${S.profile.role === "admin" ? `<small>${trip.driver_name ? `Reservado: ${e(trip.driver_name)}` : "Sin conductor reservado"}</small><button class="btn secondary" type="button" data-action="assign-scheduled" data-trip-id="${e(trip.id)}">${trip.driver_id ? "Cambiar unidad" : "Asignar unidad"} ${I("user-round-check")}</button>` : `<span class="badge ${trip.payment_status === "paid" || trip.payment_method === "cash" ? "" : "pending"}">${trip.payment_method === "card" && trip.payment_status !== "paid" ? "Pago pendiente" : S.profile.role === "driver" && trip.driver_id === S.user.id ? "Asignado a ti" : trip.driver_id ? "Unidad reservada" : "Por asignar"}</span><a class="link" href="#trip/${e(trip.id)}">Ver viaje</a>`}</div></article>`).join("")}</div></section>`;
+  return `<section class="panel scheduled-trips"><div class="row between wrap"><div><div class="eyebrow">VIAJES PROGRAMADOS</div><h2>${S.profile.role === "admin" ? "Aparta una unidad con anticipación" : "Próximos viajes programados"}</h2><p>${S.profile.role === "admin" ? "Asigna o libera conductores antes de la hora de salida." : "Tus fechas permanecen guardadas. Abre Ver viaje desde 15 minutos antes para seguir la unidad y usar el flujo normal."}</p></div>${I("calendar-clock")}</div><div class="scheduled-list">${scheduled.map((trip) => `<article class="scheduled-card"><div><strong>${e(trip.origin)}</strong><span>${I("arrow-down")} ${e(trip.destination)}</span><small>${date(trip.scheduled_at)} · Yavoi! ${e(S.categories.find((category) => category.id === trip.category)?.name || trip.category)} · ${money(trip.total_cents || 0)}</small>${trip.schedule_total > 1 ? `<small>Serie ${trip.schedule_sequence}/${trip.schedule_total}</small>` : ""}</div><div class="scheduled-actions">${S.profile.role === "admin" ? `<small>${trip.driver_name ? `Reservado: ${e(trip.driver_name)}` : "Sin conductor reservado"}</small><button class="btn secondary" type="button" data-action="assign-scheduled" data-trip-id="${e(trip.id)}">${trip.driver_id ? "Cambiar unidad" : "Asignar unidad"} ${I("user-round-check")}</button>` : `<span class="badge ${trip.payment_status === "paid" || trip.payment_method === "cash" ? "" : "pending"}">${S.profile.role === "driver" && trip.driver_id === S.user.id ? "Asignado a ti" : trip.driver_id ? "Unidad reservada" : "Por asignar"}</span><a class="link" href="#trip/${e(trip.id)}">Ver viaje</a>`}</div></article>`).join("")}</div></section>`;
 }
 
 function scheduleCadence(trip, related) {
@@ -2420,7 +2289,7 @@ async function scheduledConfirmationView(id) {
   const knownTotal = related.reduce((sum, item) => sum + Number(item.total_cents || 0), 0);
   const seriesTotal = knownTotal || Number(t.total_cents || 0) * count;
   const category = S.categories.find((item) => item.id === t.category)?.name || t.category;
-  const paymentLabel = t.payment_method === "card" ? "Tarjeta con Mercado Pago" : "Efectivo al finalizar cada viaje";
+  const paymentLabel = "Efectivo al finalizar cada viaje";
   shell(
     `<section class="panel schedule-success"><div class="schedule-success-icon">${I("calendar-check")}</div><div class="eyebrow">PROGRAMACIÓN REGISTRADA</div><h2>Tu viaje quedó apartado</h2><p>Guardamos ${count === 1 ? "la salida" : `las ${count} salidas`} y su importe estimado. No buscaremos una unidad en esta pantalla.</p><div class="schedule-route"><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div></div><div class="schedule-summary-grid"><div><small>PRIMERA SALIDA</small><strong>${date(t.scheduled_at)}</strong></div><div><small>FRECUENCIA</small><strong>${e(cadenceNames[cadence])}</strong></div><div><small>POR VIAJE</small><strong>${money(t.total_cents || 0)}</strong></div><div><small>${count === 1 ? "TOTAL ESTIMADO" : "SERIE COMPLETA"}</small><strong>${money(seriesTotal)}</strong></div></div><div class="schedule-meta"><span>${I("car-front")} Yavoi! ${e(category)}</span><span>${I("wallet")} ${e(paymentLabel)}</span><span>${I("hash")} Folio ${e(t.id.slice(0, 8).toUpperCase())}</span></div><p class="hint schedule-charge-note">${count > 1 ? `El cargo aproximado es ${money(t.total_cents || 0)} por ${cadence === "daily" ? "día" : cadence === "weekly" ? "semana" : cadence === "monthly" ? "mes" : "salida"}; cada fecha se cobra por separado y la serie suma aproximadamente ${money(seriesTotal)}.` : `El cobro aproximado para esta salida es ${money(t.total_cents || 0)}.`} La tarifa confirmada de cada registro permanece visible en Mis viajes.</p><section class="schedule-recommendations"><h3>${I("bell-ring")} Antes de tu salida</h3><ul><li>Revisa WhatsApp: Operaciones puede enviarte un mensaje para confirmar los datos y la unidad.</li><li>Abre Yavoi! al menos 15 minutos antes. En Mis viajes, pulsa Ver viaje para seguir la unidad en vivo, ver al conductor y enviar mensajes.</li><li>Confirma que la fotografía, el vehículo y las placas coincidan antes de abordar.</li><li>Puedes cancelar antes de la activación sin cargo. Cuando la unidad se active, se aplican el periodo de gracia y las cuotas normales de cancelación.</li></ul></section><div class="schedule-success-actions"><a class="btn wide" href="#home">Salir y volver a Pedir un viaje ${I("arrow-right")}</a><a class="btn secondary wide" href="#trips">Ver mis viajes programados ${I("calendar-days")}</a></div></section>`,
     "Programación confirmada",
@@ -2448,7 +2317,7 @@ function scheduleWhatsAppNumber(phone = "") {
 }
 function scheduleWhatsAppMessage(trip) {
   const category = S.categories.find((item) => item.id === trip.category)?.name || trip.category;
-  const payment = trip.payment_method === "card" ? "tarjeta" : "efectivo";
+  const payment = "efectivo al finalizar";
   return `Hola ${trip.passenger_name}, somos Yavoi!. Queremos confirmar tu viaje programado para ${date(trip.scheduled_at)}.\n\nOrigen: ${trip.origin}\nDestino: ${trip.destination}\nServicio: Yavoi! ${category}\nPasajeros: ${trip.party_size || 1}\nImporte estimado: ${money(trip.total_cents)}\nPago: ${payment}\nFolio: ${String(trip.id).slice(0, 8).toUpperCase()}\n\nPor favor responde a este mensaje para confirmar que los datos son correctos.`;
 }
 function scheduleDriverCanCover(driverCategory, tripCategory) {
@@ -2528,7 +2397,7 @@ function openScheduledTrip(id) {
   const whatsapp = number ? `https://wa.me/${number}?text=${encodeURIComponent(scheduleWhatsAppMessage(trip))}` : "";
   openModal(
     `Viaje ${String(trip.id).slice(0, 8).toUpperCase()}`,
-    `<div class="scheduled-trip-detail"><div class="scheduled-detail-head"><span class="badge ${trip.operations_confirmed_at ? "" : "pending"}">${trip.operations_confirmed_at ? "Confirmado por Operaciones" : "Confirmación pendiente"}</span><strong>${date(trip.scheduled_at)}</strong></div><div class="route-line">${I("circle-dot")}${e(trip.origin)}</div><div class="route-line destination">${I("map-pin")}${e(trip.destination)}</div><div class="audit-detail-grid"><span><small>USUARIO</small><strong>${e(trip.passenger_name)}</strong><small>${e(trip.passenger_phone || "Sin teléfono")}</small></span><span><small>SERVICIO</small><strong>Yavoi! ${e(category)}</strong><small>${trip.party_size || 1} pasajeros</small></span><span><small>PAGO</small><strong>${trip.payment_method === "card" ? "Tarjeta" : "Efectivo"}</strong><small>${money(trip.total_cents)}</small></span><span><small>CONDUCTOR</small><strong>${e(trip.driver_name || "Sin conductor reservado")}</strong><small>${e(trip.vehicle || "")}${trip.plate ? ` · ${e(trip.plate)}` : ""}</small></span></div>${trip.service_notes ? `<div class="hint"><strong>Indicaciones:</strong> ${e(trip.service_notes)}</div>` : ""}<div class="meta-row"><span>${trip.women_only ? "Solicitó conductora" : "Sin preferencia de género"}</span><span>${trip.accessible ? "Servicio para discapacidad" : "Sin accesibilidad solicitada"}</span>${trip.schedule_total > 1 ? `<span>Serie ${trip.schedule_sequence}/${trip.schedule_total}</span>` : ""}</div>${whatsapp ? `<a class="btn whatsapp wide" href="${e(whatsapp)}" target="_blank" rel="noopener noreferrer">${I("message-circle")} Preparar mensaje en WhatsApp</a>` : '<p class="hint warning">El usuario no tiene un teléfono válido para preparar el mensaje.</p>'}${canAssignDriver ? `<form id="calendar-driver" class="calendar-action-form"><label>Conductor reservado<select name="driver_id">${scheduleDriverOptions(drivers, trip.category, trip.driver_id)}</select></label><p class="hint">Puedes reservar conductores conectados o fuera de línea y unidades compatibles de mayor capacidad. Las cuentas pendientes deberán reactivarse antes de la salida.</p><button class="btn secondary wide" type="submit">Guardar conductor ${I("user-round-check")}</button></form>` : '<p class="hint">La reserva de conductor se habilita cuando el viaje programado está confirmado y pendiente de liberarse.</p>'}${trip.operations_confirmed_at ? `<p class="hint">Confirmado ${date(trip.operations_confirmed_at)}${trip.operations_confirmation_note ? ` · ${e(trip.operations_confirmation_note)}` : ""}</p>` : `<form id="confirm-scheduled" class="calendar-action-form"><label>Nota de confirmación (opcional)<input name="note" maxlength="500" placeholder="Ej. Cliente confirmó por WhatsApp"></label><button class="btn wide" type="submit">Marcar viaje confirmado ${I("calendar-check")}</button></form>`}<a class="link scheduled-open-trip" href="#trip/${e(trip.id)}">Abrir ficha completa del viaje</a></div>`,
+    `<div class="scheduled-trip-detail"><div class="scheduled-detail-head"><span class="badge ${trip.operations_confirmed_at ? "" : "pending"}">${trip.operations_confirmed_at ? "Confirmado por Operaciones" : "Confirmación pendiente"}</span><strong>${date(trip.scheduled_at)}</strong></div><div class="route-line">${I("circle-dot")}${e(trip.origin)}</div><div class="route-line destination">${I("map-pin")}${e(trip.destination)}</div><div class="audit-detail-grid"><span><small>USUARIO</small><strong>${e(trip.passenger_name)}</strong><small>${e(trip.passenger_phone || "Sin teléfono")}</small></span><span><small>SERVICIO</small><strong>Yavoi! ${e(category)}</strong><small>${trip.party_size || 1} pasajeros</small></span><span><small>PAGO</small><strong>${"Efectivo al finalizar"}</strong><small>${money(trip.total_cents)}</small></span><span><small>CONDUCTOR</small><strong>${e(trip.driver_name || "Sin conductor reservado")}</strong><small>${e(trip.vehicle || "")}${trip.plate ? ` · ${e(trip.plate)}` : ""}</small></span></div>${trip.service_notes ? `<div class="hint"><strong>Indicaciones:</strong> ${e(trip.service_notes)}</div>` : ""}<div class="meta-row"><span>${trip.women_only ? "Solicitó conductora" : "Sin preferencia de género"}</span><span>${trip.accessible ? "Servicio para discapacidad" : "Sin accesibilidad solicitada"}</span>${trip.schedule_total > 1 ? `<span>Serie ${trip.schedule_sequence}/${trip.schedule_total}</span>` : ""}</div>${whatsapp ? `<a class="btn whatsapp wide" href="${e(whatsapp)}" target="_blank" rel="noopener noreferrer">${I("message-circle")} Preparar mensaje en WhatsApp</a>` : '<p class="hint warning">El usuario no tiene un teléfono válido para preparar el mensaje.</p>'}${canAssignDriver ? `<form id="calendar-driver" class="calendar-action-form"><label>Conductor reservado<select name="driver_id">${scheduleDriverOptions(drivers, trip.category, trip.driver_id)}</select></label><p class="hint">Puedes reservar conductores conectados o fuera de línea y unidades compatibles de mayor capacidad. Las cuentas pendientes deberán reactivarse antes de la salida.</p><button class="btn secondary wide" type="submit">Guardar conductor ${I("user-round-check")}</button></form>` : '<p class="hint">La reserva de conductor se habilita cuando el viaje programado está confirmado y pendiente de liberarse.</p>'}${trip.operations_confirmed_at ? `<p class="hint">Confirmado ${date(trip.operations_confirmed_at)}${trip.operations_confirmation_note ? ` · ${e(trip.operations_confirmation_note)}` : ""}</p>` : `<form id="confirm-scheduled" class="calendar-action-form"><label>Nota de confirmación (opcional)<input name="note" maxlength="500" placeholder="Ej. Cliente confirmó por WhatsApp"></label><button class="btn wide" type="submit">Marcar viaje confirmado ${I("calendar-check")}</button></form>`}<a class="link scheduled-open-trip" href="#trip/${e(trip.id)}">Abrir ficha completa del viaje</a></div>`,
   );
   if (canAssignDriver) {
     bindForm("#calendar-driver", async (values) => {
@@ -2618,7 +2487,7 @@ function tripPaymentName(trip) {
 }
 function tripRows(trips) {
   return trips.map((t) =>
-    `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small><small class="trip-person">${I("user-round")} ${e(tripPersonName(t))}</small></td><td>${badge(t)}</td><td>${t.payment_method === "card" ? "Tarjeta" : "Efectivo"}<small>${e(tripPaymentName(t))}</small></td><td>${money(t.total_cents ?? t.fare_cents)}</td><td>${t.rating_given ? `<span class="trip-rating-inline">${I("star")} ${t.rating_given}/5</span><small>Tu valoración</small>` : t.rating_received ? `<span class="trip-rating-inline">${I("star")} ${t.rating_received}/5</span><small>Valoración recibida</small>` : "<small>Sin valorar</small>"}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
+    `<tr><td><strong>${e(t.id.slice(0, 8).toUpperCase())}</strong><small>${date(t.created_at)}</small></td><td>${e(t.origin)}<small>${e(t.destination)}</small><small class="trip-person">${I("user-round")} ${e(tripPersonName(t))}</small></td><td>${badge(t)}</td><td>${"Efectivo al finalizar"}<small>${e(tripPaymentName(t))}</small></td><td>${money(t.total_cents ?? t.fare_cents)}</td><td>${t.rating_given ? `<span class="trip-rating-inline">${I("star")} ${t.rating_given}/5</span><small>Tu valoración</small>` : t.rating_received ? `<span class="trip-rating-inline">${I("star")} ${t.rating_received}/5</span><small>Valoración recibida</small>` : "<small>Sin valorar</small>"}</td><td><a class="link" href="#trip/${e(t.id)}">Ver viaje</a></td></tr>`,
   ).join("");
 }
 function tripHistoryCard(t) {
@@ -2670,7 +2539,7 @@ function tripsView() {
         || (tripDate && state.period === "week" && tripDate >= startOfWeek && tripDate < startOfTomorrow)
         || (tripDate && state.period === "month" && tripDate >= startOfMonth && tripDate < startOfNextMonth);
       const names = [t.passenger_name, t.driver_name, tripPersonName(t)].filter(Boolean);
-      const paymentMethod = t.payment_method === "card" ? "tarjeta pago electronico" : "efectivo";
+      const paymentMethod = "efectivo";
       const searchable = [
         t.id,
         tripFolio(t),
@@ -2807,8 +2676,8 @@ async function tripView(id) {
   const pendingAdjustmentPayment = adjustmentPayments.find((payment) => ["created", "pending", "in_process"].includes(payment.status));
   const cancellationPayment = S.trip.payments?.find((payment) => payment.kind === "cancellation_fee");
   const action =
-    t.status === "payment_pending" && rider && ridePayment
-      ? `${button("Continuar pago seguro", "retry-card", "wide", "credit-card")}${button("Cancelar solicitud", "cancel", "danger wide section-gap", "x")}`
+    t.status === "payment_pending" && rider
+      ? button("Cancelar solicitud", "cancel", "danger wide section-gap", "x")
       : t.status === "accepted" && conductor
       ? button("Ya llegué al punto", "arrive", "wide", "map-pin")
       : t.status === "arrived" && conductor
@@ -2816,10 +2685,10 @@ async function tripView(id) {
           ? `<form id="start-trip"><label>Código de inicio activado por el pasajero<input name="pin" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" minlength="4" maxlength="4" required placeholder="4 dígitos"></label><button class="btn wide" type="submit">Iniciar viaje ${I("navigation")}</button></form>`
           : button("Iniciar viaje", "start-trip", "wide", "navigation")
         : t.status === "in_progress" && conductor
-          ? button(t.payment_method === "cash" ? "Finalizar y recolectar dinero" : "Finalizar viaje", "finish", "wide", "flag")
+          ? button("Finalizar y recolectar dinero", "finish", "wide", "flag")
           : "";
   const statusMessage =
-    t.status === "payment_pending" ? "Completa o espera la confirmación de Mercado Pago antes de asignar una unidad."
+    t.status === "payment_pending" ? "La solicitud está siendo revisada por Operaciones antes de asignar una unidad."
       : t.status === "requested" ? "Buscamos un conductor disponible que cumpla tus preferencias."
         : t.status === "scheduled" ? (t.driver_id ? "Operaciones reservó una unidad. El conductor recibirá el recordatorio antes de tu salida." : "Tu solicitud se asignará cerca de la hora programada.")
           : t.status === "accepted" ? "Verifica la fotografía, el color, el modelo y las placas antes de abordar."
@@ -2845,21 +2714,15 @@ async function tripView(id) {
   const driverPaymentRow = S.profile.role === "driver"
     ? `<div class="receipt-row total driver-trip-earnings"><span>Tu ganancia</span><strong>${money(driverTripEarnings)}</strong></div><p class="hint">Incluye promociones por conciliar. Consulta comisión, impuestos y saldo confirmado en el detalle.</p>`
     : "";
-  let paymentRows = serviceDetails + (t.payment_method === "card"
-    ? `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · tarjeta</span>${payableTotal}</div>${adjustmentPayments.map(payment => `<div class="receipt-row"><span>Ajuste posterior · ${e({created:'pendiente de autorización',pending:'en proceso',in_process:'en proceso',approved:'pagado',rejected:'no aprobado',cancelled:'cancelado'}[payment.status] || payment.status)}</span><strong>${money(payment.amount_cents)}</strong></div>`).join('')}${pendingAdjustmentPayment && rider ? `<button class="btn secondary wide" data-action="pay-adjustment">Autorizar ajuste con tarjeta</button>` : ''}${pendingAdjustmentPayment && conductor ? '<p class="hint">El pasajero debe autorizar el ajuste de tarjeta antes de finalizar el viaje.</p>' : ''}<p class="hint">Estado del pago: ${e({ paid: "Confirmado", pending: "En proceso", failed: "No aprobado", refund_pending: "Reembolso en proceso", refunded: "Reembolsado" }[t.payment_status] || t.payment_status)}</p>`
-    : `<div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total · efectivo</span>${payableTotal}</div>${finalTripTotal > 0 ? `<div class="receipt-row"><span>Pago con</span><strong>${money(t.cash_tender_cents)}</strong></div><div class="receipt-row"><span>Cambio</span><strong>${money(changeDue(finalTripTotal, t.cash_tender_cents))}</strong></div>` : '<p class="hint">Viaje cubierto por tu recompensa. No entregues efectivo por la tarifa.</p>'}`);
+  let paymentRows = serviceDetails + `<section class="payment-summary"><h3>Pago del servicio</h3><div class="receipt-row"><span>Tarifa acordada</span><strong>${money(t.fare_cents)}</strong></div>${rewardPaymentRow}${t.tip_cents ? `<div class="receipt-row"><span>Propina en efectivo</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total a pagar al conductor</span>${payableTotal}</div>${adjustmentPayments.map(payment => `<div class="receipt-row"><span>Ajuste posterior · ${e({created:'pendiente de aceptación',pending:'pendiente de aceptación',in_process:'en revisión',approved:'aceptado',rejected:'no aprobado',cancelled:'cancelado'}[payment.status] || payment.status)}</span><strong>${money(payment.amount_cents)}</strong></div>`).join("")}<p class="hint">El pago se realiza directamente en efectivo al conductor al finalizar. Yavoi! no procesa tarjetas, cuentas, transferencias ni retiros.</p></section>`;
   if (t.status !== "cancelled") paymentRows += driverPaymentRow;
   paymentRows += financeTripDetail({ ...t, final_total_cents: finalTripTotal, waiting_charge: S.trip.waiting_charge, manual_adjustments_cents: S.trip.manual_adjustments_cents }, S.profile.role === "driver");
   const adjustments = S.trip.fare_adjustments || [];
   const acceptedAdjustments = Number(S.trip.accepted_adjustments_cents || 0);
   if ((rider || conductor) && ["accepted", "arrived", "in_progress"].includes(t.status)) paymentRows += `${waitingChargeMarkup(S.trip.waiting_charge)}<section class="finance-detail"><h3>Ajustes durante el viaje</h3>${adjustments.map(a => `<div class="receipt-row"><span>${e({detour:'Desvío',route_change:'Cambio de ruta',extra_pickup:'Recolección adicional'}[a.reason] || a.reason)} · ${e(a.status === 'pending' ? 'pendiente' : a.status === 'accepted' ? 'aceptado' : 'rechazado')}</span><strong>${money(a.amount_cents)}</strong></div>${a.status === 'pending' && a.proposed_by !== S.user.id ? `<div class="row wrap"><button class="btn secondary" data-adjustment-decision="accepted" data-adjustment-id="${e(a.id)}">Aceptar ajuste</button><button class="btn secondary" data-adjustment-decision="declined" data-adjustment-id="${e(a.id)}">Rechazar</button></div>` : ''}`).join('') || '<p class="hint">No hay otros ajustes solicitados.</p>'}${acceptedAdjustments ? `<div class="receipt-row total"><span>Otros ajustes aceptados</span><strong>${money(acceptedAdjustments)}</strong></div>` : ''}<button class="btn secondary" data-action="fare-adjustment">Solicitar ajuste</button><p class="hint">Los cambios de ruta, desvíos y recolecciones adicionales requieren aceptación de la otra persona. La espera se calcula automáticamente al llegar.</p></section>`;
   if (t.status === "cancelled") {
-    const feeStatus = cancellationPayment
-      ? ({ pending: "Pendiente de confirmar", approved: "Confirmada", cancelled: "Condonada" }[cancellationPayment.status] || cancellationPayment.status)
-      : Number(t.cancellation_fee_cents || 0) > 0 && t.payment_method === "card"
-        ? "Retenida del pago electrónico"
-        : "Sin cargo";
-    paymentRows = `${serviceDetails}<section class="cancellation-summary"><h3>Detalle de cancelación</h3><div class="receipt-row"><span>Importe original</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div><div class="receipt-row"><span>Cuota de cancelación</span><strong>${money(t.cancellation_fee_cents || 0)}</strong></div>${t.payment_method === "card" ? `<div class="receipt-row"><span>Reembolso</span><strong>${money(t.cancellation_refund_cents || 0)}</strong></div>` : ""}<div class="receipt-row"><span>Estado</span><strong>${e(feeStatus)}</strong></div><p class="hint">${e(t.cancel_reason || "Sin motivo registrado.")} · Política ${e(t.cancellation_policy_version || "vigente al cancelar")}.</p></section>`;
+    const feeStatus = cancellationPayment ? ({ pending: "Pendiente de confirmar", approved: "Confirmada", cancelled: "Condonada" }[cancellationPayment.status] || cancellationPayment.status) : "Sin cargo";
+    paymentRows = `${serviceDetails}<section class="cancellation-summary"><h3>Detalle de cancelación</h3><div class="receipt-row"><span>Importe original</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div><div class="receipt-row"><span>Cuota de cancelación</span><strong>${money(t.cancellation_fee_cents || 0)}</strong></div><div class="receipt-row"><span>Estado</span><strong>${e(feeStatus)}</strong></div><p class="hint">${e(t.cancel_reason || "Sin motivo registrado.")} · Política ${e(t.cancellation_policy_version || "vigente al cancelar")}.</p></section>`;
   }
   if (S.profile.role === "admin" && S.trip.operations) {
     const operations = S.trip.operations;
@@ -2867,7 +2730,7 @@ async function tripView(id) {
     const collected = Number(operations.paid_cents || 0);
     const difference = collected - expected;
     const ledger = operations.ledger || [];
-    paymentRows += `<section class="reconciliation"><div class="row between"><h3>Conciliación del viaje</h3><span class="badge ${difference === 0 && collected > 0 ? "" : "pending"}">${difference === 0 && collected > 0 ? "Conciliado" : t.status === "completed" ? "Revisar diferencia" : "En proceso"}</span></div><div class="receipt-row"><span>Importe esperado</span><strong>${money(expected)}</strong></div><div class="receipt-row"><span>Cobro confirmado</span><strong>${money(collected)}</strong></div><div class="receipt-row"><span>Diferencia</span><strong>${money(difference)}</strong></div><div class="receipt-row"><span>Ingreso neto del conductor</span><strong>${money(t.financial_breakdown?.contractual_net_cents ?? operations.driver_net_cents)}</strong></div><div class="receipt-row"><span>Método y estado</span><strong>${t.payment_method === "card" ? "Mercado Pago" : "Efectivo"} · ${e(t.payment_status)}</strong></div><div class="receipt-row"><span>Eventos del proveedor</span><strong>${(operations.payment_events || []).length}</strong></div><p class="hint">Pasajero: ${e(passenger?.name || "Sin dato")} · ${e(operations.passenger_phone || "sin teléfono")}<br>Conductor: ${e(driver?.name || "Sin asignar")} · ${e(operations.driver_phone || "sin teléfono")}<br>Movimientos contables: ${ledger.length}</p></section>`;
+    paymentRows += `<section class="reconciliation"><div class="row between"><h3>Conciliación del viaje</h3><span class="badge ${difference === 0 && collected > 0 ? "" : "pending"}">${difference === 0 && collected > 0 ? "Conciliado" : t.status === "completed" ? "Revisar diferencia" : "En proceso"}</span></div><div class="receipt-row"><span>Importe esperado</span><strong>${money(expected)}</strong></div><div class="receipt-row"><span>Cobro confirmado</span><strong>${money(collected)}</strong></div><div class="receipt-row"><span>Diferencia</span><strong>${money(difference)}</strong></div><div class="receipt-row"><span>Ingreso neto del conductor</span><strong>${money(t.financial_breakdown?.contractual_net_cents ?? operations.driver_net_cents)}</strong></div><div class="receipt-row"><span>Cobro</span><strong>Efectivo conciliado por Operaciones</strong></div><p class="hint">Pasajero: ${e(passenger?.name || "Sin dato")} · ${e(operations.passenger_phone || "sin teléfono")}<br>Conductor: ${e(driver?.name || "Sin asignar")} · ${e(operations.driver_phone || "sin teléfono")}<br>Movimientos contables: ${ledger.length}</p></section>`;
   }
   let geo = "Sin señal GPS del conductor. No se muestra una ubicación inventada.";
   if (loc)
@@ -2980,170 +2843,32 @@ const settlementStatusName = { pending: "Pendiente", submitted: "En revisión", 
 function driverBillingCard() {
   const d = S.driver || {};
   const weekly = d.billing_mode !== "commission";
-  return `<details class="panel profile-section billing-summary"><summary><span>${I("circle-dollar-sign")}<strong>Tu modalidad actual</strong></span><span class="badge">${weekly ? money(d.weekly_fee_cents || 50000) + " por semana" : "Comisión por viaje"}</span>${I("chevron-down")}</summary><div class="profile-section-body"><h2>${weekly ? "Aportación semanal" : "Comisión por viaje"}</h2><div class="grid2 billing-rules"><div>${I("banknote")}<span><small>VIAJES EN EFECTIVO</small><strong>${weekly ? "Sin comisión por viaje" : `${Number(d.cash_commission_bps ?? 2000) / 100}% de comisión`}</strong><p>${weekly ? "No generan comisión adicional." : `${Number(d.cash_commission_bps ?? 2000) / 100}% se liquida semanalmente a Yavoi!.`}</p></span></div><div>${I("wallet")}<span><small>CONCILIACIÓN SEMANAL</small><strong>Gestión manual por Operaciones</strong><p>Las comisiones y aportaciones acordadas se concilian aparte del efectivo que recibes.</p></span></div></div><p class="hint">La tarjeta está desactivada durante el piloto. Las cifras de esta sección describen el acuerdo comercial; no determinan impuestos, retenciones ni CFDI. Operaciones administra la modalidad y revisa los saldos semanalmente.</p></div></details>`;
+  return `<details class="panel profile-section billing-summary"><summary><span>${I("circle-dollar-sign")}<strong>Tu modalidad actual</strong></span><span class="badge">${weekly ? money(d.weekly_fee_cents || 50000) + " por semana" : "Comisión por viaje"}</span>${I("chevron-down")}</summary><div class="profile-section-body"><h2>${weekly ? "Aportación semanal" : "Comisión por viaje"}</h2><div class="grid2 billing-rules"><div>${I("banknote")}<span><small>VIAJES REGISTRADOS</small><strong>${weekly ? "Cuota semanal aplicable" : `${Number(d.cash_commission_bps ?? 2000) / 100}% de comisión`}</strong><p>${weekly ? "Operaciones determina la cuota al cierre semanal." : "Operaciones calcula la comisión al cierre semanal."}</p></span></div><div>${I("calendar-check")}<span><small>REVISIÓN CON OPERACIONES</small><strong>Corte semanal informativo</strong><p>Consulta el detalle de cada viaje y la cuota aplicable en tu corte.</p></span></div></div><p class="hint">Las cifras describen el acuerdo comercial y el cálculo fiscal interno. La aplicación no administra operaciones financieras.</p></div></details>`;
 }
 function driverSettlementsMarkup() {
   const settlements = S.data.commission_settlements || [];
-  if (S.driver?.billing_mode !== "commission") return "";
-  const pending = settlements.filter((item) => ["pending", "overdue", "submitted"].includes(item.status)).length;
-  return `<details class="panel profile-section section-gap income-section"><summary><span>${I("calendar-check")}<strong>Liquidación semanal de efectivo</strong></span><span class="badge ${pending ? "pending" : ""}">${pending} por conciliar</span>${I("chevron-down")}</summary><div class="profile-section-body"><p>Transfiere únicamente la comisión Yavoi! de los viajes que cobraste en efectivo.</p><div class="settlement-list">${settlements.length ? settlements.map((item) => `<article class="settlement-card"><div><strong>Semana del ${new Date(item.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "medium" })}</strong><small>Vence ${date(item.due_at)} · Efectivo cobrado ${money(item.gross_cash_cents)}</small></div><div><small>COMISIÓN A TRANSFERIR</small><strong>${money(item.commission_due_cents)}</strong></div><span class="badge ${["pending", "overdue", "submitted"].includes(item.status) ? "pending" : ""}">${e(settlementStatusName[item.status] || item.status)}</span>${["pending", "overdue"].includes(item.status) ? `<form class="settlement-proof" data-settlement-form="${e(item.id)}"><label>Comprobante · PDF, JPG o PNG<input name="proof" type="file" accept="application/pdf,image/jpeg,image/png" required></label><button class="btn" type="submit">Enviar transferencia ${I("upload")}</button></form>` : item.proof_path ? '<small>Comprobante enviado a Operaciones.</small>' : ""}</article>`).join("") : '<div class="empty"><p>La primera liquidación aparecerá al completar un viaje en efectivo.</p></div>'}</div></div></details>`;
+  return `<details class="panel profile-section income-section"><summary><span>${I("calendar-check")}<strong>Comisiones del corte semanal</strong></span><span class="badge ${settlements.some((item) => ["pending", "overdue"].includes(item.status)) ? "pending" : ""}">${settlements.length} corte${settlements.length === 1 ? "" : "s"}</span>${I("chevron-down")}</summary><div class="profile-section-body"><p>Operaciones calcula la comisión aplicable a tus viajes y comparte la cuota semanal correspondiente.</p><div class="settlement-list">${settlements.length ? settlements.map((item) => `<article class="settlement-card"><div><strong>Semana del ${new Date(item.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "medium" })}</strong><small>Servicios en efectivo ${money(item.gross_cash_cents)}</small></div><div><small>COMISIÓN CALCULADA</small><strong>${money(item.commission_due_cents)}</strong></div><span class="badge ${["pending", "overdue"].includes(item.status) ? "pending" : ""}">${e(settlementStatusName[item.status] || item.status)}</span></article>`).join("") : '<div class="empty"><p>El primer corte aparecerá al completar un viaje.</p></div>'}</div></div></details>`;
 }
-function driverLedgerRows(entries, ledgerNames) {
-  return entries.map((item) => `<div class="receipt-row" data-ledger-row><div>${e(ledgerNames[item.kind] || item.kind)}<small>${date(item.created_at)}</small></div><strong>${money(item.amount_cents)}</strong></div>`).join("");
-}
-function financeDriverWallet(w = S.data.finance_wallet) {
-  const redraw = next => financeDriverWallet(next);
-  shell(driverBillingCard() + walletMarkup(w) + ((S.data.commission_settlements || []).length ? driverSettlementsMarkup() : ""), "Mis Ingresos", "Tus viajes, comisiones y conciliaciones semanales.");
-  bindWallet(w, { redraw, openModal, notify, refresh: refreshPage });
-  bindDriverSettlements();
-}
-function wallet() {
-  if (S.profile.role === "driver" && S.data.finance_wallet) return financeDriverWallet();
-  const driver = S.profile.role !== "passenger";
-  const completed = S.data.trips.filter((t) => t.status === "completed");
-  const total = driver
-    ? S.data.ledger.reduce((n, l) => n + l.amount_cents, 0)
-    : completed.reduce((n, t) => n + (t.total_cents ?? t.fare_cents), 0);
-  const driverTrips = driver ? completed.filter((trip) => trip.driver_id === S.user.id) : [];
-  const moneySummary = S.data.driver_money || {};
-  const cashCollected = Number(moneySummary.cash_collected_cents ?? driverTrips
-    .filter((trip) => trip.payment_method === "cash")
-    .reduce((sum, trip) => sum + Number(trip.total_cents ?? trip.fare_cents ?? 0), 0));
-  const ledgerNames = { fare: "Tarifa cobrada", commission: "Comisión Yavoi!", cash_tip: "Propina en efectivo", card_tip: "Propina electrónica" };
-  shell(
-    `${driver ? driverBillingCard() : ""}<div class="balance ${driver ? "section-gap" : ""}"><small>${driver ? "INGRESO NETO REGISTRADO" : "TOTAL DE VIAJES COMPLETADOS"}</small><h2>${money(total)}</h2><p>${driver ? "Tarifas, menos la comisión aplicable a cada viaje, más todas tus propinas." : "Pagos registrados por viajes completados."}</p></div>${driver ? `<section class="driver-money-summary"><div><small>EFECTIVO COBRADO</small><strong>${money(cashCollected)}</strong><p>Lo recibiste directamente del pasajero.</p></div><div><small>LIQUIDACIÓN</small><strong>Semanal manual</strong><p>Operaciones concilia los importes y registra cualquier transferencia.</p></div></section><p class="hint wallet-payout-note">El piloto usa efectivo: el pasajero paga directamente al conductor. No hay saldo retirable ni pagos con tarjeta desde la app.</p><details class="panel profile-section income-movements section-gap" open><summary><span>${I("list-filter")}<strong>Tus movimientos</strong></span><span class="badge neutral" id="ledger-count">${S.data.ledger.length}</span>${I("chevron-down")}</summary><div class="profile-section-body"><div class="income-filters"><div class="trip-quick-filters" aria-label="Filtrar movimientos por periodo"><button class="active" data-ledger-period="all">Todos</button><button data-ledger-period="today">Hoy</button><button data-ledger-period="week">Semana</button><button data-ledger-period="month">Mes</button></div><label>Tipo<select id="ledger-kind-filter"><option value="all">Todos los conceptos</option>${Object.entries(ledgerNames).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label></div><div id="ledger-rows">${driverLedgerRows(S.data.ledger, ledgerNames)}</div><div class="empty" id="ledger-filter-empty" ${S.data.ledger.length ? "hidden" : ""}><p>No hay movimientos para este filtro.</p></div></div></details><details class="panel profile-section section-gap income-section"><summary><span>${I("calculator")}<strong>Cómo se calcula</strong></span>${I("chevron-down")}</summary><div class="profile-section-body"><p>La tarifa y la propina se muestran por separado. Las propinas son 100% tuyas; el porcentaje comercial sólo se calcula sobre la tarifa del viaje.</p><p class="hint">Durante el piloto, el pasajero paga en efectivo directamente al conductor. Operaciones concilia semanalmente cualquier importe pendiente y comunica el resultado.</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></div></details>` : `<div class="grid2"><section class="panel"><h2>Métodos de pago</h2><div class="row">${I("banknote")}<strong>Efectivo</strong><span class="badge">Disponible</span></div><p class="hint">Indica si necesitas cambio antes de solicitar. El conductor verá el monto con el que pagarás.</p><div class="row muted">${I("credit-card")}<strong>Tarjeta</strong><span class="badge neutral">Próximamente</span></div><p class="hint">Los pagos con tarjeta están desactivados durante el piloto; el método disponible es efectivo al finalizar el viaje.</p></section><section class="panel"><h2>Cada peso, con claridad</h2><p>La tarifa se muestra antes de confirmar. La propina es voluntaria y puedes entregarla directamente en efectivo.</p><p class="hint">Cada cobro queda relacionado con el viaje y su recibo.</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></section></div>`}${driver ? driverSettlementsMarkup() : ""}`,
-    driver ? "Tus ingresos, siempre claros." : "Tu cartera Yavoi!",
-    "Consulta importes, porcentajes aplicados y liquidaciones.",
-  );
-  if (driver) {
-    let ledgerPeriod = "all";
-    const applyLedgerFilters = () => {
-      const kind = $("#ledger-kind-filter")?.value || "all";
-      const now = new Date();
-      const start = new Date(now);
-      if (ledgerPeriod === "today") start.setHours(0, 0, 0, 0);
-      if (ledgerPeriod === "week") start.setDate(now.getDate() - 7);
-      if (ledgerPeriod === "month") start.setMonth(now.getMonth() - 1);
-      const filtered = S.data.ledger.filter((item) => {
-        const matchesKind = kind === "all" || item.kind === kind;
-        const matchesPeriod = ledgerPeriod === "all" || new Date(item.created_at) >= start;
-        return matchesKind && matchesPeriod;
-      });
-      $("#ledger-rows").innerHTML = driverLedgerRows(filtered, ledgerNames);
-      $("#ledger-count").textContent = String(filtered.length);
-      $("#ledger-filter-empty").hidden = filtered.length > 0;
-    };
-    $$("[data-ledger-period]").forEach((item) => item.onclick = () => {
-      ledgerPeriod = item.dataset.ledgerPeriod;
-      $$("[data-ledger-period]").forEach((button) => button.classList.toggle("active", button === item));
-      applyLedgerFilters();
-    });
-    $("#ledger-kind-filter")?.addEventListener("change", applyLedgerFilters);
-  }
-  bindDriverSettlements();
-}
-function bindDriverSettlements() {
-  $$("[data-settlement-form]").forEach((form, index) => {
-    form.id = `settlement-proof-${index}`;
-    bindForm("#" + form.id, async (_values, currentForm) => {
-      const path = await upload(currentForm.elements.proof.files[0], "yavoi-payment-proofs");
-      await rpc("submit_driver_settlement", { settlement_id: form.dataset.settlementForm, proof_path: path });
-      await refreshPage();
-      notify("Transferencia enviada a revisión de Operaciones.");
-    });
-  });
-}
+function bindDriverSettlements() {}
 
 function weeklyProfileMarkup() {
-  if (S.driver?.billing_mode === "commission")
-    return `<details class="profile-section weekly-profile"><summary><span>${I("circle-dollar-sign")}<strong>Modalidad de ingresos</strong></span><span class="badge neutral">Comisión por viaje</span></summary><div class="profile-section-body"><p>No tienes aportación semanal. Las comisiones de efectivo se compensan con tu saldo electrónico y se concilian en <a class="link" href="#wallet">Mis ingresos</a>; las electrónicas se descuentan al conciliar cada pago.</p></div></details>`;
   const fees = (S.data.weekly_fees || []).filter((fee) => fee.status !== "waived");
   const current = fees[0];
-  const statusName = { pending: "Pendiente", submitted: "En revisión", paid: "Pagada", overdue: "Vencida", waived: "Condonada" };
-  return `<details class="profile-section weekly-profile" open><summary><span>${I("calendar-check")}<strong>Cuota semanal</strong></span><span class="badge ${current && ["pending", "submitted", "overdue"].includes(current.status) ? "pending" : ""}">${current ? e(statusName[current.status]) : "Sin cuota activa"}</span></summary><div class="weekly-summary"><div><small>CUOTA SEMANAL DE USO</small><strong>${money(current?.amount_cents || S.driver?.weekly_fee_cents || 25000)}</strong><p>${current ? `Semana del ${new Date(current.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "long" })} · vence ${date(current.due_at)}` : "La cuota aparecerá al aprobarse tu expediente."}</p></div></div><div class="grid2 weekly-grid"><section><h3>Semana actual</h3>${current && !["paid", "waived"].includes(current.status) ? `<form id="weekly-proof"><p>Sube el comprobante de ${money(current.amount_cents)}. Operaciones verificará el depósito y habilitará la cuenta.</p><label>Comprobante · PDF, JPG o PNG hasta 5 MB<input name="proof" type="file" accept="application/pdf,image/jpeg,image/png" required></label><button class="btn wide" type="submit">Enviar comprobante ${I("upload")}</button></form>` : `<p>${current ? "Tu cuota de esta semana está cubierta." : "Aún no existe una cuota activa."}</p>`}</section><section><h3>Calendario de cuotas</h3>${fees.length ? fees.map((fee) => `<div class="fee-row"><div><strong>${new Date(fee.week_start + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</strong><small>Vence ${date(fee.due_at)}</small></div><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><strong>${money(fee.amount_cents)}</strong></div>`).join("") : '<p class="muted">Sin cuotas registradas.</p>'}</section></div></details>`;
+  const statusName = { pending: "Pendiente", submitted: "En revisión", paid: "Cerrada", overdue: "Vencida", waived: "Condonada" };
+  return `<details class="profile-section weekly-profile" open><summary><span>${I("calendar-check")}<strong>${S.driver?.billing_mode === "commission" ? "Corte semanal" : "Cuota semanal"}</strong></span><span class="badge ${current && ["pending", "submitted", "overdue"].includes(current.status) ? "pending" : ""}">${current ? e(statusName[current.status]) : "Sin corte activo"}</span></summary><div class="weekly-summary"><div><small>REVISIÓN SEMANAL DE OPERACIONES</small><strong>${money(current?.amount_cents || S.driver?.weekly_fee_cents || 25000)}</strong><p>${current ? `Semana del ${new Date(current.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "long" })} · revisión ${date(current.due_at)}` : "El corte aparecerá al aprobarse tu expediente."}</p></div></div><div class="grid2 weekly-grid"><section><h3>Semana actual</h3><p>${current && !["paid", "waived"].includes(current.status) ? "Operaciones te comunicará los pasos de la cuota semanal fuera de la aplicación. Tu autorización de conducción se actualiza cuando el corte queda validado." : current ? "El corte de esta semana está validado." : "Aún no existe un corte activo."}</p></section><section><h3>Historial de cortes</h3>${fees.length ? fees.map((fee) => `<div class="fee-row"><div><strong>${new Date(fee.week_start + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</strong><small>Revisión ${date(fee.due_at)}</small></div><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><strong>${money(fee.amount_cents)}</strong></div>`).join("") : '<p class="muted">Sin cortes registrados.</p>'}</section></div></details>`;
 }
-function bindWeeklyProof() {
-  const current = (S.data.weekly_fees || []).find((fee) => fee.status !== "waived");
-  if (!current || !$("#weekly-proof")) return;
-  bindForm("#weekly-proof", async (_v, form) => {
-    const path = await upload(form.elements.proof.files[0], "yavoi-payment-proofs");
-    await rpc("submit_weekly_fee", { fee_id: current.id, proof_path: path });
-    await refreshPage();
-    notify("Comprobante enviado a Operaciones.");
-  });
-}
+function bindWeeklyProof() {}
 async function financialDashboardView() {
   shell('<div id="finance-dashboard" class="fin-dashboard"><div class="fin-empty" role="status">Preparando los reportes financieros…</div></div>', 'Finanzas', 'Tus viajes, conciliaciones y cierres en un solo lugar.');
   await mountFinanceDashboard({ notify, openModal, drivers: S.data.drivers || [] });
 }
 function paymentsView() {
-  const payments = S.data.payments || [];
   const fees = S.data.weekly_fees || [];
   const settlements = S.data.commission_settlements || [];
-  const approved = payments.filter((payment) => payment.status === "approved").reduce((sum, payment) => sum + payment.amount_cents, 0);
-  const statusName = { created: "Creado", pending: "Pendiente", in_process: "Procesando", approved: "Aprobado", rejected: "Rechazado", cancelled: "Cancelado", refund_pending: "Reembolso pendiente", refunded: "Reembolsado", submitted: "En revisión", paid: "Pagada", overdue: "Vencida", waived: "Condonada" };
-  const accessControlRendered = new Set();
-  const feeCards = fees.filter((fee) => fee.note !== "Modalidad por comisión").map((fee) => {
-    const showAccessControl = !accessControlRendered.has(fee.driver_id);
-    accessControlRendered.add(fee.driver_id);
-    const overdueCount = fees.filter((item) => item.driver_id === fee.driver_id && item.status === "overdue").length;
-    const accessControl = showAccessControl
-      ? `<button class="btn ${fee.account_active ? "danger" : "secondary"}" data-driver-access="${e(fee.driver_id)}" data-driver-name="${e(fee.driver_name)}" data-overdue-count="${overdueCount}" data-active="${fee.account_active ? "false" : "true"}">${fee.account_active ? "Desactivar cuenta" : "Activar cuenta"}</button>`
-      : "";
-    return `<article class="fee-card"><div><strong>${e(fee.driver_name)}</strong><small>Semana ${e(fee.week_start)} · vence ${date(fee.due_at)}</small>${fee.account_access_authorized_at && showAccessControl ? `<small>Reactivación autorizada ${date(fee.account_access_authorized_at)}</small>` : ""}</div><strong>${money(fee.amount_cents)}</strong><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><div class="row wrap">${fee.proof_path ? `<button class="btn secondary" data-fee-proof="${e(fee.proof_path)}">Ver comprobante</button>` : ""}${fee.status === "submitted" ? `<button class="btn" data-fee-review="${e(fee.id)}">Revisar pago</button>` : ""}${accessControl}</div></article>`;
-  }).join("");
-  const settlementCards = settlements.map((item) => `<article class="fee-card"><div><strong>${e(item.driver_name)}</strong><small>Semana ${e(item.week_start)} · efectivo ${money(item.gross_cash_cents)}</small></div><strong>${money(item.commission_due_cents)}</strong><span class="badge ${["pending", "submitted", "overdue"].includes(item.status) ? "pending" : ""}">${e(statusName[item.status] || item.status)}</span><div class="row wrap">${item.proof_path ? `<button class="btn secondary" data-settlement-proof="${e(item.proof_path)}">Ver transferencia</button>` : ""}${item.status === "submitted" ? `<button class="btn" data-settlement-review="${e(item.id)}">Revisar liquidación</button>` : ""}</div></article>`).join("");
-  shell(
-    `<div class="grid4 stats"><div class="stat"><small>Pagos registrados</small><strong>${payments.length}</strong><p>Efectivo, tarjeta, cancelaciones y aportaciones</p></div><div class="stat"><small>Importe aprobado</small><strong>${money(approved)}</strong><p>Conciliación del sistema</p></div><div class="stat"><small>Comprobantes por revisar</small><strong>${fees.filter((fee) => fee.status === "submitted").length + settlements.filter((item) => item.status === "submitted").length}</strong><p>Aportaciones y comisiones</p></div><div class="stat"><small>Reembolsos pendientes</small><strong>${payments.filter((payment) => payment.status === "refund_pending").length}</strong><p>Requieren seguimiento</p></div></div><section class="panel section-gap"><h2>Registro de pagos</h2><div class="table-wrap"><table><thead><tr><th>Fecha / referencia</th><th>Concepto</th><th>Viaje y personas</th><th>Método</th><th>Estado</th><th>Importe</th><th></th></tr></thead><tbody>${payments.map((payment) => `<tr><td>${date(payment.created_at)}<small>${e(payment.provider_payment_id || payment.id.slice(0, 8))}</small></td><td>${e({ ride: "Viaje", tip: "Propina", weekly_fee: "Aportación semanal", cancellation_fee: "Cuota de cancelación" }[payment.kind] || payment.kind)}</td><td>${e(payment.origin || "Sin viaje")}<small>${e(payment.payer_name || "")} ${payment.driver_name ? `· ${e(payment.driver_name)}` : ""}</small></td><td>${e({ cash: "Efectivo", mercado_pago: "Mercado Pago", manual: "Comprobante" }[payment.provider])}</td><td><span class="badge ${["created", "pending", "in_process", "refund_pending"].includes(payment.status) ? "pending" : payment.status === "rejected" ? "cancelled" : ""}">${e(statusName[payment.status] || payment.status)}</span></td><td><strong>${money(payment.amount_cents)}</strong>${payment.refund_amount_cents ? `<small>Reembolso ${money(payment.refund_amount_cents)}</small>` : ""}${payment.retained_amount_cents ? `<small>Retenido ${money(payment.retained_amount_cents)}</small>` : ""}</td><td>${payment.status === "refund_pending" ? `<button class="link" data-refund="${e(payment.id)}">Procesar reembolso</button>` : ""}</td></tr>`).join("")}</tbody></table></div></section><section class="panel section-gap"><h2>Aportaciones semanales</h2><p>Conductores configurados con cuota fija; conservan el 100% del efectivo y el porcentaje configurado de pagos electrónicos.</p>${feeCards || '<div class="empty"><p>No hay aportaciones activas.</p></div>'}</section><section class="panel section-gap"><h2>Liquidaciones de comisión en efectivo</h2><p>Conductores sin cuota semanal que transfieren la comisión acumulada de sus viajes en efectivo.</p>${settlementCards || '<div class="empty"><p>No hay liquidaciones registradas.</p></div>'}</section>`,
-    "Pagos y cuotas",
-    "Conciliación por viaje, conductor, pasajero y semana.",
-  );
-  $$('[data-fee-proof]').forEach((item) => item.onclick = () => run(async () => {
-    const { data, error } = await db.storage.from("yavoi-payment-proofs").createSignedUrl(item.dataset.feeProof, 60);
-    if (error) throw error;
-    openModal("Comprobante privado", `<p>El enlace vence en un minuto.</p><a class="btn wide" href="${e(data.signedUrl)}" target="_blank" rel="noopener noreferrer">Abrir comprobante ${I("external-link")}</a>`);
-  }));
-  $$('[data-fee-review]').forEach((item) => item.onclick = () => {
-    openModal("Revisar cuota semanal", `<form id="fee-review"><label>Resultado<select name="approved"><option value="true">Pago comprobado</option><option value="false">Rechazar comprobante</option></select></label><label>Nota de revisión<textarea name="note" minlength="5" maxlength="1000" required></textarea></label><button class="btn wide" type="submit">Guardar revisión</button></form>`);
-    bindForm("#fee-review", async (values) => {
-      await rpc("review_weekly_fee", { fee_id: item.dataset.feeReview, approved: values.approved === "true", note: values.note });
-      closeModal();
-      await refreshPage();
-    });
-  });
-  $$('[data-settlement-proof]').forEach((item) => item.onclick = () => run(async () => {
-    const { data, error } = await db.storage.from("yavoi-payment-proofs").createSignedUrl(item.dataset.settlementProof, 60);
-    if (error) throw error;
-    openModal("Transferencia privada", `<p>El enlace vence en un minuto.</p><a class="btn wide" href="${e(data.signedUrl)}" target="_blank" rel="noopener noreferrer">Abrir comprobante ${I("external-link")}</a>`);
-  }));
-  $$('[data-settlement-review]').forEach((item) => item.onclick = () => {
-    openModal("Revisar liquidación de comisión", `<form id="settlement-review"><label>Resultado<select name="approved"><option value="true">Transferencia comprobada</option><option value="false">Rechazar comprobante</option></select></label><label>Nota de revisión<textarea name="note" minlength="5" maxlength="1000" required></textarea></label><button class="btn wide" type="submit">Guardar revisión</button></form>`);
-    bindForm("#settlement-review", async (values) => {
-      await rpc("review_driver_settlement", { settlement_id: item.dataset.settlementReview, approved: values.approved === "true", note: values.note });
-      closeModal();
-      await refreshPage();
-    });
-  });
-  $$('[data-driver-access]').forEach((item) => item.onclick = () => {
-    const activating = item.dataset.active === "true";
-    const overdueCount = Number(item.dataset.overdueCount || 0);
-    openModal(
-      activating ? "Reactivar cuenta del conductor" : "Desactivar cuenta del conductor",
-      `<form id="driver-access-form"><p><strong>${e(item.dataset.driverName || "Conductor")}</strong></p>${activating ? `<p>La cuenta podrá volver a conectarse. ${overdueCount ? `Las ${overdueCount} cuotas vencidas permanecerán visibles para conciliación, pero no revertirán esta autorización.` : "La autorización quedará registrada en Auditoría."} Una nueva cuota vencida posterior volverá a suspender el acceso.</p>` : "<p>La cuenta quedará fuera de línea y no recibirá nuevas solicitudes hasta que Operaciones la reactive.</p>"}<label>Motivo de la autorización<textarea name="note" minlength="5" maxlength="500" required placeholder="Describe el pago, convenio o motivo autorizado"></textarea></label><button class="btn wide" type="submit">${activating ? "Confirmar reactivación" : "Confirmar desactivación"} ${I(activating ? "user-round-check" : "user-round-x")}</button></form>`,
-    );
-    bindForm("#driver-access-form", async (values) => {
-      const result = await rpc("set_driver_access", { driver_id: item.dataset.driverAccess, active: activating, note: values.note });
-      closeModal();
-      await refreshPage();
-      notify(activating ? `Cuenta reactivada. ${result.overdue_fees_preserved || 0} cuotas vencidas conservadas en el historial.` : "Cuenta desactivada correctamente.");
-    });
-  });
-  $$('[data-refund]').forEach((item) => item.onclick = () => run(async () => {
-    const { data, error } = await db.functions.invoke("mercado-pago-payment", { body: { action: "refund", payment_id: item.dataset.refund } });
-    if (error || data?.error) throw new Error(data?.error || error.message);
-    await refreshPage();
-    notify("Reembolso confirmado por Mercado Pago.");
-  }));
+  const statusName = { pending: "Pendiente", submitted: "En revisión", paid: "Validada", overdue: "Vencida", waived: "Condonada" };
+  const cards = [...fees.filter((fee) => fee.note !== "Modalidad por comisión").map((fee) => ({ ...fee, type: "Cuota semanal", amount: fee.amount_cents })), ...settlements.map((item) => ({ ...item, type: "Comisión semanal", amount: item.commission_due_cents }))];
+  shell(`<div class="grid4 stats"><div class="stat"><small>Cortes registrados</small><strong>${cards.length}</strong><p>Cuotas y comisiones por semana</p></div><div class="stat"><small>Por revisar</small><strong>${cards.filter((item) => ["pending", "submitted", "overdue"].includes(item.status)).length}</strong><p>Requieren revisión de Operaciones</p></div><div class="stat"><small>Conductores activos</small><strong>${new Set(cards.map((item) => item.driver_id)).size}</strong><p>Con corte comercial registrado</p></div><div class="stat"><small>Modelo de cobro</small><strong>Efectivo</strong><p>Directo entre pasajero y conductor</p></div></div><section class="panel section-gap"><h2>Cuotas y comisiones semanales</h2><p>Este registro administra la conciliación interna de Operaciones. No procesa tarjetas, cuentas, transferencias, retiros ni billeteras.</p><div class="fee-list">${cards.map((item) => `<article class="fee-card"><div><strong>${e(item.driver_name || "Conductor")}</strong><small>${e(item.type)} · semana ${e(item.week_start)}</small></div><strong>${money(item.amount)}</strong><span class="badge ${["pending", "submitted", "overdue"].includes(item.status) ? "pending" : ""}">${e(statusName[item.status] || item.status)}</span><button class="btn ${item.account_active === false ? "secondary" : "danger"}" data-driver-access="${e(item.driver_id)}" data-driver-name="${e(item.driver_name || "Conductor")}" data-active="${item.account_active === false ? "true" : "false"}">${item.account_active === false ? "Autorizar conducción" : "Suspender conducción"}</button></article>`).join("") || '<div class="empty"><p>No hay cortes semanales por conciliar.</p></div>'}</div></section>`, "Cuotas semanales", "Conciliación interna, cálculo fiscal y control de permisos de conducción.");
+  $$('[data-driver-access]').forEach((item) => item.onclick = () => { const activating = item.dataset.active === "true"; openModal(activating ? "Autorizar conducción" : "Suspender conducción", `<form id="driver-access-form"><p>${activating ? "La cuenta podrá recibir viajes al quedar cubierta la cuota o al existir una autorización de Operaciones." : "La cuenta dejará de recibir nuevas solicitudes hasta una nueva autorización."}</p><label>Motivo de la decisión<textarea name="note" minlength="5" maxlength="500" required></textarea></label><button class="btn wide" type="submit">Guardar decisión</button></form>`); bindForm("#driver-access-form", async (values) => { await rpc("set_driver_access", { driver_id: item.dataset.driverAccess, active: activating, note: values.note }); closeModal(); await refreshPage(); notify(activating ? "Permiso de conducción autorizado." : "Permiso de conducción suspendido."); }); });
   mountFinanceOperations({ notify, openModal });
 }
 const rewardStatusName = {
@@ -3205,11 +2930,11 @@ const featureCardFallbacks = [
   { id: "passenger-safety", audience: "passenger", title: "Tu seguridad cuenta", summary: "Revisa los datos del viaje y reporta cualquier situación.", body: "Antes de subir, confirma la información del conductor, unidad y placas. Durante el viaje puedes consultar la ruta y, si ocurre algo, crear un reporte para Operaciones.", image_path: "/assets/feature-cards/passenger-safety.png", cta_label: "Ver seguridad", cta_href: "#safety", sort_order: 40 },
   { id: "passenger-track-trip", audience: "passenger", title: "Sigue tu viaje", summary: "Consulta el estado y el recorrido de tus servicios.", body: "Mis viajes reúne los folios, destinos, comprobantes y detalle de cada recorrido. Abre un viaje para ver la información disponible y pedir apoyo relacionado.", image_path: "/assets/feature-cards/passenger-track-trip.png", cta_label: "Abrir Mis viajes", cta_href: "#trips", sort_order: 50 },
   { id: "passenger-rewards", audience: "passenger", title: "Suma y disfruta", summary: "Revisa puntos, recompensas e invitaciones desde tu perfil.", body: "Tus viajes y recomendaciones pueden acercarte a beneficios. Consulta los requisitos, puntos disponibles y los canjes que ya están listos para ti.", image_path: "/assets/feature-cards/passenger-rewards.png", cta_label: "Ver recompensas", cta_href: "#rewards", sort_order: 60 },
-  { id: "passenger-payments", audience: "passenger", title: "Pago claro y seguro", summary: "Revisa la tarifa antes de confirmar y conserva tus comprobantes.", body: "Elige efectivo o tarjeta cuando esté disponible. La pantalla de confirmación separa cada concepto de la tarifa y el resumen queda asociado a tu viaje.", image_path: "/assets/feature-cards/passenger-payments.png", cta_label: "Ver métodos de pago", cta_href: "#wallet", sort_order: 70 },
+  { id: "passenger-payments", audience: "passenger", title: "Tarifa clara", summary: "Revisa la tarifa antes de confirmar y conserva el detalle de tu viaje.", body: "La pantalla de confirmación separa cada concepto de la tarifa. El pago se entrega en efectivo al finalizar y el resumen queda asociado a tu viaje.", image_path: "/assets/feature-cards/passenger-payments.png", cta_label: "Ver detalle de viajes", cta_href: "#trips", sort_order: 70 },
   { id: "passenger-help", audience: "passenger", title: "Estamos para ayudarte", summary: "Encuentra respuestas o abre un reporte con el viaje correcto.", body: "El Centro de ayuda organiza temas de cuenta, pagos, seguridad y viajes recientes. Seleccionar un viaje permite que Operaciones revise el contexto adecuado.", image_path: "/assets/feature-cards/passenger-help.png", cta_label: "Abrir ayuda", cta_href: "#help", sort_order: 80 },
   { id: "driver-go-online", audience: "driver", title: "Conduce a tu ritmo", summary: "Conéctate durante tu turno y controla tu disponibilidad.", body: "Activa tu disponibilidad cuando estés listo para recibir solicitudes compatibles. Puedes desconectarte cuando termines y actualizar tu ubicación mientras estás conectado.", image_path: "/assets/feature-cards/driver-go-online.png", cta_label: "Ir a Conducir", cta_href: "#home", sort_order: 10 },
   { id: "driver-offers", audience: "driver", title: "Decide cada oferta", summary: "Consulta origen, destino, pago y ganancia antes de aceptar.", body: "Cada solicitud muestra el contexto operativo disponible. Revisa el servicio, las indicaciones, la distancia para recoger y el importe antes de decidir.", image_path: "/assets/feature-cards/driver-offers.png", cta_label: "Ver solicitudes", cta_href: "#home", sort_order: 20 },
-  { id: "driver-earnings", audience: "driver", title: "Tus ganancias, claras", summary: "Consulta ingresos, cuotas y movimientos en un solo lugar.", body: "La billetera reúne los registros de tus viajes y el estado de tus pagos. Los datos se actualizan con el detalle que Operaciones registra para tu cuenta.", image_path: "/assets/feature-cards/driver-earnings.png", cta_label: "Ver billetera", cta_href: "#wallet", sort_order: 30 },
+  { id: "driver-earnings", audience: "driver", title: "Tu corte, claro", summary: "Consulta tus servicios, comisiones y cuota semanal en un solo lugar.", body: "El corte reúne el detalle comercial de tus viajes. Operaciones conserva la conciliación semanal para tu cuenta.", image_path: "/assets/feature-cards/driver-earnings.png", cta_label: "Ver corte semanal", cta_href: "#wallet", sort_order: 30 },
   { id: "driver-schedule", audience: "driver", title: "Organiza tu jornada", summary: "Conoce el turno y mantén tu disponibilidad al día.", body: "Tu turno asignado se muestra al conectarte. Mantener tu perfil y presencia actualizados ayuda a que las solicitudes lleguen con información correcta.", image_path: "/assets/feature-cards/driver-schedule.png", cta_label: "Ver mi jornada", cta_href: "#home", sort_order: 40 },
   { id: "driver-safety", audience: "driver", title: "Conduce con respaldo", summary: "Consulta las pautas de seguridad y registra incidentes.", body: "Revisa los datos del viaje antes de aceptarlo y usa el reporte dentro de la aplicación si surge una situación que Operaciones deba atender.", image_path: "/assets/feature-cards/driver-safety.png", cta_label: "Ver seguridad", cta_href: "#safety", sort_order: 50 },
   { id: "driver-rewards", audience: "driver", title: "Reconocemos tu avance", summary: "Sigue metas, beneficios y recompensas de conductor.", body: "Las recompensas disponibles consideran los requisitos configurados para tu perfil. Consulta tus puntos y las condiciones antes de iniciar un canje.", image_path: "/assets/feature-cards/driver-rewards.png", cta_label: "Ver recompensas", cta_href: "#rewards", sort_order: 60 },
@@ -3807,7 +3532,7 @@ function profile() {
     ? `<details class="profile-section dossier-details" ${dossier.percent < 100 ? "open" : ""}><summary><span>${I("files")}<strong>Documentos para autorización</strong></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Autorizado" : dossier.percent === 100 ? "Listo para revisar" : `${dossier.percent}% completo`}</span></summary><div class="profile-section-body">${driverProgressMarkup(p, d)}<p class="hint">Carga los cuatro documentos. Operaciones revisa la fotografía de perfil, vigencias y registra los datos oficiales antes de autorizar tu cuenta.</p><p class="driver-draft-status" id="driver-draft-status" role="status" aria-live="polite">${I("cloud")} Tus avances se guardan como borrador privado.</p>${d.review_note ? `<p class="hint">Revisión de Operaciones: ${e(d.review_note)}</p>` : ""}<form id="vehicle-form"><fieldset ${formDisabled}><div class="driver-documents streamlined-driver-documents">${documentField("government_id_file", "Identificación oficial INE", d.government_id_path, "frente y reverso si aplica")}${documentField("license_file", "Licencia de conducir", d.license_path, "vigente")}${documentField("vehicle_registration_file", "Tarjeta de circulación", d.vehicle_registration_path, "vigente")}${documentField("insurance_file", "Póliza de seguro", d.insurance_path, "vigente")}</div><p class="hint">La fotografía de perfil forma parte del expediente. Puedes actualizarla en Mis datos generales.</p><section class="compact-agreements" aria-label="Acuerdos requeridos"><div class="policy-compact-body"><h3>Antes de enviar</h3><p>Lee estos dos acuerdos. Protegen tus datos y definen las reglas para usar Yavoi! como conductor.</p><div class="policy-links"><a class="link" href="/privacidad" target="_blank" rel="noopener">Política de Privacidad</a><a class="link" href="/terminos" target="_blank" rel="noopener">Términos de Servicio</a></div><label class="check policy-accept"><input name="accept_driver_privacy" type="checkbox" ${p.privacy_policy_accepted_at && p.privacy_policy_version === PRIVACY_POLICY_VERSION ? "checked" : ""} required><span><strong>Acepto la Política de Privacidad</strong><small>Uso de datos, ubicación y documentación para operar y proteger el servicio.</small></span></label><label class="check policy-accept"><input name="accept_driver_terms" type="checkbox" ${p.terms_accepted_at && p.terms_version === TERMS_VERSION ? "checked" : ""} required><span><strong>Acepto los Términos de Servicio</strong><small>Reglas de convivencia, uso responsable y atención de viajes en Yavoi!.</small></span></label></div></section><button type="submit" class="btn">Enviar documentos a Operaciones ${I("shield-check")}</button></fieldset></form></div></details>`
     : "";
   const score = Number(S.data.rating || 0);
-  const profileShortcuts = `<section class="profile-shortcuts" aria-label="Opciones principales del perfil"><div class="profile-score">${I("star")}<span><small>CALIFICACIÓN VIGENTE</small><strong>${score > 0 ? `${decimal(score)}/5` : "Aún sin calificaciones"}</strong></span></div><div class="profile-shortcut-grid"><a class="profile-shortcut" href="#help">${I("life-buoy")}<span><strong>Ayuda</strong><small>Viajes, pagos y soporte</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#wallet">${I("wallet")}<span><strong>Mi Cartera</strong><small>${driver ? "Ingresos y liquidaciones" : "Pagos y viajes"}</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#safety">${I("shield-check")}<span><strong>Seguridad</strong><small>Consejos y qué hacer</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#inbox">${I("inbox")}<span><strong>Bandeja de Entrada</strong><small>Avisos y mensajes de Yavoi!</small></span>${I("arrow-right")}</a></div></section>`;
+  const profileShortcuts = `<section class="profile-shortcuts" aria-label="Opciones principales del perfil"><div class="profile-score">${I("star")}<span><small>CALIFICACIÓN VIGENTE</small><strong>${score > 0 ? `${decimal(score)}/5` : "Aún sin calificaciones"}</strong></span></div><div class="profile-shortcut-grid"><a class="profile-shortcut" href="#help">${I("life-buoy")}<span><strong>Ayuda</strong><small>Viajes, pagos y soporte</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#wallet">${I("wallet")}<span><strong>Mis viajes</strong><small>${driver ? "Servicios y corte semanal" : "Tarifas y viajes"}</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#safety">${I("shield-check")}<span><strong>Seguridad</strong><small>Consejos y qué hacer</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#inbox">${I("inbox")}<span><strong>Bandeja de Entrada</strong><small>Avisos y mensajes de Yavoi!</small></span>${I("arrow-right")}</a></div></section>`;
   const ridePreferencesMarkup = passenger
     ? `<section class="ride-preferences"><div>${I("sliders-horizontal")}<span><strong>Preferencias de viaje</strong><small>${S.ridePreferences?.pickup_pin_enabled ? "Código de inicio activado" : "Inicio de viaje sin código"}</small></span></div><button class="btn secondary" type="button" data-action="ride-preferences">Configurar</button></section><section class="ride-preferences"><div>${I("bell")}<span><strong>Alertas de Yavoi!</strong><small>Recibe avisos de seguridad, recompensas y tu servicio.</small></span></div><button class="btn secondary" type="button" data-action="notifications">Activar alertas</button></section>`
     : "";
@@ -4129,7 +3854,7 @@ function bindRewardOperationControls(redemptions, root = document) {
 }
 function openFeatureCardEditor(card = null) {
   const routes = [
-    ["#home", "Inicio"], ["#trips", "Mis viajes"], ["#wallet", "Billetera"], ["#rewards", "Recompensas"], ["#profile", "Mi perfil"], ["#safety", "Seguridad"], ["#help", "Ayuda"],
+    ["#home", "Inicio"], ["#trips", "Mis viajes"], ["#wallet", "Corte semanal"], ["#rewards", "Recompensas"], ["#profile", "Mi perfil"], ["#safety", "Seguridad"], ["#help", "Ayuda"],
   ];
   openModal(
     card ? "Editar tarjeta informativa" : "Nueva tarjeta informativa",
@@ -4454,7 +4179,7 @@ function fleet() {
     const assignedShift = (S.data.service_shifts || []).find((shift) => shift.code === d.service_shift_code);
     const doc = (path, label) => path ? `<button class="btn secondary" data-document="${e(path)}">${I("file-check")} ${label}</button>` : "";
     const typeBadge = d.driver_type === "support" ? '<span class="badge driver-support-badge">Conductor de Apoyo</span>' : '<span class="badge neutral">Conductor Yavoi!</span>';
-    return `<details class="offer dossier-card driver-admin-card ${d.driver_type === "support" ? "driver-support-card" : ""}" data-driver-card="${e(d.id)}"><summary class="driver-admin-summary"><span><strong>${e(d.full_name)}</strong>${typeBadge}<small>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</small></span><span class="driver-admin-glance"><small>${reward.rating ? `${decimal(reward.rating)}/5` : "Sin calificación"}</small><small>${Number(reward.trip_count || 0)} viajes</small></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span>${I("chevron-down")}</summary><div class="driver-admin-body"><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} documentos${progress.missing.length ? ` · Faltan: ${e(progress.missing.join(", "))}` : " · Expediente completo"}</small></div><div class="driver-reward-summary"><span><small>NIVEL RATING</small><strong>${e(reward.level || "Activo")}</strong></span><span><small>PUNTOS</small><strong>${Number(reward.available_points || 0)}</strong></span><span><small>VIAJES</small><strong>${Number(reward.trip_count || 0)}</strong></span><span><small>CALIFICACIÓN</small><strong>${reward.rating ? `${decimal(reward.rating)}/5` : "—"}</strong></span><span><small>INGRESOS</small><strong>${money(reward.income_cents || 0)}</strong></span><span><small>INCIDENTES 90 DÍAS</small><strong>${Number(reward.recent_incidents || 0)}</strong></span></div><div class="driver-billing-row"><div>${I(weeklyBilling ? "calendar-check" : "percent")}<span><small>MODALIDAD COMERCIAL</small><strong>${weeklyBilling ? `Aportación de ${money(d.weekly_fee_cents || 50000)}` : "Comisión por viaje"}</strong><p>Efectivo: ${Number(d.cash_commission_bps || 0) / 100}% · Electrónico: ${Number(d.card_commission_bps || 0) / 100}% para Yavoi!</p></span></div><button class="btn secondary" data-billing="${e(d.id)}">Configurar cobro ${I("settings-2")}</button></div><div class="driver-shift-assignment"><div>${I("clock-3")}<span><small>TURNO ASIGNADO POR OPERACIONES</small><strong>${e(assignedShift?.name || "Sin turno asignado")}</strong><p>${assignedShift ? e(shiftTimeLabel(assignedShift)) : "El conductor no podrá conectarse hasta recibir un turno."}</p></span></div><button class="btn secondary" data-driver-shift="${e(d.id)}">Asignar turno ${I("calendar-clock")}</button></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.government_id_path, "Identificación")}${doc(d.license_path, "Licencia")}${doc(d.insurance_path, "Seguro")}${doc(d.vehicle_registration_path, "Circulación")}${(() => { const state = profileEditState(d); return `<button class="btn ${state.authorized ? "danger" : "secondary"}" data-profile-edit="${e(d.id)}" data-allowed="${state.authorized ? "false" : "true"}">${I(state.authorized ? "lock-keyhole" : "lock-open")} ${state.authorized ? "Revocar edición" : "Autorizar edición 24 h"}</button>`; })()}<button class="btn" data-review="${e(d.id)}">Registrar y revisar ${I("arrow-right")}</button></div></div></details>`;
+    return `<details class="offer dossier-card driver-admin-card ${d.driver_type === "support" ? "driver-support-card" : ""}" data-driver-card="${e(d.id)}"><summary class="driver-admin-summary"><span><strong>${e(d.full_name)}</strong>${typeBadge}<small>${e(d.vehicle) || "Unidad pendiente"} · ${e(d.plate) || "Sin placas"}</small></span><span class="driver-admin-glance"><small>${reward.rating ? `${decimal(reward.rating)}/5` : "Sin calificación"}</small><small>${Number(reward.trip_count || 0)} viajes</small></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Aprobado" : progress.percent === 100 ? "Listo para revisar" : `${progress.percent}% completo`}</span>${I("chevron-down")}</summary><div class="driver-admin-body"><div class="fleet-progress"><progress max="100" value="${progress.percent}">${progress.percent}%</progress><small>${progress.completed} de ${progress.total} documentos${progress.missing.length ? ` · Faltan: ${e(progress.missing.join(", "))}` : " · Expediente completo"}</small></div><div class="driver-reward-summary"><span><small>NIVEL RATING</small><strong>${e(reward.level || "Activo")}</strong></span><span><small>PUNTOS</small><strong>${Number(reward.available_points || 0)}</strong></span><span><small>VIAJES</small><strong>${Number(reward.trip_count || 0)}</strong></span><span><small>CALIFICACIÓN</small><strong>${reward.rating ? `${decimal(reward.rating)}/5` : "—"}</strong></span><span><small>INGRESOS</small><strong>${money(reward.income_cents || 0)}</strong></span><span><small>INCIDENTES 90 DÍAS</small><strong>${Number(reward.recent_incidents || 0)}</strong></span></div><div class="driver-billing-row"><div>${I(weeklyBilling ? "calendar-check" : "percent")}<span><small>MODALIDAD COMERCIAL</small><strong>${weeklyBilling ? `Aportación de ${money(d.weekly_fee_cents || 50000)}` : "Comisión por viaje"}</strong><p>Comisión aplicable: ${Number(d.cash_commission_bps || 0) / 100}% para Yavoi!</p></span></div><button class="btn secondary" data-billing="${e(d.id)}">Configurar cuota ${I("settings-2")}</button></div><div class="driver-shift-assignment"><div>${I("clock-3")}<span><small>TURNO ASIGNADO POR OPERACIONES</small><strong>${e(assignedShift?.name || "Sin turno asignado")}</strong><p>${assignedShift ? e(shiftTimeLabel(assignedShift)) : "El conductor no podrá conectarse hasta recibir un turno."}</p></span></div><button class="btn secondary" data-driver-shift="${e(d.id)}">Asignar turno ${I("calendar-clock")}</button></div><div class="meta-row"><span>${e(d.phone)}</span><span>Licencia vence: ${e(d.license_expires || "Sin fecha")}</span><span>Seguro vence: ${e(d.insurance_expires || "Sin fecha")}</span></div><div class="document-row">${d.avatar_path ? `<button class="btn secondary" data-photo="${e(d.avatar_path)}">${I("user-round")} Fotografía</button>` : ""}${doc(d.government_id_path, "Identificación")}${doc(d.license_path, "Licencia")}${doc(d.insurance_path, "Seguro")}${doc(d.vehicle_registration_path, "Circulación")}${(() => { const state = profileEditState(d); return `<button class="btn ${state.authorized ? "danger" : "secondary"}" data-profile-edit="${e(d.id)}" data-allowed="${state.authorized ? "false" : "true"}">${I(state.authorized ? "lock-keyhole" : "lock-open")} ${state.authorized ? "Revocar edición" : "Autorizar edición 24 h"}</button>`; })()}<button class="btn" data-review="${e(d.id)}">Registrar y revisar ${I("arrow-right")}</button></div></div></details>`;
   }).join("");
   const managedProfiles = (S.data.managed_profiles || []).map((managed) => {
     const editState = profileEditState(managed);
@@ -4553,35 +4278,23 @@ function fleet() {
       const d = S.data.drivers.find((driver) => driver.id === item.dataset.billing);
       const weekly = d.billing_mode !== "commission";
       openModal(
-        "Modalidad de cobro de " + d.full_name,
-        `<form id="driver-billing"><label>Esquema comercial<select name="billing_mode"><option value="weekly_fee" ${weekly ? "selected" : ""}>Aportación semanal</option><option value="commission" ${weekly ? "" : "selected"}>Comisión por viaje</option></select><small class="field-note">Define cómo Yavoi! obtiene ingresos de este conductor en los viajes nuevos.</small></label><label>Aportación semanal (MXN)<input name="weekly_fee" type="number" min="0" max="1000" step="0.01" value="${Number(d.weekly_fee_cents ?? 25000) / 100}"><small class="field-note">Importe fijo por uso de la plataforma. No se aplica en el esquema por comisión.</small></label><div class="grid2"><label>Comisión en efectivo (%)<input name="cash_commission" type="number" min="0" max="50" step="0.01" value="${Number(d.cash_commission_bps || 0) / 100}"><small class="field-note">Se acumula para que el conductor la transfiera semanalmente.</small></label><label>Comisión electrónica (%)<input name="card_commission" type="number" min="0" max="50" step="0.01" value="${Number(d.card_commission_bps || 1000) / 100}"><small class="field-note">Se retiene al conciliar el pago electrónico.</small></label></div><div class="billing-example" id="billing-example"></div><label>Motivo del cambio<textarea name="note" required minlength="5" maxlength="500" placeholder="Acuerdo comercial autorizado para este conductor."></textarea></label><div class="hint" id="billing-explanation"></div><button class="btn wide" type="submit">Guardar modalidad ${I("shield-check")}</button></form>`,
+        "Modalidad comercial de " + d.full_name,
+        `<form id="driver-billing"><label>Esquema comercial<select name="billing_mode"><option value="weekly_fee" ${weekly ? "selected" : ""}>Aportación semanal</option><option value="commission" ${weekly ? "" : "selected"}>Comisión por viaje</option></select><small class="field-note">Define cómo se calcula el corte semanal de este conductor.</small></label><label>Aportación semanal (MXN)<input name="weekly_fee" type="number" min="0" max="1000" step="0.01" value="${Number(d.weekly_fee_cents ?? 25000) / 100}"><small class="field-note">Importe fijo aplicable al corte semanal.</small></label><label>Comisión aplicable (%)<input name="cash_commission" type="number" min="0" max="50" step="0.01" value="${Number(d.cash_commission_bps || 0) / 100}"><small class="field-note">Porcentaje calculado sobre los viajes del periodo.</small></label><div class="billing-example" id="billing-example"></div><label>Motivo del cambio<textarea name="note" required minlength="5" maxlength="500" placeholder="Acuerdo comercial autorizado para este conductor."></textarea></label><div class="hint" id="billing-explanation"></div><button class="btn wide" type="submit">Guardar modalidad ${I("shield-check")}</button></form>`,
       );
       const form = $("#driver-billing");
-      const explain = (changed = false) => {
+      const explain = () => {
         const commission = form.elements.billing_mode.value === "commission";
-        const cardRate = Math.max(0, Math.min(50, Number(form.elements.card_commission.value || 0)));
-        if (!commission) {
-          form.elements.cash_commission.value = "0";
-          form.elements.cash_commission.disabled = true;
-          form.elements.weekly_fee.disabled = false;
-          if (changed || !form.elements.card_commission.value) form.elements.card_commission.value = "10";
-          $("#billing-explanation").textContent = "El conductor conserva todo el efectivo. En pagos electrónicos recibe el porcentaje restante después de la comisión configurada.";
-          $("#billing-example").innerHTML = `<small>EJEMPLO SOBRE UNA TARIFA DE $100</small><div><span>Efectivo: conductor</span><strong>$100.00</strong></div><div><span>Electrónico: Yavoi!</span><strong>${money(Math.round(10000 * Math.max(0, Math.min(50, Number(form.elements.card_commission.value || 0))) / 100))}</strong></div><div><span>Además</span><strong>${money(cents(form.elements.weekly_fee.value))} por semana</strong></div>`;
-        } else {
-          form.elements.cash_commission.disabled = false;
-          form.elements.weekly_fee.disabled = true;
-          if (changed || Number(form.elements.cash_commission.value) === 0) form.elements.cash_commission.value = "20";
-          if (changed || Number(form.elements.card_commission.value) === 10) form.elements.card_commission.value = "20";
-          $("#billing-explanation").textContent = "No se genera aportación semanal. La comisión electrónica se retiene al cobrar; la de efectivo se acumula para transferencia semanal.";
-          const cashRate = Math.max(0, Math.min(50, Number(form.elements.cash_commission.value || 0)));
-          const currentCardRate = Math.max(0, Math.min(50, Number(form.elements.card_commission.value || cardRate)));
-          $("#billing-example").innerHTML = `<small>EJEMPLO SOBRE UNA TARIFA DE $100</small><div><span>Efectivo: transferencia a Yavoi!</span><strong>${money(Math.round(10000 * cashRate / 100))}</strong></div><div><span>Electrónico: retención Yavoi!</span><strong>${money(Math.round(10000 * currentCardRate / 100))}</strong></div><div><span>Conductor recibe</span><strong>${money(Math.round(10000 * (100 - currentCardRate) / 100))} electrónico</strong></div>`;
-        }
+        form.elements.cash_commission.disabled = !commission;
+        form.elements.weekly_fee.disabled = commission;
+        if (!commission) form.elements.cash_commission.value = "0";
+        if (commission && Number(form.elements.cash_commission.value) === 0) form.elements.cash_commission.value = "20";
+        const rate = Math.max(0, Math.min(50, Number(form.elements.cash_commission.value || 0)));
+        $("#billing-explanation").textContent = commission ? "La comisión se calcula en el corte semanal interno." : "La cuota fija se revisa semanalmente con Operaciones.";
+        $("#billing-example").innerHTML = commission ? `<small>EJEMPLO SOBRE UNA TARIFA DE $100</small><div><span>Comisión del corte</span><strong>${money(Math.round(10000 * rate / 100))}</strong></div><div><span>Servicio registrado</span><strong>$100.00</strong></div>` : `<small>EJEMPLO DE CORTE SEMANAL</small><div><span>Cuota aplicable</span><strong>${money(cents(form.elements.weekly_fee.value))}</strong></div><div><span>Servicios registrados</span><strong>Se consultan en Mis viajes</strong></div>`;
       };
-      form.elements.billing_mode.onchange = () => explain(true);
-      form.elements.weekly_fee.oninput = () => explain();
-      form.elements.cash_commission.oninput = () => explain();
-      form.elements.card_commission.oninput = () => explain();
+      form.elements.billing_mode.onchange = explain;
+      form.elements.weekly_fee.oninput = explain;
+      form.elements.cash_commission.oninput = explain;
       explain();
       bindForm("#driver-billing", async (values) => {
         const mode = values.billing_mode;
@@ -4590,7 +4303,7 @@ function fleet() {
           billing_mode: mode,
           weekly_fee_cents: mode === "weekly_fee" ? cents(values.weekly_fee) : Number(d.weekly_fee_cents ?? 25000),
           cash_commission_bps: mode === "weekly_fee" ? 0 : cents(values.cash_commission),
-          card_commission_bps: cents(values.card_commission),
+          card_commission_bps: 0,
           note: values.note,
         });
         closeModal();
@@ -4702,7 +4415,7 @@ function rates() {
 function auditKpis(report = {}) {
   const summary = report.summary || {};
   const commercial = report.commercial_summary || {};
-  return `<div class="grid4 stats report-kpis"><div class="stat"><small>Viajes completados</small><strong>${summary.completed || 0}</strong><p>${summary.cancelled || 0} cancelados · ${summary.active || 0} en operación</p></div><div class="stat"><small>Ingresos registrados</small><strong>${money(summary.gross_cents)}</strong><p>Ticket promedio ${money(summary.average_ticket_cents)}</p></div><div class="stat"><small>Ingreso Yavoi! cobrado</small><strong>${money(commercial.platform_revenue_collected_cents ?? summary.platform_commission_cents)}</strong><p>${money(commercial.cash_transfers_pending_cents)} pendientes de transferencia</p></div><div class="stat"><small>Calidad y seguridad</small><strong>${summary.average_rating ? `${decimal(summary.average_rating)}/5` : "Sin datos"}</strong><p>${summary.incidents || 0} incidentes · ${summary.open_incidents || 0} abiertos</p></div></div>`;
+  return `<div class="grid4 stats report-kpis"><div class="stat"><small>Viajes completados</small><strong>${summary.completed || 0}</strong><p>${summary.cancelled || 0} cancelados · ${summary.active || 0} en operación</p></div><div class="stat"><small>Ingresos registrados</small><strong>${money(summary.gross_cents)}</strong><p>Ticket promedio ${money(summary.average_ticket_cents)}</p></div><div class="stat"><small>Ingreso Yavoi! cobrado</small><strong>${money(commercial.platform_revenue_collected_cents ?? summary.platform_commission_cents)}</strong><p>${money(commercial.cash_transfers_pending_cents)} pendientes de conciliación</p></div><div class="stat"><small>Calidad y seguridad</small><strong>${summary.average_rating ? `${decimal(summary.average_rating)}/5` : "Sin datos"}</strong><p>${summary.incidents || 0} incidentes · ${summary.open_incidents || 0} abiertos</p></div></div>`;
 }
 function overviewReport(report) {
   const periodCards = ["day", "week", "month", "year"].map((key) => {
@@ -4715,11 +4428,11 @@ function overviewReport(report) {
   const mix = report.service_mix || [];
   const commercial = report.commercial_summary || {};
   const mixMax = Math.max(1, ...mix.map((item) => Number(item.completed || 0)));
-  return `<section class="period-comparison">${periodCards}</section><div class="grid2 report-grid"><section class="panel"><div class="row between wrap"><div><h2>Actividad e ingresos</h2><p>Últimos ${Math.min(31, series.length)} días del periodo elegido.</p></div><span class="badge neutral">${decimal(report.summary?.distance_km)} km recorridos</span></div><div class="report-chart">${chart || '<div class="empty"><p>Sin actividad en este periodo.</p></div>'}</div></section><section class="panel"><h2>Distribución económica</h2><div class="receipt-row"><span>Tarifas de viaje</span><strong>${money(report.summary?.fares_cents)}</strong></div><div class="receipt-row"><span>Propinas</span><strong>${money(report.summary?.tips_cents)}</strong></div><div class="receipt-row"><span>Descuentos y recompensas</span><strong>${money(report.summary?.discounts_cents)}</strong></div><div class="receipt-row"><span>Pago en efectivo</span><strong>${money(report.summary?.cash_cents)}</strong></div><div class="receipt-row"><span>Pago con tarjeta</span><strong>${money(report.summary?.card_cents)}</strong></div><div class="receipt-row total"><span>Ingreso de conductores</span><strong>${money(report.summary?.driver_earnings_cents)}</strong></div></section></div><section class="panel section-gap commercial-reconciliation"><div class="row between wrap"><div><h2>Conciliación de ingresos Yavoi!</h2><p>Separa lo generado por los viajes de lo efectivamente recibido por la plataforma.</p></div><span class="badge">${money(commercial.platform_revenue_collected_cents)} cobrado</span></div><div class="commercial-metrics"><div><small>COMISIONES GENERADAS</small><strong>${money(commercial.trip_commission_accrued_cents)}</strong><p>Aplicadas según el esquema vigente de cada conductor.</p></div><div><small>RETENIDO EN PAGOS ELECTRÓNICOS</small><strong>${money(commercial.electronic_commission_retained_cents)}</strong><p>Comisión conciliada al procesar cobros electrónicos.</p></div><div><small>APORTACIONES SEMANALES</small><strong>${money(commercial.weekly_fees_collected_cents)}</strong><p>Cuotas verificadas y aprobadas por Operaciones.</p></div><div><small>TRANSFERENCIAS DE EFECTIVO</small><strong>${money(commercial.cash_transfers_collected_cents)}</strong><p>${money(commercial.cash_transfers_pending_cents)} pendientes de recibir o revisar.</p></div></div></section><section class="panel section-gap"><h2>Servicios por categoría</h2><p>Compara demanda, ingresos y ticket promedio de cada tipo de unidad.</p><div class="service-mix">${mix.map((item) => `<div><span><strong>Yavoi! ${e(item.name)}</strong><small>${item.completed || 0} completados · Ticket ${money(item.average_ticket_cents)}</small></span><progress max="${mixMax}" value="${item.completed || 0}">${item.completed || 0}</progress><strong>${money(item.gross_cents)}</strong></div>`).join("") || '<div class="empty"><p>Sin servicios en este periodo.</p></div>'}</div></section><section class="panel section-gap"><h2>Rendimiento de la flotilla</h2><div class="table-wrap"><table><thead><tr><th>Conductor</th><th>Viajes</th><th>Ingresos</th><th>Comisión</th><th>Rating</th><th>Incidentes</th></tr></thead><tbody>${(report.drivers || []).map((item) => `<tr><td><strong>${e(item.full_name)}</strong><small>${e(item.vehicle || "Unidad pendiente")} · ${e(item.plate || "Sin placas")}</small></td><td>${item.completed}</td><td>${money(item.gross_cents)}</td><td>${money(item.platform_commission_cents)}</td><td>${item.rating ? `${decimal(item.rating)}/5` : "Sin datos"}</td><td>${item.incidents}</td></tr>`).join("") || '<tr><td colspan="6">Sin conductores registrados.</td></tr>'}</tbody></table></div></section>`;
+  return `<section class="period-comparison">${periodCards}</section><div class="grid2 report-grid"><section class="panel"><div class="row between wrap"><div><h2>Actividad e ingresos</h2><p>Últimos ${Math.min(31, series.length)} días del periodo elegido.</p></div><span class="badge neutral">${decimal(report.summary?.distance_km)} km recorridos</span></div><div class="report-chart">${chart || '<div class="empty"><p>Sin actividad en este periodo.</p></div>'}</div></section><section class="panel"><h2>Distribución económica</h2><div class="receipt-row"><span>Tarifas de viaje</span><strong>${money(report.summary?.fares_cents)}</strong></div><div class="receipt-row"><span>Propinas</span><strong>${money(report.summary?.tips_cents)}</strong></div><div class="receipt-row"><span>Descuentos y recompensas</span><strong>${money(report.summary?.discounts_cents)}</strong></div><div class="receipt-row"><span>Pago en efectivo</span><strong>${money(report.summary?.cash_cents)}</strong></div><div class="receipt-row"><span>Pago directo en efectivo</span><strong>${money(report.summary?.card_cents)}</strong></div><div class="receipt-row total"><span>Ingreso de conductores</span><strong>${money(report.summary?.driver_earnings_cents)}</strong></div></section></div><section class="panel section-gap commercial-reconciliation"><div class="row between wrap"><div><h2>Conciliación de ingresos Yavoi!</h2><p>Separa lo generado por los viajes de lo efectivamente recibido por la plataforma.</p></div><span class="badge">${money(commercial.platform_revenue_collected_cents)} cobrado</span></div><div class="commercial-metrics"><div><small>COMISIONES GENERADAS</small><strong>${money(commercial.trip_commission_accrued_cents)}</strong><p>Aplicadas según el esquema vigente de cada conductor.</p></div><div><small>AJUSTES DE CONCILIACIÓN</small><strong>${money(commercial.electronic_commission_retained_cents)}</strong><p>Ajuste registrado en el corte interno.</p></div><div><small>APORTACIONES SEMANALES</small><strong>${money(commercial.weekly_fees_collected_cents)}</strong><p>Cuotas verificadas y aprobadas por Operaciones.</p></div><div><small>COMISIONES EN EFECTIVO</small><strong>${money(commercial.cash_transfers_collected_cents)}</strong><p>${money(commercial.cash_transfers_pending_cents)} pendientes de revisión.</p></div></div></section><section class="panel section-gap"><h2>Servicios por categoría</h2><p>Compara demanda, ingresos y ticket promedio de cada tipo de unidad.</p><div class="service-mix">${mix.map((item) => `<div><span><strong>Yavoi! ${e(item.name)}</strong><small>${item.completed || 0} completados · Ticket ${money(item.average_ticket_cents)}</small></span><progress max="${mixMax}" value="${item.completed || 0}">${item.completed || 0}</progress><strong>${money(item.gross_cents)}</strong></div>`).join("") || '<div class="empty"><p>Sin servicios en este periodo.</p></div>'}</div></section><section class="panel section-gap"><h2>Rendimiento de la flotilla</h2><div class="table-wrap"><table><thead><tr><th>Conductor</th><th>Viajes</th><th>Ingresos</th><th>Comisión</th><th>Rating</th><th>Incidentes</th></tr></thead><tbody>${(report.drivers || []).map((item) => `<tr><td><strong>${e(item.full_name)}</strong><small>${e(item.vehicle || "Unidad pendiente")} · ${e(item.plate || "Sin placas")}</small></td><td>${item.completed}</td><td>${money(item.gross_cents)}</td><td>${money(item.platform_commission_cents)}</td><td>${item.rating ? `${decimal(item.rating)}/5` : "Sin datos"}</td><td>${item.incidents}</td></tr>`).join("") || '<tr><td colspan="6">Sin conductores registrados.</td></tr>'}</tbody></table></div></section>`;
 }
 function driversReport(report) {
   const commercialByDriver = new Map((report.billing_drivers || []).map((item) => [item.id, item]));
-  return `<section class="panel"><h2>Resultados individuales</h2><p>Cada ficha separa ingresos, esquema comercial, comisiones generadas y transferencias realmente conciliadas.</p><div class="driver-report-list">${(report.drivers || []).map((item, index) => { const billing = commercialByDriver.get(item.id) || {}; const weekly = billing.billing_mode === "weekly_fee"; return `<details class="driver-report-card" ${index === 0 && S.auditFilters.driver_id ? "open" : ""}><summary><span><strong>${e(item.full_name)}</strong><small>${e(item.vehicle || "Unidad pendiente")} · ${e(item.plate || "Sin placas")}</small></span><span><strong>${item.completed} viajes</strong><small>${money(item.gross_cents)}</small></span>${I("chevron-down")}</summary><div class="driver-report-body"><div><small>Esquema</small><strong>${weekly ? "Aportación semanal" : "Comisión por viaje"}</strong></div><div><small>Ingreso del conductor</small><strong>${money(item.driver_earnings_cents)}</strong></div><div><small>Comisión generada</small><strong>${money(billing.trip_commission_cents ?? item.platform_commission_cents)}</strong></div><div><small>Ingreso Yavoi! cobrado</small><strong>${money(billing.platform_revenue_collected_cents)}</strong></div><div><small>Aportaciones pagadas</small><strong>${money(billing.weekly_fees_collected_cents)}</strong></div><div><small>Transferencias pendientes</small><strong>${money(billing.cash_transfers_pending_cents)}</strong></div><div><small>Rating</small><strong>${item.rating ? `${decimal(item.rating)}/5 (${item.ratings_count})` : "Sin datos"}</strong></div><div><small>Incidentes</small><strong>${item.incidents}</strong></div><div><small>Último viaje</small><strong>${item.last_trip_at ? date(item.last_trip_at) : "Sin viajes"}</strong></div></div><p class="hint">Efectivo ${Number(billing.cash_commission_bps || 0) / 100}% · electrónico ${Number(billing.card_commission_bps || 0) / 100}% para Yavoi!${weekly ? ` · aportación ${money(billing.weekly_fee_cents)} por semana` : ""}.</p><a class="btn secondary" href="#audit" data-driver-report="${e(item.id)}">Generar informe individual ${I("file-text")}</a></details>`; }).join("") || '<div class="empty"><p>Sin conductores registrados.</p></div>'}</div></section>`;
+  return `<section class="panel"><h2>Resultados individuales</h2><p>Cada ficha separa ingresos, esquema comercial, comisiones generadas y cortes realmente conciliados.</p><div class="driver-report-list">${(report.drivers || []).map((item, index) => { const billing = commercialByDriver.get(item.id) || {}; const weekly = billing.billing_mode === "weekly_fee"; return `<details class="driver-report-card" ${index === 0 && S.auditFilters.driver_id ? "open" : ""}><summary><span><strong>${e(item.full_name)}</strong><small>${e(item.vehicle || "Unidad pendiente")} · ${e(item.plate || "Sin placas")}</small></span><span><strong>${item.completed} viajes</strong><small>${money(item.gross_cents)}</small></span>${I("chevron-down")}</summary><div class="driver-report-body"><div><small>Esquema</small><strong>${weekly ? "Aportación semanal" : "Comisión por viaje"}</strong></div><div><small>Ingreso del conductor</small><strong>${money(item.driver_earnings_cents)}</strong></div><div><small>Comisión generada</small><strong>${money(billing.trip_commission_cents ?? item.platform_commission_cents)}</strong></div><div><small>Ingreso Yavoi! cobrado</small><strong>${money(billing.platform_revenue_collected_cents)}</strong></div><div><small>Aportaciones pagadas</small><strong>${money(billing.weekly_fees_collected_cents)}</strong></div><div><small>Cortes pendientes</small><strong>${money(billing.cash_transfers_pending_cents)}</strong></div><div><small>Rating</small><strong>${item.rating ? `${decimal(item.rating)}/5 (${item.ratings_count})` : "Sin datos"}</strong></div><div><small>Incidentes</small><strong>${item.incidents}</strong></div><div><small>Último viaje</small><strong>${item.last_trip_at ? date(item.last_trip_at) : "Sin viajes"}</strong></div></div><p class="hint">Efectivo ${Number(billing.cash_commission_bps || 0) / 100}% · referencia histórica ${Number(billing.card_commission_bps || 0) / 100}% para Yavoi!${weekly ? ` · aportación ${money(billing.weekly_fee_cents)} por semana` : ""}.</p><a class="btn secondary" href="#audit" data-driver-report="${e(item.id)}">Generar informe individual ${I("file-text")}</a></details>`; }).join("") || '<div class="empty"><p>Sin conductores registrados.</p></div>'}</div></section>`;
 }
 function incidentsReport(report) {
   return `<section class="panel"><div class="row between wrap"><div><h2>Incidentes y seguimiento</h2><p>Motivo, persona que reportó, viaje relacionado y respuesta de Operaciones.</p></div><span class="badge ${report.summary?.open_incidents ? "pending" : "neutral"}">${report.summary?.open_incidents || 0} pendientes</span></div><div class="audit-list">${(report.incidents || []).map((item) => `<details class="audit-event"><summary><span class="audit-event-icon">${I("message-square-warning")}</span><span><strong>${e(item.subject)}</strong><small>${date(item.created_at)} · Reportó ${e(item.reported_by)}</small></span><span class="badge ${item.status === "resolved" ? "" : "pending"}">${e({ open: "Abierto", reviewing: "En revisión", resolved: "Resuelto" }[item.status] || item.status)}</span>${I("chevron-down")}</summary><div class="audit-event-detail"><p>${e(item.body)}</p><div class="audit-detail-grid"><span><small>Conductor</small><strong>${e(item.driver_name || "Sin conductor asignado")}</strong></span><span><small>Viaje</small><strong>${e(item.origin || "Sin viaje")} ${item.destination ? `→ ${e(item.destination)}` : ""}</strong></span></div>${item.response ? `<div class="hint"><strong>Respuesta de Operaciones</strong><br>${e(item.response)}</div>` : '<p class="hint warning">Aún no hay respuesta registrada.</p>'}<a class="link" href="${item.trip_id ? `#trip/${e(item.trip_id)}` : "#help"}">${item.trip_id ? "Abrir viaje relacionado" : "Abrir bandeja de reportes"}</a></div></details>`).join("") || '<div class="empty"><p>No hay incidentes en este periodo.</p></div>'}</div></section>`;
@@ -5258,15 +4971,6 @@ async function handleAction(action, b) {
     });
     return;
   }
-  if (action === "retry-card") {
-    const payment = S.trip.payments?.find((item) => item.kind === "ride");
-    if (payment)
-      return cardCheckout(payment.id, t.id, payment.amount_cents, t.scheduled_at ? "schedule-confirmation" : "trip");
-  }
-  if (action === "pay-adjustment") {
-    const payment = S.trip.payments?.find((item) => item.kind === "trip_adjustment" && ["created", "pending", "in_process"].includes(item.status));
-    if (payment) return cardCheckout(payment.id, t.id, payment.amount_cents, "trip");
-  }
   if (action === "external-navigation")
     return run(() => launchDriverNavigation(t, reserveNavigationWindow()));
   if (action === "arrive")
@@ -5281,11 +4985,11 @@ async function handleAction(action, b) {
       ? '<label class="check"><input type="checkbox" required>Confirmo que el viaje cubierto por la recompensa llegó al destino.</label>'
       : '<label class="check"><input name="cash_received" type="checkbox" required>Recibí el pago y entregué el cambio correspondiente.</label>';
     openModal(
-      freeRewardTrip ? "Llegada con recompensa" : t.payment_method === "card" ? "Llegada confirmada" : "Llegada y pago en efectivo",
-      `<p>Confirma con el pasajero que llegaron al destino antes de cerrar el viaje.</p><div class="receipt-row total"><span>${t.payment_method === "cash" ? "Total a recolectar" : "Total"}</span><strong>${money(finalTotal)}</strong></div>${t.payment_method === "cash" && !freeRewardTrip ? `<p class="hint">Incluye ${money(Number(S.trip?.waiting_adjustments_cents || 0))} de espera y ${money(Number(S.trip?.manual_adjustments_cents || 0))} de otros ajustes aceptados.</p>` : ''}<form id="finish">${t.payment_method === "cash" ? cashConfirmation : '<label class="check"><input type="checkbox" required>Confirmo que el pasajero llegó al destino.</label>'}<button class="btn wide" type="submit">${t.payment_method === "cash" ? "Confirmar dinero recibido" : "Completar viaje"} ${I("check")}</button></form>`,
+      freeRewardTrip ? "Llegada con recompensa" : "Llegada y pago en efectivo",
+      `<p>Confirma con el pasajero que llegaron al destino antes de cerrar el viaje.</p><div class="receipt-row total"><span>${"Total a recolectar"}</span><strong>${money(finalTotal)}</strong></div>${!freeRewardTrip ? `<p class="hint">Incluye ${money(Number(S.trip?.waiting_adjustments_cents || 0))} de espera y ${money(Number(S.trip?.manual_adjustments_cents || 0))} de otros ajustes aceptados.</p>` : ''}<form id="finish">${cashConfirmation}<button class="btn wide" type="submit">${freeRewardTrip ? "Completar viaje" : "Confirmar dinero recibido"} ${I("check")}</button></form>`,
     );
     bindForm("#finish", async () => {
-      await rpc("transition", { trip_id: t.id, status: "completed", cash_received: t.payment_method === "cash" });
+      await rpc("transition", { trip_id: t.id, status: "completed", cash_received: !freeRewardTrip });
       closeModal();
       await tripView(t.id);
       try {
@@ -5322,21 +5026,14 @@ async function handleAction(action, b) {
         : `<div class="hint">${I("shield-check")} ${e(terms.explanation)}</div>`;
       openModal(
         "Revisa antes de cancelar",
-        `<form id="cancel">${feeNotice}${terms.payment_method === "card" && Number(terms.refund_cents || 0) > 0 ? `<div class="receipt-row"><span>Reembolso estimado a tu tarjeta</span><strong>${money(terms.refund_cents)}</strong></div>` : ""}<label>Motivo de cancelación<select name="reason_code" required><option value="">Selecciona un motivo</option>${reasonOptions}</select></label><label class="check"><input type="checkbox" required>Entiendo el importe, el reembolso y que ambas partes recibirán el aviso.</label><button class="btn danger wide" type="submit">Confirmar cancelación</button></form>`,
+        `<form id="cancel">${feeNotice}<label>Motivo de cancelación<select name="reason_code" required><option value="">Selecciona un motivo</option>${reasonOptions}</select></label><label class="check"><input type="checkbox" required>Entiendo el importe y que ambas partes recibirán el aviso.</label><button class="btn danger wide" type="submit">Confirmar cancelación</button></form>`,
       );
       bindForm("#cancel", async (v) => {
         const reason = cancellationReasons.find(([value]) => value === v.reason_code)?.[1] || "Otro motivo";
         const cancelled = await rpc("transition", { trip_id: t.id, status: "cancelled", reason_code: v.reason_code, reason });
-        let refundPending = false;
-        if (cancelled.refund_payment_id) {
-          const { data, error } = await db.functions.invoke("mercado-pago-payment", { body: { action: "refund", payment_id: cancelled.refund_payment_id } });
-          refundPending = !!(error || data?.error);
-        }
         closeModal();
         await tripView(t.id);
-        if (refundPending) notify("El viaje se canceló. Operaciones dará seguimiento al reembolso pendiente.");
-        else if (cancelled.cancellation_refund_cents) notify(`Cancelación confirmada. Reembolso: ${money(cancelled.cancellation_refund_cents)}.`);
-        else if (cancelled.cancellation_fee_cents) notify(`Cancelación confirmada. Cuota registrada: ${money(cancelled.cancellation_fee_cents)}.`);
+        if (cancelled.cancellation_fee_cents) notify(`Cancelación confirmada. Cuota registrada: ${money(cancelled.cancellation_fee_cents)}.`);
         else notify("Cancelación confirmada sin cargo.");
       });
     });
@@ -5386,22 +5083,14 @@ async function handleAction(action, b) {
   }
   if (action === "passenger-tip") {
     if (t.tip_cents > 0) return notify("Este viaje ya incluye una propina. Gracias por reconocer el servicio.");
-    openModal(
-      "Agradece un gran servicio",
-      `<form id="passenger-tip"><label>Importe de propina (MXN)<input name="amount" type="number" min="1" max="1000" step="0.01" required></label><label class="check"><input type="radio" name="payment_method" value="cash" checked>Efectivo entregado directamente</label><label class="check ${S.cardEnabled ? "" : "muted"}"><input type="radio" name="payment_method" value="card" ${S.cardEnabled ? "" : "disabled"}>Tarjeta con Mercado Pago · no disponible durante el piloto</label><p class="hint">La propina es voluntaria. Una propina en efectivo aparecerá cuando el conductor confirme que la recibió.</p><button class="btn wide" type="submit">Continuar</button></form>`,
-    );
-    bindForm("#passenger-tip", async (v) => {
-      const result = await rpc("post_trip_tip", { trip_id: t.id, amount_cents: cents(v.amount), payment_method: v.payment_method });
-      closeModal();
-      if (result.payment_id) return cardCheckout(result.payment_id, t.id, result.amount_cents);
-      notify("Entrega la propina al conductor; quedará registrada cuando confirme la recepción.");
-    });
+    openModal("Agradece un gran servicio", `<form id="passenger-tip"><label>Importe de propina (MXN)<input name="amount" type="number" min="1" max="1000" step="0.01" required></label><p class="hint">La propina es voluntaria y se entrega directamente en efectivo al conductor.</p><label class="check"><input required type="checkbox">Confirmo que entregaré este importe en efectivo.</label><button class="btn wide" type="submit">Registrar propina</button></form>`);
+    bindForm("#passenger-tip", async (v) => { await rpc("post_trip_tip", { trip_id: t.id, amount_cents: cents(v.amount), payment_method: "cash" }); closeModal(); notify("Entrega la propina al conductor; quedará registrada cuando confirme la recepción."); });
     return;
   }
   if (action === "receipt") {
     openModal(
       "Comprobante del viaje",
-      `<p>Yavoi! · ${e(t.id.slice(0, 8).toUpperCase())}</p><div class="route-line">${e(t.origin)} → ${e(t.destination)}</div><div class="receipt-row"><span>Finalizó</span><span>${date(t.completed_at)}</span></div><div class="receipt-row"><span>Método</span><strong>${Number(t.total_cents) === 0 ? "Puntos Viajeros" : t.payment_method === "card" ? "Tarjeta · Mercado Pago" : "Efectivo recibido"}</strong></div><div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.reward_discount_cents ? `<div class="receipt-row positive-points"><span>Recompensa aplicada</span><strong>-${money(t.reward_discount_cents)}</strong></div>` : ""}${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div><p class="hint">Este comprobante de servicio no es una factura fiscal.</p>`,
+      `<p>Yavoi! · ${e(t.id.slice(0, 8).toUpperCase())}</p><div class="route-line">${e(t.origin)} → ${e(t.destination)}</div><div class="receipt-row"><span>Finalizó</span><span>${date(t.completed_at)}</span></div><div class="receipt-row"><span>Método</span><strong>${Number(t.total_cents) === 0 ? "Puntos Viajeros" : "Efectivo recibido"}</strong></div><div class="receipt-row"><span>Viaje</span><strong>${money(t.fare_cents)}</strong></div>${t.reward_discount_cents ? `<div class="receipt-row positive-points"><span>Recompensa aplicada</span><strong>-${money(t.reward_discount_cents)}</strong></div>` : ""}${t.tip_cents ? `<div class="receipt-row"><span>Propina</span><strong>${money(t.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div><p class="hint">Este comprobante de servicio no es una factura fiscal.</p>`,
     );
     return;
   }
@@ -5475,8 +5164,7 @@ async function refreshPage() {
   S.profile = b.profile;
   S.driver = b.driver;
   S.categories = b.categories;
-  S.cardEnabled = false;
-  S.mercadoPagoPublicKey = b.mercado_pago_public_key || "";
+
   S.data = await rpc("dashboard");
   await renderRoute();
 }

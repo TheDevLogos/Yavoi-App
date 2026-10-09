@@ -58,7 +58,7 @@ test("audit terms identify the action, area and readable details", () => {
   assert.deepEqual(auditDetailItems({ billing_mode: "commission", weekly_fee_cents: 50000, card_commission_bps: 2000 }), [
     { label: "Modalidad de cobro", value: "Comisión por viaje" },
     { label: "Aportación semanal", value: "$500.00" },
-    { label: "Comisión electrónica", value: "20%" },
+    { label: "Referencia histórica", value: "20%" },
   ]);
   assert.deepEqual(insuranceStatus("critical"), ["Vence en 30 días", "cancelled"]);
 });
@@ -75,5 +75,5 @@ test("each report builds a useful table and a valid PDF", async () => {
   assert.equal(reportSections(report, "overview")[2].title, "Cumplimiento de transporte");
   assert.deepEqual(reportSections(report, "overview")[2].body[2], ["Recibos por correo", "23 enviados", "1 pendientes · 0 con error"]);
   assert.deepEqual(reportSections(report, "overview")[2].body[4], ["Aportación al Fondo de Movilidad", "$23.40", "Estimación del periodo con la tasa configurada"]);
-  assert.equal(reportSections(report, "drivers")[1].title, "Cobro y transferencias por conductor");
+  assert.equal(reportSections(report, "drivers")[1].title, "Conciliación por conductor");
 });

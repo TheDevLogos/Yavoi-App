@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const portal = await readFile(new URL("../src/portal.js", import.meta.url), "utf8");
 const css = await readFile(new URL("../src/portal.css", import.meta.url), "utf8");
+const finance = await readFile(new URL("../src/finance.js", import.meta.url), "utf8");
 const domain = await readFile(new URL("../src/domain.js", import.meta.url), "utf8");
 const operationsReport = await readFile(new URL("../src/operations-report.js", import.meta.url), "utf8");
 const paymentFunction = await readFile(new URL("../supabase/functions/mercado-pago-payment/index.ts", import.meta.url), "utf8");
@@ -211,9 +212,8 @@ test("passenger safety is integrated into each trip and cancellation is transpar
   assert.match(portal, /cancellation_quote/);
   assert.match(portal, /settle_cancellation_fee/);
   assert.match(portal, /cancellation_fee_paid/);
-  assert.match(paymentFunction, /original_amount_cents/);
-  assert.match(paymentFunction, /partialRefund = Number\(refundData\.amount_cents\) < Number\(refundData\.original_amount_cents/);
-  assert.match(paymentFunction, /body: partialRefund \? JSON\.stringify/);
+  assert.match(paymentFunction, /cash_direct_weekly_operations/);
+  assert.match(paymentFunction, /status: 410/);
 });
 
 test("Operations exposes both per-driver commercial modes", () => {
@@ -221,8 +221,8 @@ test("Operations exposes both per-driver commercial modes", () => {
   assert.match(portal, /Comisión por viaje/);
   assert.match(portal, /set_driver_billing/);
   assert.match(portal, /weekly_fee_cents \?\? 25000/);
-  assert.match(portal, /submit_driver_settlement/);
-  assert.match(portal, /review_driver_settlement/);
+  assert.match(portal, /Cuotas y comisiones semanales/);
+  assert.match(portal, /Autorizar conducción/);
 });
 
 test("approved destinations, legal consents and women-driver availability are explicit", () => {
@@ -337,7 +337,7 @@ test("scheduled requests finish on a dedicated confirmation and keep normal live
   assert.match(portal, /schedule-confirmation.*trip\/.*t\.id/s);
   assert.match(portal, /No buscaremos una unidad en esta pantalla/);
   assert.match(portal, /trip\.scheduled_at && \["scheduled", "payment_pending"\]\.includes\(trip\.status\)/);
-  assert.match(portal, /t\.scheduled_at \? "schedule-confirmation" : "trip"/);
+  assert.match(portal, /class="scheduled-confirmation"/);
   assert.match(portal, /El cargo aproximado es/);
   assert.match(portal, /Revisa WhatsApp/);
   assert.match(portal, /Abre Yavoi! al menos 15 minutos antes/);
@@ -364,9 +364,9 @@ test("Operations can reserve offline compatible drivers and drivers receive live
 });
 
 test("Operations fee reactivation persists while overdue records remain auditable", () => {
-  assert.match(portal, /Reactivar cuenta del conductor/);
-  assert.match(portal, /Una nueva cuota vencida posterior volverá a suspender el acceso/);
-  assert.match(portal, /overdue_fees_preserved/);
+  assert.match(portal, /Autorizar conducción/);
+  assert.match(portal, /Permiso de conducción autorizado/);
+  assert.match(portal, /set_driver_access/);
   assert.match(feeReactivationMigration, /account_access_authorized_at/);
   assert.match(feeReactivationMigration, /f\.due_at>d\.account_access_authorized_at/);
   assert.match(feeReactivationMigration, /El conductor necesita expediente aprobado y documentos vigentes/);
@@ -378,10 +378,10 @@ test("rates explain fare inputs and reports reconcile each driver billing scheme
   assert.match(portal, /data-rate-preview/);
   assert.match(portal, /EJEMPLO SOBRE UNA TARIFA DE \$100/);
   assert.match(portal, /Conciliación de ingresos Yavoi!/);
-  assert.match(portal, /Transferencias pendientes/);
+  assert.match(portal, /Cortes pendientes/);
   assert.match(css, /\.rate-field-grid/);
   assert.match(operationsReport, /Conciliación comercial de Yavoi!/);
-  assert.match(operationsReport, /Cobro y transferencias por conductor/);
+  assert.match(operationsReport, /Conciliación por conductor/);
   assert.match(commercialReportingMigration, /commission_bps_applied=waiting\.commission_bps/);
   assert.match(commercialReportingMigration, /private\.operations_report_v3/);
   assert.match(commercialReportingMigration, /platform_revenue_collected_cents/);
@@ -455,23 +455,17 @@ test("passenger price and driver contractual earnings stay distinct on trip deta
   assert.match(portal, /const driverTripEarnings = Number\(t\.financial_breakdown\?\.contractual_net_cents/);
   assert.match(portal, /Tu ganancia/);
   assert.match(portal, /Incluye promociones por conciliar/);
-  assert.match(portal, /Total · tarjeta/);
-  assert.match(portal, /Total · efectivo/);
+  assert.match(portal, /Total a pagar al conductor/);
+  assert.match(portal, /Propina en efectivo/);
 });
 
 test("driver income is compact and filterable by period and concept", () => {
-  assert.match(portal, /EFECTIVO COBRADO/);
-  assert.match(portal, /PAGOS ELECTRÓNICOS/);
-  assert.match(portal, /LIQUIDACIÓN/);
-  assert.match(portal, /No hay saldo retirable ni pagos con tarjeta desde la app/);
-  assert.ok(css.includes(".driver-money-summary"));
-  assert.match(portal, /class="panel profile-section income-movements/);
-  assert.match(portal, /data-ledger-period="today"/);
-  assert.match(portal, /data-ledger-period="week"/);
-  assert.match(portal, /id="ledger-kind-filter"/);
-  assert.match(portal, /function driverLedgerRows/);
-  assert.match(portal, /function applyLedgerFilters|const applyLedgerFilters/);
-  assert.match(css, /\.income-filters/);
+  assert.match(portal, /Comisiones del corte semanal/);
+  assert.match(finance, /CUOTA Y COMISIONES/);
+  assert.match(finance, /No representa saldo disponible/);
+  assert.match(finance, /finance-week/);
+  assert.match(finance, /Revisión con Operaciones/);
+  assert.match(portal, /function driverSettlementsMarkup/);
 });
 
 test("fast booking, recurring schedules, GPS and flexible street names are hardened", () => {

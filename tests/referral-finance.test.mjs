@@ -31,27 +31,20 @@ test("promotion discounts are reimbursed weekly without changing the contractual
 
 test("Operations uses existing views for referral alerts and weekly reimbursements", () => {
   assert.match(portal, /src="\/src\/operations-finance\.js"/);
-  assert.match(finance, /Liquidaciones de comisión en efectivo/);
+  assert.match(finance, /Digital payment, reimbursement and transfer controls are intentionally/);
   assert.match(finance, /\.referral-operations/);
   assert.match(finance, /\.commercial-reconciliation/);
   assert.match(finance, /table: "referrals"/);
   assert.match(finance, /Nuevo referido registrado/);
   assert.match(finance, /Referido completó su primer viaje/);
-  assert.match(finance, /review_driver_promotion_reimbursement/);
+  assert.doesNotMatch(finance, /review_driver_promotion_reimbursement/);
   assert.match(finance, /20% en su primer viaje, máximo \$40/);
-  assert.match(finance, /escapeHtml\(item\.driver_name/);
 });
 
 
-test("driver wallet separates cash from platform-held electronic earnings", () => {
-  assert.match(walletMigration, /create function private\.dashboard_v17/);
-  assert.match(walletMigration, /cash_collected_cents/);
-  assert.match(walletMigration, /electronic_gross_cents/);
-  assert.match(walletMigration, /electronic_net_cents/);
-  assert.match(walletMigration, /promotion_reimbursements_pending_cents/);
-  assert.match(walletMigration, /electronic_balance_cents/);
-  assert.match(walletMigration, /'withdrawals_enabled',false/);
-  assert.match(walletMigration, /when 'dashboard' then private\.dashboard_v17/);
-  assert.match(walletCorrection, /electronic_net:=electronic_gross-card_commission/);
-  assert.match(walletCorrection, /pay\.kind='tip' and pay\.provider='mercado_pago' and pay\.status='approved'/);
+test("cash-only migration removes client financial operations while retaining internal calculations", async () => {
+  const cashOnly = await readFile(new URL("../supabase/migrations/20261009090000_cash_only_weekly_operations.sql", import.meta.url), "utf8");
+  assert.match(cashOnly, /Los nuevos viajes sólo admiten efectivo al finalizar/);
+  assert.match(cashOnly, /finance_digital_payments_disabled/);
+  assert.match(cashOnly, /week_cash_cents/);
 });

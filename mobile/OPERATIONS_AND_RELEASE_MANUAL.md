@@ -41,15 +41,12 @@ que sólo deben agregarse desde las cuentas oficiales de Yavoi!.
 4. Verificar origen, destino, búsqueda de direcciones, destinos frecuentes,
    rutas, tarifa y navegación en los recorridos de prueba.
 
-## 4. Mercado Pago
+## 4. Modelo de efectivo y corte semanal
 
-1. Mantener credenciales de prueba y producción separadas.
-2. Registrar desde la cuenta oficial el webhook HTTPS de Yavoi!, validar firma,
-   idempotencia y estados de pago.
-3. Probar aprobación, rechazo, cancelación, reembolso y conciliación sin usar
-   tarjetas o dinero personales en producción.
-4. Habilitar cobro real sólo cuando Operaciones pueda consultar el folio de pago,
-   el desglose por viaje y la conciliación de billetera.
+1. El pasajero paga al conductor directamente en efectivo al finalizar el servicio.
+2. La aplicación conserva la tarifa, ajustes, comisión e impuestos como detalle del viaje.
+3. Operaciones realiza el corte semanal, comunica la cuota aplicable y autoriza la continuidad operativa del conductor.
+4. No configurar ni usar cuentas bancarias, tarjetas, retiros, transferencias o proveedores de pago en esta versión.
 
 ## 5. Google Play y App Store
 
@@ -69,8 +66,6 @@ que sólo deben agregarse desde las cuentas oficiales de Yavoi!.
 
 - Operaciones autoriza conductores después de validar sus cuatro documentos.
 - Conductores se conectan manualmente; la disponibilidad no inicia por defecto.
-- Cada viaje conserva tarifa, ajustes, comisión, retenciones y movimientos de
-  billetera. Finanzas revisa cierres semanales y mensuales antes de pagar o
-  declarar impuestos.
+- Cada viaje conserva tarifa, ajustes, comisión y retenciones para conciliación interna. Finanzas revisa los cierres semanales y mensuales antes de declarar impuestos.
 - Atención revisa reportes, cancelaciones y solicitudes de eliminación desde
   los canales definidos, respetando el plazo de conservación legal aplicable.

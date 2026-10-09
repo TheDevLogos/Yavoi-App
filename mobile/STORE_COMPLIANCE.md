@@ -28,7 +28,7 @@ grupos a revisar:
 | Ubicación precisa | Origen, asignación, navegación, seguridad y seguimiento | Sí | Pasajero, conductor asignado y Operaciones durante el servicio |
 | Historial de viajes y actividad en la app | Cotización, servicio, soporte, recibos, fraude y obligaciones legales | Sí | Proveedores necesarios y Operaciones |
 | Mensajes y reportes de viaje | Comunicación, seguridad y soporte | Sí | Participantes del viaje y Operaciones |
-| Datos de pago y transacciones | Cobro, reembolso, conciliación y recibos | Sí | Mercado Pago cuando se habilite; Yavoi! no almacena PAN ni CVV |
+| Detalle de tarifas y viajes | Cotización, servicio, recibos y conciliación interna | Sí | Participantes necesarios del viaje y Operaciones |
 | Identificadores de dispositivo y token de notificación | Alertas de viaje y seguridad | Sí | Firebase Cloud Messaging cuando se configure |
 | Documentos de conductor | Verificación, autorización y cumplimiento | Sí | Operaciones y almacenamiento privado de Yavoi! |
 
@@ -42,7 +42,7 @@ grupos a revisar:
    demostración aisladas, con datos ficticios y acceso activo durante la
    revisión.
 4. Formulario de seguridad de datos: confirmar si la versión final activa
-   Firebase, Mercado Pago y rastreo de ubicación en segundo plano antes de
+   Firebase y rastreo de ubicación en segundo plano antes de
    marcar cada práctica.
 5. Formulario de anuncios: conservar “sin anuncios” únicamente mientras no se
    integre una red publicitaria o publicidad comportamental.
@@ -55,3 +55,7 @@ grupos a revisar:
 - Revisión de textos de ficha ya guardados como borrador.
 - Verificación de que la política y la URL de eliminación de cuenta estén
   disponibles públicamente en HTTPS.
+
+## Declaración de funciones financieras
+
+Para ambas apps, responder **No** en “Funciones financieras”. Esta versión no procesa pagos digitales, no guarda tarjetas o cuentas bancarias, no permite transferencias, retiros ni administra una billetera. El pasajero paga efectivo directamente al conductor; Operaciones conserva la conciliación comercial y fiscal fuera de las apps.

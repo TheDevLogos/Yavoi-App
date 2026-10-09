@@ -29,7 +29,7 @@ por perfil y conservar la misma ciudad y datos ficticios de viaje.
 2. **Nueva solicitud.** Oferta con recolección, destino, tarifa y mapa de muestra.
 3. **Navegación o servicio activo.** Trayecto con la información de recolección o
    destino simulada.
-4. **Ingresos.** Billetera semanal con gráfica, viajes y desglose ilustrativo.
+4. **Ingresos.** Corte semanal con gráfica, viajes y desglose ilustrativo.
 
 ## Antes de entregar cada captura
 

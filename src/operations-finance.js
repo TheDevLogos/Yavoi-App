@@ -36,7 +36,7 @@ function notifyOperations(title, body, tag) {
 }
 
 function statusName(status) {
-  return ({ pending: "Semana abierta", overdue: "Lista para transferir", paid: "Transferido" })[status] || status;
+  return ({ pending: "Semana abierta", overdue: "Pendiente de conciliación", paid: "Conciliado" })[status] || status;
 }
 
 function periodPayload() {
@@ -54,56 +54,9 @@ function periodPayload() {
   return payload;
 }
 
-function reimbursementCard(item) {
-  const transferable = ["overdue"].includes(item.status);
-  const details = (item.trips || []).map((trip) =>
-    `<li><span>${new Date(trip.completed_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })} · ${trip.payment_method === "card" ? "Tarjeta" : "Efectivo"}${trip.free_trip ? " · viaje gratis" : ""}</span><strong>${money(trip.discount_cents)}</strong></li>`,
-  ).join("");
-  return `<article class="promotion-reimbursement-card"><div><strong>${escapeHtml(item.driver_name || "Conductor")}</strong><small>Semana del ${new Date(`${item.week_start}T12:00:00`).toLocaleDateString("es-MX", { dateStyle: "medium" })} · ${item.trip_count} viaje${Number(item.trip_count) === 1 ? "" : "s"} con beneficio</small></div><div class="promotion-reimbursement-total"><small>YAVOI! DEBE REPONER</small><strong>${money(item.reimbursement_cents)}</strong></div><span class="badge ${item.status === "paid" ? "" : "pending"}">${statusName(item.status)}</span><div class="promotion-reimbursement-breakdown"><span>Efectivo <strong>${money(item.cash_discount_cents)}</strong></span><span>Tarjeta <strong>${money(item.card_discount_cents)}</strong></span><span>Viajes gratis <strong>${Number(item.free_trip_count || 0)}</strong></span></div>${details ? `<details><summary>Ver viajes incluidos</summary><ul>${details}</ul></details>` : ""}${transferable ? `<button class="btn" type="button" data-promotion-reimbursement="${item.id}">Registrar transferencia al conductor</button>` : item.status === "paid" ? `<small>Referencia: ${escapeHtml(item.transfer_reference || "registrada")} · ${item.paid_at ? new Date(item.paid_at).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" }) : "transferido"}</small>` : `<small>Se cierra y habilita para transferencia al terminar la semana.</small>`}</article>`;
-}
-
-function bindReimbursementActions(items) {
-  $$('[data-promotion-reimbursement]').forEach((button) => {
-    button.onclick = () => {
-      const item = items.find((entry) => entry.id === button.dataset.promotionReimbursement);
-      if (!item) return;
-      const dialog = $("#modal");
-      if (!dialog) return;
-      dialog.innerHTML = `<button class="close" type="button" aria-label="Cerrar">×</button><h2 id="modal-title">Registrar reembolso promocional</h2><p>Confirma la transferencia de <strong>${money(item.reimbursement_cents)}</strong> a ${escapeHtml(item.driver_name || "Conductor")}. Verifica que este importe no se haya incluido en otro pago al conductor.</p><form id="promotion-reimbursement-form"><label>Referencia de transferencia<input name="reference" minlength="3" maxlength="160" required placeholder="SPEI, folio bancario o referencia interna"></label><label>Nota de conciliación<textarea name="note" minlength="5" maxlength="1000" required placeholder="Semana y validación realizada"></textarea></label><button class="btn wide" type="submit">Confirmar transferencia</button></form>`;
-      $(".close", dialog).onclick = () => dialog.close();
-      dialog.showModal();
-      $("#promotion-reimbursement-form", dialog).onsubmit = async (event) => {
-        event.preventDefault();
-        const values = Object.fromEntries(new FormData(event.currentTarget));
-        button.disabled = true;
-        try {
-          await rpc("review_driver_promotion_reimbursement", {
-            reimbursement_id: item.id,
-            reference: values.reference,
-            note: values.note,
-          });
-          dialog.close();
-          toast("Reembolso promocional transferido y registrado en Auditoría.");
-          await renderEnhancements(true);
-        } catch (error) {
-          toast(error.message || "No se pudo registrar la transferencia.");
-        } finally {
-          button.disabled = false;
-        }
-      };
-    };
-  });
-}
-
-async function enhancePayments(data) {
-  if (location.hash.slice(1).split("/")[0] !== "payments") return;
-  const items = data.promotion_reimbursements || [];
-  const section = $$('section.panel').find((node) => $("h2", node)?.textContent.trim() === "Liquidaciones de comisión en efectivo");
-  if (!section || $(".promotion-reimbursements", section)) return;
-  const pending = items.filter((item) => item.status !== "paid");
-  const pendingCents = pending.reduce((sum, item) => sum + Number(item.reimbursement_cents || 0), 0);
-  section.insertAdjacentHTML("beforeend", `<div class="promotion-reimbursements"><div class="promotion-reimbursement-heading"><div><span class="badge neutral">PROMOCIONES FINANCIADAS POR YAVOI!</span><h3>Reembolsos de descuentos y viajes gratis</h3><p>El conductor conserva su ingreso contractual sobre la tarifa original. Yavoi! acumula semanalmente la diferencia que pagó el usuario y la transfiere al conductor al cierre.</p></div><strong>${money(pendingCents)} pendientes</strong></div><div class="promotion-reimbursement-list">${items.length ? items.map(reimbursementCard).join("") : '<div class="empty"><p>No hay descuentos o viajes gratis completados que requieran reembolso.</p></div>'}</div></div>`);
-  bindReimbursementActions(items);
+async function enhancePayments() {
+  // Digital payment, reimbursement and transfer controls are intentionally
+  // unavailable. Operations uses the weekly internal reconciliation instead.
 }
 
 async function enhanceMarketing(data) {
@@ -120,7 +73,7 @@ async function enhanceAudit() {
   if (!section || $(".promotion-commercial-summary", section)) return;
   const report = await rpc("operations_report", periodPayload());
   const commercial = report.commercial_summary || {};
-  section.insertAdjacentHTML("beforeend", `<div class="promotion-commercial-summary"><div><small>DESCUENTOS FINANCIADOS POR YAVOI!</small><strong>${money(commercial.promotion_discounts_cents)}</strong><p>${Number(commercial.promotion_free_trips || 0)} viajes gratis en el periodo.</p></div><div><small>REEMBOLSOS A CONDUCTORES PENDIENTES</small><strong>${money(commercial.promotion_reimbursements_pending_cents)}</strong><p>Se transfieren al cierre semanal sin reducir su ingreso contractual.</p></div><div><small>REEMBOLSOS YA TRANSFERIDOS</small><strong>${money(commercial.promotion_reimbursements_paid_cents)}</strong><p>Salida de caja promocional conciliada.</p></div><div><small>CONTRIBUCIÓN YAVOI! DESPUÉS DE PROMOCIONES</small><strong>${money(commercial.platform_contribution_after_promotions_cents)}</strong><p>Ingreso comercial generado menos descuentos financiados por la plataforma.</p></div></div>`);
+  section.insertAdjacentHTML("beforeend", `<div class="promotion-commercial-summary"><div><small>DESCUENTOS FINANCIADOS POR YAVOI!</small><strong>${money(commercial.promotion_discounts_cents)}</strong><p>${Number(commercial.promotion_free_trips || 0)} viajes gratis en el periodo.</p></div><div><small>AJUSTES COMERCIALES PENDIENTES</small><strong>${money(commercial.promotion_reimbursements_pending_cents)}</strong><p>Operaciones los considera en el corte semanal interno.</p></div><div><small>AJUSTES COMERCIALES CERRADOS</small><strong>${money(commercial.promotion_reimbursements_paid_cents)}</strong><p>Registro comercial conciliado.</p></div><div><small>CONTRIBUCIÓN YAVOI! DESPUÉS DE PROMOCIONES</small><strong>${money(commercial.platform_contribution_after_promotions_cents)}</strong><p>Ingreso comercial generado menos descuentos financiados por la plataforma.</p></div></div>`);
 }
 
 async function renderEnhancements(force = false) {
@@ -166,7 +119,6 @@ function startReferralAlerts() {
         renderEnhancements(true);
       }
     })
-    .on("postgres_changes", { event: "*", schema: "public", table: "driver_promotion_reimbursements" }, () => renderEnhancements(true))
     .subscribe();
 }
 

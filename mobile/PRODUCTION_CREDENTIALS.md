@@ -1,10 +1,6 @@
-# Credenciales de producción: Maps, pagos y notificaciones
+# Credenciales de producción: Maps y notificaciones
 
-La primera publicación se prepara en modo piloto de efectivo. Los cobros con
-tarjeta y los retiros iniciados por conductores permanecen desactivados. Las
-liquidaciones excepcionales de saldo a favor se concilian y documentan a mano
-por Operaciones cada semana; el efectivo del viaje lo recibe directamente el
-conductor. No activar funciones de pago electrónico antes de cerrar sus pruebas.
+La primera publicación usa efectivo directo entre pasajero y conductor. Operaciones conserva los cálculos comerciales y fiscales para el corte semanal; las aplicaciones no administran pagos, cuentas, saldos ni transferencias.
 
 ## Google Maps Platform
 
@@ -19,18 +15,9 @@ conductor. No activar funciones de pago electrónico antes de cerrar sus pruebas
 6. Probar: autocompletado de dirección, detalle de lugar, geocodificación
    inversa, ruta y cotización en Delicias antes de retirar el respaldo actual.
 
-## Mercado Pago
+## Modelo de cobro vigente
 
-1. Crear la aplicación de producción en la cuenta empresarial de Yavoi!.
-2. Configurar el webhook a `https://asjlyureqokifjkpdwgc.supabase.co/functions/v1/mercado-pago-webhook`.
-3. Registrar en secretos de Supabase `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET` y
-   `APP_ORIGINS` sólo para la fase posterior de pagos electrónicos. No configurar
-   ni activar retiros automatizados para la publicación piloto.
-4. Mantener `mercado_pago_enabled=false` durante el piloto. Antes de una versión
-   posterior, probar cobro, webhook firmado, rechazo, reembolso, propina y ajuste.
-5. Activar la clave pública y el interruptor sólo con un cambio separado,
-   revisado y documentado en `docs/mercado-pago.md`; confirmar que la llave
-   pública y el Access Token pertenecen al mismo entorno.
+Yavoi! opera con efectivo entregado directamente al conductor. La app calcula tarifa, ajustes, comisión e impuestos para fines de transparencia y conciliación, pero no integra ni requiere un proveedor de pagos, cuentas bancarias, transferencias, retiros o billeteras. No crear ni cargar credenciales de proveedores de pago para esta versión.
 
 ## Firebase Cloud Messaging
 
@@ -45,7 +32,4 @@ conductor. No activar funciones de pago electrónico antes de cerrar sus pruebas
 ## Comprobación antes de activar cada proveedor
 
 Para el piloto, documentar cotización, viaje pagado en efectivo, recibo,
-conciliación operativa y notificaciones. Antes de habilitar tarjeta en una
-versión futura, adjuntar casos fechados de pago aprobado, rechazo, reembolso y
-recuperación. Los secretos se introducen desde los paneles de cada proveedor y
-nunca se copian a archivos del repositorio.
+conciliación operativa y notificaciones. Los secretos se introducen desde los paneles de los proveedores que estén activos y nunca se copian a archivos del repositorio.

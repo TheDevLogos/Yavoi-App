@@ -50,7 +50,7 @@ Play exige una prueba cerrada con al menos 12 verificadores inscritos durante
 | Recursos de Play | Íconos y gráficos destacados listos en `mobile/store-assets/` | Cargar un ícono y gráfico destacado por app, y añadir entre 2 y 8 capturas de teléfono; se recomiendan cuatro de 1080 px o más por lado. |
 | Ficha y cumplimiento | Política, contacto y URL pública de eliminación de cuenta preparadas; cuestionario documentado | Validar los datos comerciales reales y completar en Play Console seguridad de datos, clasificación de contenido y acceso de revisión. Consultar `STORE_COMPLIANCE.md`. |
 | Push nativo Android | Integración lista; envío pendiente | Cargar el secreto privado `FIREBASE_SERVICE_ACCOUNT_JSON` en Supabase y validarlo en teléfonos reales. Consultar `FIREBASE_SETUP.md` y `PRODUCTION_CREDENTIALS.md`. |
-| Mapas y pagos | Piloto de viajes con pago en efectivo. Tarjeta y retiros iniciados por conductor desactivados | Restringir claves de Maps y probar cotización y viajes en efectivo. Mantener `mercado_pago_enabled=false` y `payouts_enabled=false`; tarjeta y retiros requieren una versión futura y revisión separada. Consultar `PRODUCTION_CREDENTIALS.md`. |
+| Mapas y pagos | Piloto de viajes con pago en efectivo. Sin funciones financieras directas | Restringir claves de Maps y probar cotización y viajes en efectivo. Mantener `mercado_pago_enabled=false` y `payouts_enabled=false`. La app no solicita ni procesa pagos digitales; el efectivo se entrega al conductor y Operaciones realiza el corte semanal. Consultar `PRODUCTION_CREDENTIALS.md`. |
 | Seguimiento del conductor | Pendiente de implementación nativa completa | Antes de solicitar ubicación en segundo plano, añadir el servicio visible de seguimiento, aviso previo y sus declaraciones en Play. |
 | Prueba cerrada | En espera de verificadores | Crear dos listas de al menos 12 cuentas de Google, publicar las dos versiones de prueba cerrada y conservar la inscripción durante 14 días. |
 | iOS | Proyectos nativos de Yavoi! y Yavoi! Drive creados con push y ubicación preparados | Instalar Xcode, configurar Apple Developer, APNs/Firebase, firma y pruebas físicas antes de App Review. |
@@ -58,7 +58,7 @@ Play exige una prueba cerrada con al menos 12 verificadores inscritos durante
 No se debe solicitar producción ni publicar a usuarios generales hasta completar
 los recursos obligatorios, las declaraciones de Play y las pruebas reales de
 los recorridos en efectivo, notificaciones y eliminación de cuenta. La ficha y
-las capturas deben reflejar que los pagos con tarjeta no están disponibles.
+las capturas deben mostrar la tarifa final y el pago directo en efectivo al conductor.
 
 ## Antes de subir a Play Console
 
@@ -74,7 +74,7 @@ las capturas deben reflejar que los pagos con tarjeta no están disponibles.
 5. Añadir el `google-services.json` de Firebase correspondiente a cada paquete.
    Nunca confirmar esos archivos al repositorio.
 6. Configurar Firebase Cloud Messaging antes de abrir una prueba cerrada. No se
-   requieren credenciales de Mercado Pago para el piloto en efectivo.
+   no requieren credenciales de proveedores de pago para el piloto en efectivo.
 
 ## Permisos actuales
 
@@ -113,7 +113,7 @@ pueden actualizarse por separado.
 3. Completar la ficha de tienda, correo de soporte, política de privacidad,
    seguridad de datos, clasificación de contenido, acceso de revisión y
    eliminación de cuenta. Las dos últimas deben describir exactamente el
-   registro, ubicación, pagos y documentos que ya usa Yavoi!.
+   registro, ubicación, documentos, rutas, ubicación y efectivo directo que ya usa Yavoi!.
 4. Repetir el flujo para **Yavoi! Drive** con el paquete
    `mx.yavoi.conductor`. Declarar ubicación precisa, notificaciones,
    cámara/archivos para documentos y la finalidad operativa de cada permiso.
@@ -123,10 +123,10 @@ pueden actualizarse por separado.
 
 ## Pruebas obligatorias antes de producción
 
-- Pasajero: registro, ubicación, destino, cotización, tarjeta, efectivo,
+- Pasajero: registro, ubicación, destino, cotización y efectivo,
   ajustes, cancelación, recibo y eliminación de cuenta.
 - Conductor: autorización, conexión, oferta, notificación con la app cerrada,
-  aceptación, navegación, llegada, espera, cobro, cierre y retiro.
+  aceptación, navegación, llegada, espera, cobro en efectivo, cierre y corte semanal.
 - Dispositivos: Android de gama media y baja, ahorro de batería, sin señal,
   llamadas y aplicaciones superpuestas.
 - Play Console: ficha, política de privacidad, seguridad de datos, eliminación
