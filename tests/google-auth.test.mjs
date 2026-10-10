@@ -53,3 +53,15 @@ test("portal exchanges the Google credential directly with Supabase", async () =
   assert.match(portal, /Autorizar edición 24 h/);
   assert.doesNotMatch(portal, /weekly:\s*weeklyView/);
 });
+
+test("Android registers Yavoi Google Auth before constructing the Capacitor bridge", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const activities = [
+    "../mobile/passenger/android/app/src/main/java/mx/yavoi/pasajero/MainActivity.java",
+    "../mobile/driver/android/app/src/main/java/mx/yavoi/conductor/MainActivity.java",
+  ];
+  for (const activity of activities) {
+    const source = await readFile(new URL(activity, import.meta.url), "utf8");
+    assert.match(source, /registerPlugin\(YavoiGoogleAuthPlugin\.class\);\s*super\.onCreate\(savedInstanceState\);/s);
+  }
+});
