@@ -8,6 +8,6 @@
   },
   "server": {
     "androidScheme": "https",
-    "appStartPath": "portal.html"
+    "appStartPath": "/portal.html"
   }
 }
