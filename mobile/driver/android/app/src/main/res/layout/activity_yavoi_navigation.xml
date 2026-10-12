@@ -58,6 +58,27 @@
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/navigation_offer_card"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/yavoi_navigation_card"
+        android:elevation="12dp"
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/navigation_header">
+
+        <TextView android:id="@+id/navigation_offer_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/yavoi_orange" android:textSize="12sp" android:textStyle="bold" />
+        <TextView android:id="@+id/navigation_offer_summary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:textColor="@color/yavoi_white" android:textSize="15sp" android:textStyle="bold" />
+        <TextView android:id="@+id/navigation_offer_route" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:ellipsize="end" android:maxLines="2" android:textColor="#D5E0EA" android:textSize="12sp" />
+        <Button android:id="@+id/navigation_offer_accept" android:layout_width="match_parent" android:layout_height="44dp" android:layout_marginTop="8dp" android:background="@drawable/yavoi_navigation_primary" android:text="Aceptar siguiente viaje" android:textAllCaps="false" android:textColor="@color/yavoi_white" />
+    </LinearLayout>
+
+    <LinearLayout
         android:id="@+id/navigation_controls"
         android:layout_width="0dp"
         android:layout_height="wrap_content"

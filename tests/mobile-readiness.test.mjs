@@ -52,3 +52,17 @@ test("navigation and profile entry points avoid the unstable wallet icon alias",
   assert.match(portal, /YavoiNavigation/);
   assert.match(domain, /\["wallet", "circle-dollar-sign", "Mis ingresos"\]/);
 });
+
+test("driver navigation remains native through pickup, trip completion, and queued offers", async () => {
+  const portal = await read("src/portal.js");
+  const activity = await read("mobile/driver/android/app/src/main/java/mx/yavoi/conductor/YavoiNavigationActivity.java");
+  const plugin = await read("mobile/driver/android/app/src/main/java/mx/yavoi/conductor/YavoiNavigationPlugin.java");
+  assert.match(portal, /nativeNavigationActive/);
+  assert.match(portal, /prepareNativeNavigationEvents/);
+  assert.match(portal, /showNativeNavigationOffer/);
+  assert.match(activity, /ACTION_EVENT/);
+  assert.match(activity, /dispatchEvent\("arrive"/);
+  assert.match(activity, /dispatchEvent\("start"/);
+  assert.match(activity, /dispatchEvent\("complete"/);
+  assert.match(plugin, /notifyListeners\("event"/);
+});

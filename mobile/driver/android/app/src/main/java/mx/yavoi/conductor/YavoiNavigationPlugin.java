@@ -1,19 +1,35 @@
 package mx.yavoi.conductor;
 
-import android.app.Activity;
 import android.content.Intent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 
-import androidx.activity.result.ActivityResult;
+import androidx.core.content.ContextCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
-import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.PluginMethod;
 
 /** Bridge between the shared Yavoi! portal and the Android Navigation SDK view. */
 @CapacitorPlugin(name = "YavoiNavigation")
 public class YavoiNavigationPlugin extends Plugin {
+    private final BroadcastReceiver navigationEvents = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            JSObject payload = new JSObject();
+            payload.put("action", intent.getStringExtra(YavoiNavigationActivity.EXTRA_EVENT));
+            payload.put("tripId", intent.getStringExtra(YavoiNavigationActivity.EXTRA_TRIP_ID));
+            payload.put("offerId", intent.getStringExtra(YavoiNavigationActivity.EXTRA_OFFER_ID));
+            notifyListeners("event", payload);
+        }
+    };
+
+    @Override public void load() {
+        ContextCompat.registerReceiver(getContext(), navigationEvents,
+                new IntentFilter(YavoiNavigationActivity.ACTION_EVENT), ContextCompat.RECEIVER_NOT_EXPORTED);
+    }
+    @Override protected void handleOnDestroy() { getContext().unregisterReceiver(navigationEvents); }
     @PluginMethod
     public void start(PluginCall call) {
         Double lat = call.getDouble("lat");
@@ -27,19 +43,26 @@ public class YavoiNavigationPlugin extends Plugin {
         intent.putExtra(YavoiNavigationActivity.EXTRA_TRIP_ID, call.getString("tripId", ""));
         intent.putExtra(YavoiNavigationActivity.EXTRA_STAGE, call.getString("stage", "pickup"));
         intent.putExtra(YavoiNavigationActivity.EXTRA_DESTINATION, call.getString("destination", ""));
+        intent.putExtra(YavoiNavigationActivity.EXTRA_FINAL_DESTINATION, call.getString("finalDestination", ""));
         intent.putExtra(YavoiNavigationActivity.EXTRA_PAYMENT_METHOD, call.getString("paymentMethod", "cash"));
         intent.putExtra(YavoiNavigationActivity.EXTRA_LAT, lat);
         intent.putExtra(YavoiNavigationActivity.EXTRA_LNG, lng);
-        startActivityForResult(call, intent, "navigationFinished");
+        Double finalLat = call.getDouble("finalLat");
+        Double finalLng = call.getDouble("finalLng");
+        if (finalLat != null) intent.putExtra(YavoiNavigationActivity.EXTRA_FINAL_LAT, finalLat.doubleValue());
+        if (finalLng != null) intent.putExtra(YavoiNavigationActivity.EXTRA_FINAL_LNG, finalLng.doubleValue());
+        intent.putExtra(YavoiNavigationActivity.EXTRA_TOTAL, call.getString("total", ""));
+        getActivity().startActivity(intent);
+        JSObject response = new JSObject(); response.put("started", true); call.resolve(response);
     }
 
-    @ActivityCallback
-    private void navigationFinished(PluginCall call, ActivityResult result) {
-        JSObject response = new JSObject();
-        if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
-            response.put("action", result.getData().getStringExtra(YavoiNavigationActivity.RESULT_ACTION));
-            response.put("arrived", result.getData().getBooleanExtra(YavoiNavigationActivity.RESULT_ARRIVED, false));
-        }
-        call.resolve(response);
+    @PluginMethod public void showOffer(PluginCall call) {
+        Intent command = new Intent(YavoiNavigationActivity.ACTION_COMMAND);
+        command.setPackage(getContext().getPackageName());
+        command.putExtra(YavoiNavigationActivity.EXTRA_OFFER_ID, call.getString("offerId", ""));
+        command.putExtra("summary", call.getString("summary", ""));
+        command.putExtra("route", call.getString("route", ""));
+        getContext().sendBroadcast(command); call.resolve();
     }
+
 }

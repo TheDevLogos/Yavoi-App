@@ -144,6 +144,8 @@ const S = {
   scheduleConfirmation: null,
   routeRenderTimer: null,
   driverNavigationMode: "",
+  nativeNavigationActive: false,
+  nativeNavigationEventsReady: false,
   driverSessionInitialized: false,
   referralCode: "",
   driverDraftTimer: null,
@@ -652,7 +654,8 @@ async function syncDriverOffers({ present = true } = {}) {
     const openIds = new Set(offers.map((offer) => offer.offer_id));
     [...S.offerRingTimers.keys()].filter((id) => !openIds.has(id)).forEach(stopOfferRinging);
     await Promise.all(offers.map((offer) => loadAvatar(offer.passenger_avatar_path)));
-    announceOffers(offers);
+    const newOffers = announceOffers(offers);
+    await Promise.all((newOffers || []).map((offer) => showNativeNavigationOffer(offer)));
     if (present) presentPendingOffer(offers);
     return offers;
   } finally {
@@ -1056,6 +1059,7 @@ async function loadSession() {
   ]);
   S.auditReport = null;
   S.scheduleData = null;
+  prepareNativeNavigationEvents();
   await renderRoute();
   requestInitialLocation();
   startUpdates();
@@ -1550,21 +1554,20 @@ async function beginDriverNavigation(trip, reserved = null) {
   const target = navigationTarget(trip);
   try {
     if (target.lat === null || target.lng === null) throw Error("No encontramos coordenadas para este destino.");
-    const result = await YavoiNavigation.start({
+    await YavoiNavigation.start({
       tripId: trip.id,
       stage: target.stage,
       destination: target.label,
       lat: target.lat,
       lng: target.lng,
+      finalDestination: trip.destination || "",
+      finalLat: Number(trip.dest_lat),
+      finalLng: Number(trip.dest_lng),
+      total: money(trip.final_total_cents || trip.quote_total_cents || 0),
       paymentMethod: trip.payment_method || "cash",
     });
+    S.nativeNavigationActive = true;
     releaseNavigationWindow(reserved);
-    if (result?.action && result.action !== "resume") {
-      // The native activity never mutates a trip directly. It returns to this
-      // verified web flow so Supabase remains the source of truth.
-      S.busy = false;
-      await handleAction(result.action, document.body);
-    }
     return true;
   } catch (error) {
     releaseNavigationWindow(reserved);
@@ -1573,6 +1576,38 @@ async function beginDriverNavigation(trip, reserved = null) {
     notify("Abriremos Google Maps mientras se configura la navegación nativa.");
     return launchDriverNavigation(trip);
   }
+}
+async function showNativeNavigationOffer(offer) {
+  if (!S.nativeNavigationActive || !isNativeApp() || S.profile?.role !== "driver") return;
+  await YavoiNavigation.showOffer({
+    offerId: offer.offer_id,
+    summary: `${money(offer.net_cents)} · ${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min`,
+    route: `${offer.origin} → ${offer.destination}`,
+  }).catch(() => {});
+}
+function prepareNativeNavigationEvents() {
+  if (S.nativeNavigationEventsReady || !isNativeApp()) return;
+  S.nativeNavigationEventsReady = true;
+  YavoiNavigation.addListener("event", ({ action, tripId, offerId }) => run(async () => {
+    if (action === "resume") { S.nativeNavigationActive = false; return; }
+    if (action === "accept_offer" && offerId) {
+      const accepted = await rpc("accept", { offer_id: offerId });
+      notify(accepted.queued_after_trip_id ? "Viaje agregado a tu cola." : "Viaje aceptado.");
+      await syncDriverOffers({ present: false });
+      return;
+    }
+    if (!tripId) return;
+    if (action === "arrive") await rpc("transition", { trip_id: tripId, action: "arrive" });
+    if (action === "start") await rpc("transition", { trip_id: tripId, action: "start-trip" });
+    if (action === "complete") {
+      await rpc("transition", { trip_id: tripId, action: "finish", cash_received: true });
+      S.nativeNavigationActive = false;
+    }
+    if (["arrive", "start", "complete"].includes(action)) {
+      S.data = await rpc("dashboard");
+      notify(action === "arrive" ? "Llegada avisada al pasajero." : action === "start" ? "Viaje iniciado. Sigue la ruta." : "Viaje finalizado.");
+    }
+  }).catch((error) => notify(errorMessage(error))));
 }
 function driverMapNavigationMarkup(trip, conductor) {
   if (!conductor || !["accepted", "arrived", "in_progress"].includes(trip.status)) return "";
@@ -4821,6 +4856,10 @@ async function sendDriverPosition(position = S.latestPosition) {
       ...(trip ? { trip_id: trip.id } : {}),
     });
     if (result?.destination_reached && trip) {
+      if (S.nativeNavigationActive) {
+        notify("Llegaste al destino. Confirma el cierre desde la navegación.");
+        return;
+      }
       S.driverNavigationMode = "";
       location.hash = "trip/" + trip.id;
       await tripView(trip.id);
@@ -4828,6 +4867,10 @@ async function sendDriverPosition(position = S.latestPosition) {
       return;
     }
     if (result?.arrived_automatically && trip) {
+      if (S.nativeNavigationActive) {
+        notify("Llegaste a la recolección. Continúa desde la navegación.");
+        return;
+      }
       // Keep the driver in the service flow as soon as GPS confirms arrival.
       // The next action replaces pickup guidance with destination guidance.
       S.driverNavigationMode = "";
