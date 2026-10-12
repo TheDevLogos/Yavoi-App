@@ -62,6 +62,7 @@ const GOOGLE_MAP_ID = String(import.meta.env.VITE_GOOGLE_MAP_ID || "").trim();
 const WEB_PUSH_VAPID_PUBLIC_KEY = String(import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY || "BPP4SxptAGWXO4pfNp5yZ4Qa75ouZDZNXG3UjLnl3pC2wJ9d1HpTkR1r8zZ4YGvtLAEd0IZ_-GkfadDOAohUmcs").trim();
 const YavoiNavigation = registerPlugin("YavoiNavigation");
 const YavoiGoogleAuth = registerPlugin("YavoiGoogleAuth");
+const YavoiDevicePermissions = registerPlugin("YavoiDevicePermissions");
 const NATIVE_GOOGLE_SIGN_IN_TIMEOUT_MS = 45_000;
 let nativePushSetupPromise = null;
 let nativePushRegistrationError = null;
@@ -1051,6 +1052,7 @@ async function loadSession() {
     openPushedOffer().catch(() => {});
   }
   else stopDriverTracking();
+  setTimeout(showFirstRunPermissionGuide, 900);
   setTimeout(maybeShowEngagementPromo, 450);
 }
 async function signOut() {
@@ -2323,7 +2325,7 @@ async function scheduledConfirmationView(id) {
   const category = S.categories.find((item) => item.id === t.category)?.name || t.category;
   const paymentLabel = "Efectivo al finalizar cada viaje";
   shell(
-    `<section class="panel schedule-success"><div class="schedule-success-icon">${I("calendar-check")}</div><div class="eyebrow">PROGRAMACIÓN REGISTRADA</div><h2>Tu viaje quedó apartado</h2><p>Guardamos ${count === 1 ? "la salida" : `las ${count} salidas`} y su importe estimado. No buscaremos una unidad en esta pantalla.</p><div class="schedule-route"><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div></div><div class="schedule-summary-grid"><div><small>PRIMERA SALIDA</small><strong>${date(t.scheduled_at)}</strong></div><div><small>FRECUENCIA</small><strong>${e(cadenceNames[cadence])}</strong></div><div><small>POR VIAJE</small><strong>${money(t.total_cents || 0)}</strong></div><div><small>${count === 1 ? "TOTAL ESTIMADO" : "SERIE COMPLETA"}</small><strong>${money(seriesTotal)}</strong></div></div><div class="schedule-meta"><span>${I("car-front")} Yavoi! ${e(category)}</span><span>${I("wallet")} ${e(paymentLabel)}</span><span>${I("hash")} Folio ${e(t.id.slice(0, 8).toUpperCase())}</span></div><p class="hint schedule-charge-note">${count > 1 ? `El cargo aproximado es ${money(t.total_cents || 0)} por ${cadence === "daily" ? "día" : cadence === "weekly" ? "semana" : cadence === "monthly" ? "mes" : "salida"}; cada fecha se cobra por separado y la serie suma aproximadamente ${money(seriesTotal)}.` : `El cobro aproximado para esta salida es ${money(t.total_cents || 0)}.`} La tarifa confirmada de cada registro permanece visible en Mis viajes.</p><section class="schedule-recommendations"><h3>${I("bell-ring")} Antes de tu salida</h3><ul><li>Revisa WhatsApp: Operaciones puede enviarte un mensaje para confirmar los datos y la unidad.</li><li>Abre Yavoi! al menos 15 minutos antes. En Mis viajes, pulsa Ver viaje para seguir la unidad en vivo, ver al conductor y enviar mensajes.</li><li>Confirma que la fotografía, el vehículo y las placas coincidan antes de abordar.</li><li>Puedes cancelar antes de la activación sin cargo. Cuando la unidad se active, se aplican el periodo de gracia y las cuotas normales de cancelación.</li></ul></section><div class="schedule-success-actions"><a class="btn wide" href="#home">Salir y volver a Pedir un viaje ${I("arrow-right")}</a><a class="btn secondary wide" href="#trips">Ver mis viajes programados ${I("calendar-days")}</a></div></section>`,
+    `<section class="panel schedule-success"><div class="schedule-success-icon">${I("calendar-check")}</div><div class="eyebrow">PROGRAMACIÓN REGISTRADA</div><h2>Tu viaje quedó apartado</h2><p>Guardamos ${count === 1 ? "la salida" : `las ${count} salidas`} y su importe estimado. No buscaremos una unidad en esta pantalla.</p><div class="schedule-route"><div class="route-line">${I("circle-dot")}${e(t.origin)}</div><div class="route-line destination">${I("map-pin")}${e(t.destination)}</div></div><div class="schedule-summary-grid"><div><small>PRIMERA SALIDA</small><strong>${date(t.scheduled_at)}</strong></div><div><small>FRECUENCIA</small><strong>${e(cadenceNames[cadence])}</strong></div><div><small>POR VIAJE</small><strong>${money(t.total_cents || 0)}</strong></div><div><small>${count === 1 ? "TOTAL ESTIMADO" : "SERIE COMPLETA"}</small><strong>${money(seriesTotal)}</strong></div></div><div class="schedule-meta"><span>${I("car-front")} Yavoi! ${e(category)}</span><span>${I("circle-dollar-sign")} ${e(paymentLabel)}</span><span>${I("hash")} Folio ${e(t.id.slice(0, 8).toUpperCase())}</span></div><p class="hint schedule-charge-note">${count > 1 ? `El cargo aproximado es ${money(t.total_cents || 0)} por ${cadence === "daily" ? "día" : cadence === "weekly" ? "semana" : cadence === "monthly" ? "mes" : "salida"}; cada fecha se cobra por separado y la serie suma aproximadamente ${money(seriesTotal)}.` : `El cobro aproximado para esta salida es ${money(t.total_cents || 0)}.`} La tarifa confirmada de cada registro permanece visible en Mis viajes.</p><section class="schedule-recommendations"><h3>${I("bell-ring")} Antes de tu salida</h3><ul><li>Revisa WhatsApp: Operaciones puede enviarte un mensaje para confirmar los datos y la unidad.</li><li>Abre Yavoi! al menos 15 minutos antes. En Mis viajes, pulsa Ver viaje para seguir la unidad en vivo, ver al conductor y enviar mensajes.</li><li>Confirma que la fotografía, el vehículo y las placas coincidan antes de abordar.</li><li>Puedes cancelar antes de la activación sin cargo. Cuando la unidad se active, se aplican el periodo de gracia y las cuotas normales de cancelación.</li></ul></section><div class="schedule-success-actions"><a class="btn wide" href="#home">Salir y volver a Pedir un viaje ${I("arrow-right")}</a><a class="btn secondary wide" href="#trips">Ver mis viajes programados ${I("calendar-days")}</a></div></section>`,
     "Programación confirmada",
     "Tu reservación está guardada. El seguimiento en vivo comenzará cerca de la hora indicada.",
   );
@@ -3564,7 +3566,7 @@ function profile() {
     ? `<details class="profile-section dossier-details" ${dossier.percent < 100 ? "open" : ""}><summary><span>${I("files")}<strong>Documentos para autorización</strong></span><span class="badge ${d.approved ? "" : "pending"}">${d.approved ? "Autorizado" : dossier.percent === 100 ? "Listo para revisar" : `${dossier.percent}% completo`}</span></summary><div class="profile-section-body">${driverProgressMarkup(p, d)}<p class="hint">Carga los cuatro documentos. Operaciones revisa la fotografía de perfil, vigencias y registra los datos oficiales antes de autorizar tu cuenta.</p><p class="driver-draft-status" id="driver-draft-status" role="status" aria-live="polite">${I("cloud")} Tus avances se guardan como borrador privado.</p>${d.review_note ? `<p class="hint">Revisión de Operaciones: ${e(d.review_note)}</p>` : ""}<form id="vehicle-form"><fieldset ${formDisabled}><div class="driver-documents streamlined-driver-documents">${documentField("government_id_file", "Identificación oficial INE", d.government_id_path, "frente y reverso si aplica")}${documentField("license_file", "Licencia de conducir", d.license_path, "vigente")}${documentField("vehicle_registration_file", "Tarjeta de circulación", d.vehicle_registration_path, "vigente")}${documentField("insurance_file", "Póliza de seguro", d.insurance_path, "vigente")}</div><p class="hint">La fotografía de perfil forma parte del expediente. Puedes actualizarla en Mis datos generales.</p><section class="compact-agreements" aria-label="Acuerdos requeridos"><div class="policy-compact-body"><h3>Antes de enviar</h3><p>Lee estos dos acuerdos. Protegen tus datos y definen las reglas para usar Yavoi! como conductor.</p><div class="policy-links"><a class="link" href="/privacidad" target="_blank" rel="noopener">Política de Privacidad</a><a class="link" href="/terminos" target="_blank" rel="noopener">Términos de Servicio</a></div><label class="check policy-accept"><input name="accept_driver_privacy" type="checkbox" ${p.privacy_policy_accepted_at && p.privacy_policy_version === PRIVACY_POLICY_VERSION ? "checked" : ""} required><span><strong>Acepto la Política de Privacidad</strong><small>Uso de datos, ubicación y documentación para operar y proteger el servicio.</small></span></label><label class="check policy-accept"><input name="accept_driver_terms" type="checkbox" ${p.terms_accepted_at && p.terms_version === TERMS_VERSION ? "checked" : ""} required><span><strong>Acepto los Términos de Servicio</strong><small>Reglas de convivencia, uso responsable y atención de viajes en Yavoi!.</small></span></label></div></section><button type="submit" class="btn">Enviar documentos a Operaciones ${I("shield-check")}</button></fieldset></form></div></details>`
     : "";
   const score = Number(S.data.rating || 0);
-  const profileShortcuts = `<section class="profile-shortcuts" aria-label="Opciones principales del perfil"><div class="profile-score">${I("star")}<span><small>CALIFICACIÓN VIGENTE</small><strong>${score > 0 ? `${decimal(score)}/5` : "Aún sin calificaciones"}</strong></span></div><div class="profile-shortcut-grid"><a class="profile-shortcut" href="#help">${I("life-buoy")}<span><strong>Ayuda</strong><small>Viajes, pagos y soporte</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#wallet">${I("wallet")}<span><strong>Mis viajes</strong><small>${driver ? "Servicios y corte semanal" : "Tarifas y viajes"}</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#safety">${I("shield-check")}<span><strong>Seguridad</strong><small>Consejos y qué hacer</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#inbox">${I("inbox")}<span><strong>Bandeja de Entrada</strong><small>Avisos y mensajes de Yavoi!</small></span>${I("arrow-right")}</a></div></section>`;
+  const profileShortcuts = `<section class="profile-shortcuts" aria-label="Opciones principales del perfil"><div class="profile-score">${I("star")}<span><small>CALIFICACIÓN VIGENTE</small><strong>${score > 0 ? `${decimal(score)}/5` : "Aún sin calificaciones"}</strong></span></div><div class="profile-shortcut-grid"><a class="profile-shortcut" href="#help">${I("life-buoy")}<span><strong>Ayuda</strong><small>Viajes, pagos y soporte</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#wallet">${I("circle-dollar-sign")}<span><strong>Mis viajes</strong><small>${driver ? "Servicios y corte semanal" : "Tarifas y viajes"}</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#safety">${I("shield-check")}<span><strong>Seguridad</strong><small>Consejos y qué hacer</small></span>${I("arrow-right")}</a><a class="profile-shortcut" href="#inbox">${I("inbox")}<span><strong>Bandeja de Entrada</strong><small>Avisos y mensajes de Yavoi!</small></span>${I("arrow-right")}</a></div></section>`;
   const ridePreferencesMarkup = passenger
     ? `<section class="ride-preferences"><div>${I("sliders-horizontal")}<span><strong>Preferencias de viaje</strong><small>${S.ridePreferences?.pickup_pin_enabled ? "Código de inicio activado" : "Inicio de viaje sin código"}</small></span></div><button class="btn secondary" type="button" data-action="ride-preferences">Configurar</button></section><section class="ride-preferences"><div>${I("bell")}<span><strong>Alertas de Yavoi!</strong><small>Recibe avisos de seguridad, recompensas y tu servicio.</small></span></div><button class="btn secondary" type="button" data-action="notifications">Activar alertas</button></section>`
     : "";
@@ -4726,6 +4728,43 @@ function requestInitialLocation() {
       return null;
     });
   return S.initialLocationPromise;
+}
+function firstRunPermissionsKey() {
+  return `yavoi:device-permissions:${S.profile?.role || "guest"}:v2`;
+}
+function markFirstRunPermissionsHandled() {
+  try { localStorage.setItem(firstRunPermissionsKey(), "1"); } catch {}
+}
+async function configureFirstRunPermissions() {
+  // Location is requested first, so the Android/iOS prompt explains the map
+  // the driver or passenger is already viewing.
+  await requestInitialLocation();
+  await enableDriverPushNotifications();
+  if (S.profile?.role === "driver" && isNativeApp() && window.Capacitor?.getPlatform?.() === "android") {
+    const status = await YavoiDevicePermissions.overlayStatus();
+    if (!status?.granted) {
+      const result = await YavoiDevicePermissions.requestOverlay();
+      if (!result?.granted) throw Error("Puedes habilitar \"Mostrar sobre otras apps\" después desde Ajustes para ver alertas de viaje mientras usas otra aplicación.");
+    }
+  }
+  markFirstRunPermissionsHandled();
+  closeModal();
+  notify("Dispositivo preparado para recibir alertas de Yavoi!.");
+}
+function showFirstRunPermissionGuide() {
+  if (!S.profile || !["driver", "passenger"].includes(S.profile.role) || modal.open) return;
+  try { if (localStorage.getItem(firstRunPermissionsKey())) return; } catch {}
+  const driver = S.profile.role === "driver";
+  openModal(
+    "Prepara tu dispositivo",
+    `<section class="device-permission-guide"><p>Para que Yavoi! funcione desde el primer viaje, configuraremos los permisos necesarios.</p><ul><li><strong>Ubicación precisa:</strong> muestra tu punto de partida o permite asignarte solicitudes cercanas.</li><li><strong>Notificaciones:</strong> entrega cambios de viaje en tiempo real.</li>${driver && isNativeApp() && window.Capacitor?.getPlatform?.() === "android" ? '<li><strong>Alertas sobre otras apps:</strong> opción de Android para avisarte de una solicitud mientras consultas otra aplicación.</li>' : ""}</ul><p class="hint">${driver ? "Las alertas sobre otras apps son opcionales. Puedes cambiarlas después en Ajustes." : "Puedes cambiar estos permisos después desde los ajustes del dispositivo."}</p><div class="row wrap"><button class="btn" type="button" id="setup-device-permissions">Configurar ahora ${I("shield-check")}</button><button class="btn secondary" type="button" id="skip-device-permissions">Ahora no</button></div></section>`,
+  );
+  $("#setup-device-permissions").onclick = () => run(configureFirstRunPermissions);
+  $("#skip-device-permissions").onclick = () => {
+    markFirstRunPermissionsHandled();
+    closeModal();
+    notify("Podrás activar las alertas desde Mi perfil cuando estés listo.");
+  };
 }
 function positionPayload(position) {
   return {

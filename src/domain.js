@@ -13,14 +13,14 @@ export const navs = {
   passenger: [
     ["home", "map-pin", "Pedir un viaje"],
     ["trips", "route", "Mis viajes"],
-    ["wallet", "wallet", "Mi cartera"],
+    ["wallet", "circle-dollar-sign", "Mi cartera"],
     ["rewards", "gift", "Recompensas"],
     ["profile", "user-round", "Mi perfil"],
   ],
   driver: [
     ["home", "navigation", "Conducir"],
     ["trips", "route", "Mis viajes"],
-    ["wallet", "wallet", "Mis ingresos"],
+    ["wallet", "circle-dollar-sign", "Mis ingresos"],
     ["rewards", "gift", "Recompensas"],
     ["profile", "user-round", "Mi perfil"],
   ],

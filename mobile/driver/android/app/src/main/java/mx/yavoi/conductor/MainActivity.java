@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
         // Capacitor consumes the initial plugin list while BridgeActivity starts.
         // Register local plugins before that bridge is created.
         registerPlugin(YavoiNavigationPlugin.class);
+        registerPlugin(YavoiDevicePermissionsPlugin.class);
         registerPlugin(YavoiGoogleAuthPlugin.class);
         super.onCreate(savedInstanceState);
     }
