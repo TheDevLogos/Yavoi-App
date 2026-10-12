@@ -9,6 +9,8 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
+import android.speech.tts.TextToSpeech;
+import android.os.Build;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -49,6 +51,8 @@ public class YavoiNavigationActivity extends AppCompatActivity {
     public static final String EXTRA_FINAL_LAT = "final_lat";
     public static final String EXTRA_FINAL_LNG = "final_lng";
     public static final String EXTRA_TOTAL = "total";
+    public static final String EXTRA_PASSENGER_NAME = "passenger_name";
+    public static final String EXTRA_COMMAND = "command";
 
     private static final int LOCATION_PERMISSION_REQUEST = 41;
     private Navigator navigator;
@@ -58,11 +62,15 @@ public class YavoiNavigationActivity extends AppCompatActivity {
     private double destinationLat;
     private double destinationLng;
     private boolean destinationReached = false;
-    private String tripId, finalDestination, total;
+    private String tripId, finalDestination, total, passengerName;
     private double finalLat, finalLng;
     private android.view.View offerCard;
+    private TextToSpeech speech;
     private final BroadcastReceiver commandReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
+            String command = intent.getStringExtra(EXTRA_COMMAND);
+            if ("next_trip".equals(command)) { switchTrip(intent); return; }
+            if ("close".equals(command)) { finishWithAction("resume", true); return; }
             String offerId = intent.getStringExtra(EXTRA_OFFER_ID);
             ((TextView) findViewById(R.id.navigation_offer_title)).setText("NUEVO VIAJE DISPONIBLE");
             ((TextView) findViewById(R.id.navigation_offer_summary)).setText(intent.getStringExtra("summary"));
@@ -77,15 +85,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_yavoi_navigation);
 
-        stage = getIntent().getStringExtra(EXTRA_STAGE);
-        tripId = getIntent().getStringExtra(EXTRA_TRIP_ID);
-        paymentMethod = getIntent().getStringExtra(EXTRA_PAYMENT_METHOD);
-        finalDestination = getIntent().getStringExtra(EXTRA_FINAL_DESTINATION);
-        finalLat = getIntent().getDoubleExtra(EXTRA_FINAL_LAT, Double.NaN);
-        finalLng = getIntent().getDoubleExtra(EXTRA_FINAL_LNG, Double.NaN);
-        total = getIntent().getStringExtra(EXTRA_TOTAL);
-        destinationLat = getIntent().getDoubleExtra(EXTRA_LAT, Double.NaN);
-        destinationLng = getIntent().getDoubleExtra(EXTRA_LNG, Double.NaN);
+        applyTrip(getIntent());
         String destination = getIntent().getStringExtra(EXTRA_DESTINATION);
 
         TextView stageView = findViewById(R.id.navigation_stage);
@@ -95,6 +95,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
 
         offerCard = findViewById(R.id.navigation_offer_card);
         renderStage(destination);
+        speech = new TextToSpeech(this, status -> {});
         primary.setOnClickListener(view -> handlePrimaryAction());
         returnToTrip.setOnClickListener(view -> finishWithAction("resume", destinationReached));
         findViewById(R.id.navigation_offer_accept).setOnClickListener(view -> {
@@ -142,6 +143,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
     }
 
     private void routeToDestination() {
+        if (navigator == null || !Double.isFinite(destinationLat) || !Double.isFinite(destinationLng)) return;
         Waypoint waypoint = Waypoint.builder()
                 .setLatLng(destinationLat, destinationLng)
                 .setTitle(getIntent().getStringExtra(EXTRA_DESTINATION))
@@ -166,30 +168,59 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         if ("pickup".equals(stage)) return destinationReached ? "Confirmar llegada" : "Avisar que ya llegué";
         if ("ready".equals(stage)) return "Iniciar viaje";
         if ("destination".equals(stage)) return "Llegué al destino";
+        if ("switching".equals(stage)) return "Preparando siguiente viaje";
         return "cash".equals(paymentMethod) ? "Confirmar dinero recibido" : "Completar viaje";
     }
 
     private void renderStage(String initialDestination) {
         TextView stageView = findViewById(R.id.navigation_stage);
         TextView destinationView = findViewById(R.id.navigation_destination);
-        String label = "pickup".equals(stage) ? "Ve por tu pasajero" : "ready".equals(stage) ? "Pasajero a bordo" : "destination".equals(stage) ? "Lleva al pasajero a su destino" : "Cierre del viaje";
+        String label = "pickup".equals(stage) ? "Ve por tu pasajero" : "ready".equals(stage) ? "Pasajero a bordo" : "destination".equals(stage) ? "Lleva al pasajero a su destino" : "switching".equals(stage) ? "Preparando siguiente viaje" : "Cierre del viaje";
         stageView.setText(label);
+        ((TextView) findViewById(R.id.navigation_passenger)).setText("Ver por " + (passengerName == null || passengerName.trim().isEmpty() ? "pasajero" : passengerName));
         String target = ("destination".equals(stage) || "collect".equals(stage)) ? finalDestination : initialDestination;
         destinationView.setText(target == null || target.trim().isEmpty() ? "Destino del viaje" : target);
         ((Button) findViewById(R.id.navigation_primary_action)).setText(primaryLabel());
+        findViewById(R.id.navigation_primary_action).setEnabled(!"switching".equals(stage));
     }
 
     private void handlePrimaryAction() {
         if ("pickup".equals(stage)) {
-            dispatchEvent("arrive", null); if (navigator != null) navigator.stopGuidance(); stage = "ready"; renderStage(getIntent().getStringExtra(EXTRA_DESTINATION)); return;
+            dispatchEvent("arrive", null); if (navigator != null) navigator.stopGuidance(); stage = "ready"; renderStage(getIntent().getStringExtra(EXTRA_DESTINATION)); speak("Ya llegaste por " + passengerName + ". Confirma cuando el pasajero esté listo."); return;
         }
         if ("ready".equals(stage)) {
-            dispatchEvent("start", null); stage = "destination"; destinationLat = finalLat; destinationLng = finalLng; routeToDestination(); renderStage(null); return;
+            dispatchEvent("start", null); stage = "destination"; destinationLat = finalLat; destinationLng = finalLng; routeToDestination(); renderStage(null); speak("Viaje iniciado. Te llevamos al destino de " + passengerName + "."); return;
         }
         if ("destination".equals(stage)) {
             if (navigator != null) navigator.stopGuidance(); stage = "collect"; renderStage(null); return;
         }
-        dispatchEvent("complete", null); finishWithAction("resume", true);
+        dispatchEvent("complete", null); stage = "switching"; renderStage(null); speak("Que tengas un bonito día, " + passengerName + ". Buscando tu siguiente viaje.");
+    }
+
+    private void applyTrip(Intent source) {
+        stage = source.getStringExtra(EXTRA_STAGE); if (stage == null) stage = "pickup";
+        tripId = source.getStringExtra(EXTRA_TRIP_ID);
+        passengerName = source.getStringExtra(EXTRA_PASSENGER_NAME);
+        paymentMethod = source.getStringExtra(EXTRA_PAYMENT_METHOD);
+        finalDestination = source.getStringExtra(EXTRA_FINAL_DESTINATION);
+        finalLat = source.getDoubleExtra(EXTRA_FINAL_LAT, Double.NaN);
+        finalLng = source.getDoubleExtra(EXTRA_FINAL_LNG, Double.NaN);
+        total = source.getStringExtra(EXTRA_TOTAL);
+        destinationLat = source.getDoubleExtra(EXTRA_LAT, Double.NaN);
+        destinationLng = source.getDoubleExtra(EXTRA_LNG, Double.NaN);
+        destinationReached = false;
+    }
+    private void switchTrip(Intent source) {
+        applyTrip(source);
+        offerCard.setVisibility(android.view.View.GONE);
+        renderStage(source.getStringExtra(EXTRA_DESTINATION));
+        routeToDestination();
+        speak("Nuevo viaje. Ve por " + passengerName + ".");
+    }
+    private void speak(String message) {
+        if (speech == null || message == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) speech.speak(message, TextToSpeech.QUEUE_ADD, null, "yavoi-" + System.nanoTime());
+        else speech.speak(message, TextToSpeech.QUEUE_ADD, null);
     }
 
     private void dispatchEvent(String action, String offerId) {
@@ -208,6 +239,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         try { unregisterReceiver(commandReceiver); } catch (Exception ignored) {}
+        if (speech != null) { speech.stop(); speech.shutdown(); }
         if (navigator != null && isFinishing()) navigator.stopGuidance();
         super.onDestroy();
     }

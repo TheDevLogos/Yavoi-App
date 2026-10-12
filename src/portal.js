@@ -1554,18 +1554,7 @@ async function beginDriverNavigation(trip, reserved = null) {
   const target = navigationTarget(trip);
   try {
     if (target.lat === null || target.lng === null) throw Error("No encontramos coordenadas para este destino.");
-    await YavoiNavigation.start({
-      tripId: trip.id,
-      stage: target.stage,
-      destination: target.label,
-      lat: target.lat,
-      lng: target.lng,
-      finalDestination: trip.destination || "",
-      finalLat: Number(trip.dest_lat),
-      finalLng: Number(trip.dest_lng),
-      total: money(trip.final_total_cents || trip.quote_total_cents || 0),
-      paymentMethod: trip.payment_method || "cash",
-    });
+    await YavoiNavigation.start(nativeNavigationTripPayload(trip, target));
     S.nativeNavigationActive = true;
     releaseNavigationWindow(reserved);
     return true;
@@ -1576,6 +1565,21 @@ async function beginDriverNavigation(trip, reserved = null) {
     notify("Abriremos Google Maps mientras se configura la navegación nativa.");
     return launchDriverNavigation(trip);
   }
+}
+function nativeNavigationTripPayload(trip, target = navigationTarget(trip)) {
+  return {
+    tripId: trip.id,
+    stage: target.stage,
+    destination: target.label,
+    lat: target.lat,
+    lng: target.lng,
+    finalDestination: trip.destination || "",
+    finalLat: Number(trip.dest_lat),
+    finalLng: Number(trip.dest_lng),
+    total: money(trip.final_total_cents || trip.quote_total_cents || 0),
+    passengerName: trip.passenger_name || trip.passenger?.full_name || "pasajero",
+    paymentMethod: trip.payment_method || "cash",
+  };
 }
 async function showNativeNavigationOffer(offer) {
   if (!S.nativeNavigationActive || !isNativeApp() || S.profile?.role !== "driver") return;
@@ -1601,10 +1605,18 @@ function prepareNativeNavigationEvents() {
     if (action === "start") await rpc("transition", { trip_id: tripId, action: "start-trip" });
     if (action === "complete") {
       await rpc("transition", { trip_id: tripId, action: "finish", cash_received: true });
+      S.data = await rpc("dashboard");
+      const following = S.data.trips.find((trip) => trip.driver_id === S.user?.id && trip.status === "accepted");
+      if (following) {
+        await YavoiNavigation.nextTrip(nativeNavigationTripPayload(following));
+        notify("Tu siguiente viaje está listo. La navegación continúa a la recolección.");
+        return;
+      }
       S.nativeNavigationActive = false;
+      await YavoiNavigation.close().catch(() => {});
     }
     if (["arrive", "start", "complete"].includes(action)) {
-      S.data = await rpc("dashboard");
+      S.data = S.data || await rpc("dashboard");
       notify(action === "arrive" ? "Llegada avisada al pasajero." : action === "start" ? "Viaje iniciado. Sigue la ruta." : "Viaje finalizado.");
     }
   }).catch((error) => notify(errorMessage(error))));

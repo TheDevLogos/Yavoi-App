@@ -64,5 +64,11 @@ test("driver navigation remains native through pickup, trip completion, and queu
   assert.match(activity, /dispatchEvent\("arrive"/);
   assert.match(activity, /dispatchEvent\("start"/);
   assert.match(activity, /dispatchEvent\("complete"/);
+  assert.match(activity, /switchTrip/);
+  assert.match(activity, /TextToSpeech/);
+  assert.match(activity, /Ver por/);
   assert.match(plugin, /notifyListeners\("event"/);
+  assert.match(plugin, /nextTrip/);
+  assert.match(portal, /nativeNavigationTripPayload/);
+  assert.match(portal, /YavoiNavigation\.nextTrip/);
 });

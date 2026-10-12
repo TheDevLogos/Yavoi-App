@@ -47,6 +47,15 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/navigation_passenger"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:textColor="@color/yavoi_white"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
             android:id="@+id/navigation_destination"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
