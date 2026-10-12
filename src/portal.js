@@ -62,6 +62,7 @@ const GOOGLE_MAP_ID = String(import.meta.env.VITE_GOOGLE_MAP_ID || "").trim();
 const WEB_PUSH_VAPID_PUBLIC_KEY = String(import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY || "BPP4SxptAGWXO4pfNp5yZ4Qa75ouZDZNXG3UjLnl3pC2wJ9d1HpTkR1r8zZ4YGvtLAEd0IZ_-GkfadDOAohUmcs").trim();
 const YavoiNavigation = registerPlugin("YavoiNavigation");
 const YavoiGoogleAuth = registerPlugin("YavoiGoogleAuth");
+const NATIVE_GOOGLE_SIGN_IN_TIMEOUT_MS = 45_000;
 let nativePushSetupPromise = null;
 let nativePushRegistrationError = null;
 let L = Leaflet;
@@ -316,22 +317,52 @@ async function renderOfficialGoogleButton(view) {
     notify(errorMessage(error));
   }
 }
+async function resetNativeGoogleAccount() {
+  if (!isNativeApp()) return;
+  try {
+    // Google keeps the last selected account in the native client. Clearing it
+    // before a new attempt makes the account picker available again after a
+    // passenger accidentally tries to enter the driver app, or vice versa.
+    await YavoiGoogleAuth.signOut();
+  } catch {
+    // A missing cached account is an expected state and must not block login.
+  }
+}
+function nativeGoogleSignInWithTimeout() {
+  let timer;
+  const signIn = YavoiGoogleAuth.signIn({ serverClientId: GOOGLE_CLIENT_ID });
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("Google tardó demasiado en responder. Puedes intentarlo de nuevo.")), NATIVE_GOOGLE_SIGN_IN_TIMEOUT_MS);
+  });
+  return Promise.race([signIn, timeout]).finally(() => clearTimeout(timer));
+}
 async function nativeGoogleSignIn(view) {
   if (S.busy) return;
   S.busy = true;
   authLoading = true;
+  const nativeButton = $("#native-google-button");
+  if (nativeButton) {
+    nativeButton.disabled = true;
+    nativeButton.setAttribute("aria-busy", "true");
+  }
   try {
-    const response = await YavoiGoogleAuth.signIn({ serverClientId: GOOGLE_CLIENT_ID });
+    await resetNativeGoogleAccount();
+    const response = await nativeGoogleSignInWithTimeout();
     const token = String(response?.idToken || "");
     if (!token) throw new Error("Google no entregó un identificador de acceso válido.");
     const { error } = await db.auth.signInWithIdToken({ provider: "google", token });
     if (error) throw error;
     await loadSession();
   } catch (error) {
-    authPage(view, errorMessage(error));
+    authPage(view, `${errorMessage(error)} Elige una cuenta distinta o vuelve a intentarlo.`);
   } finally {
     S.busy = false;
     authLoading = false;
+    const activeButton = $("#native-google-button");
+    if (activeButton) {
+      activeButton.disabled = false;
+      activeButton.removeAttribute("aria-busy");
+    }
   }
 }
 function iconsNow() {
@@ -987,8 +1018,9 @@ async function loadSession() {
   S.driver = b.driver;
   if (S.profile.onboarding_complete && !targetAllowsRole(S.profile.role)) {
     await db.auth.signOut();
+    await resetNativeGoogleAccount();
     S.user = null;
-    return authPage("login", `Esta cuenta es de ${roles[S.profile.role] || "otro"}. Usa ${appTargetName()} con la cuenta correspondiente.`);
+    return authPage("login", `Esta cuenta es de ${roles[S.profile.role] || "otro"}. En ${appTargetName()} elige una cuenta de ${targetRole === "driver" ? "conductor" : "pasajero"}.`);
   }
   S.transportComplianceAvailable = b.transport_compliance_version === "2026-09-15";
   if (!S.transportComplianceAvailable) S.transportCompliance = null;

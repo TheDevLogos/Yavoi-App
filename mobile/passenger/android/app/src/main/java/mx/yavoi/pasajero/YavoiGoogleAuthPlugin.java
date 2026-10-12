@@ -21,6 +21,13 @@ import com.google.android.gms.tasks.Task;
 @CapacitorPlugin(name = "YavoiGoogleAuth")
 public class YavoiGoogleAuthPlugin extends Plugin {
     @PluginMethod
+    public void signOut(PluginCall call) {
+        GoogleSignIn.getClient(getContext(), GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .signOut()
+            .addOnCompleteListener(task -> call.resolve());
+    }
+
+    @PluginMethod
     public void signIn(PluginCall call) {
         String serverClientId = call.getString("serverClientId", "").trim();
         if (serverClientId.isEmpty()) {

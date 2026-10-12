@@ -65,3 +65,22 @@ test("Android registers Yavoi Google Auth before constructing the Capacitor brid
     assert.match(source, /registerPlugin\(YavoiGoogleAuthPlugin\.class\);\s*super\.onCreate\(savedInstanceState\);/s);
   }
 });
+
+
+test("native Google login can clear the cached account and always recovers from a stalled attempt", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const portal = await readFile(new URL("../src/portal.js", import.meta.url), "utf8");
+  assert.match(portal, /async function resetNativeGoogleAccount/);
+  assert.match(portal, /await resetNativeGoogleAccount\(\);\s*const response = await nativeGoogleSignInWithTimeout/s);
+  assert.match(portal, /NATIVE_GOOGLE_SIGN_IN_TIMEOUT_MS/);
+  assert.match(portal, /await resetNativeGoogleAccount\(\);\s*S\.user = null/s);
+  const plugins = [
+    "../mobile/passenger/android/app/src/main/java/mx/yavoi/pasajero/YavoiGoogleAuthPlugin.java",
+    "../mobile/driver/android/app/src/main/java/mx/yavoi/conductor/YavoiGoogleAuthPlugin.java",
+  ];
+  for (const plugin of plugins) {
+    const source = await readFile(new URL(plugin, import.meta.url), "utf8");
+    assert.match(source, /public void signOut\(PluginCall call\)/);
+    assert.match(source, /\.signOut\(\)\s*\.addOnCompleteListener/s);
+  }
+});
