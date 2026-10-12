@@ -50,7 +50,10 @@ import {
 import { appTargetName, isNativeApp, targetAllowsRole, targetRole } from "./app-target.js";
 const $ = (s, el = document) => el.querySelector(s),
   $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const I = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
+// Rewards and Operations can supply an icon name from data. Lucide throws
+// while replacing the element when an old record contains an unavailable icon.
+const lucideName = (name) => String(name || "").split("-").map((part) => part ? part[0].toUpperCase() + part.slice(1) : "").join("");
+const I = (name) => `<i data-lucide="${icons[lucideName(name)] ? name : "circle-alert"}" aria-hidden="true"></i>`;
 const GOOGLE_CLIENT_ID = String(
   import.meta.env.VITE_GOOGLE_CLIENT_ID ||
     "903354099441-4la2ivgqknn9q8kj1ghku6caebc1a4ar.apps.googleusercontent.com",
@@ -160,15 +163,23 @@ if (/^YV[A-F0-9]{8}$/.test(referralFromUrl)) {
 const modal = $("#modal");
 let toastTimer, pollTimer;
 let googleMapsPromise;
+let googleMapsAuthenticationFailed = false;
 function loadGoogleMaps() {
   if (!GOOGLE_MAPS_BROWSER_KEY) return Promise.resolve(false);
   if (window.google?.maps) return Promise.resolve(true);
   if (googleMapsPromise) return googleMapsPromise;
   googleMapsPromise = new Promise((resolve) => {
+    // Maps JavaScript API can load its global object even when Google rejects
+    // the key. Capture that callback so we never mount a broken map surface.
+    const previousAuthFailure = window.gm_authFailure;
+    window.gm_authFailure = () => {
+      googleMapsAuthenticationFailed = true;
+      previousAuthFailure?.();
+    };
     const script = document.createElement("script");
     script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_BROWSER_KEY)}&v=weekly&language=es&region=MX`;
     script.async = true;
-    script.onload = () => resolve(Boolean(window.google?.maps));
+    script.onload = () => setTimeout(() => resolve(Boolean(window.google?.maps) && !googleMapsAuthenticationFailed), 0);
     script.onerror = () => resolve(false);
     document.head.append(script);
   });
@@ -367,7 +378,8 @@ async function nativeGoogleSignIn(view) {
   }
 }
 function iconsNow() {
-  createIcons({ icons, attrs: { "stroke-width": 1.8 } });
+  try { createIcons({ icons, attrs: { "stroke-width": 1.8 } }); }
+  catch (error) { console.warn("No se pudo reemplazar un icono de Yavoi!", error); }
 }
 function notify(message) {
   const t = $("#toast");
@@ -2885,6 +2897,20 @@ function driverSettlementsMarkup() {
 }
 function bindDriverSettlements() {}
 
+function wallet() {
+  const driver = S.profile?.role === "driver";
+  if (driver) {
+    const summary = S.data.finance_wallet || { week_start: new Date().toISOString().slice(0, 10), week_net_cents: 0, week_cash_cents: 0, days: [] };
+    const redraw = (next) => { S.data.finance_wallet = next; wallet(); };
+    shell(`${driverBillingCard()}${walletMarkup(summary)}${driverSettlementsMarkup()}`, "Mis ingresos", "Consulta cada servicio y el corte semanal que revisa Operaciones.");
+    bindWallet(summary, { redraw, openModal, notify });
+    return;
+  }
+  const completed = (S.data.trips || []).filter((trip) => trip.status === "completed");
+  const total = completed.reduce((sum, trip) => sum + Number(trip.total_cents ?? trip.fare_cents ?? 0), 0);
+  shell(`<section class="balance"><small>TOTAL DE VIAJES COMPLETADOS</small><h2>${money(total)}</h2><p>Pagos registrados por viajes completados.</p></section><section class="panel section-gap"><h2>Cada peso, con claridad</h2><p>La tarifa se muestra antes de confirmar y el detalle de cada viaje permanece disponible en tu historial.</p><p class="hint">El pago se entrega en efectivo al conductor al finalizar el viaje.</p><a class="btn secondary" href="#trips">Consultar mis viajes ${I("arrow-right")}</a></section>`, "Tu cartera Yavoi!", "Consulta importes y el detalle de tus viajes.");
+}
+
 function weeklyProfileMarkup() {
   const fees = (S.data.weekly_fees || []).filter((fee) => fee.status !== "waived");
   const current = fees[0];
@@ -3162,20 +3188,22 @@ function rewards() {
     driver ? "Beneficios para reconocer tu desempeño." : "Tus viajes te acercan a nuevos beneficios.",
   );
   iconsNow();
-  $("#open-reward-faq").onclick = () => openModal("Preguntas frecuentes", rewardFaq);
+  const rewardFaqButton = $("#open-reward-faq");
+  if (rewardFaqButton) rewardFaqButton.onclick = () => openModal("Preguntas frecuentes", rewardFaq);
   $$("[data-reward-scroll]").forEach((button) => button.onclick = () => {
     const track = $("#reward-carousel-track");
+    if (!track) return;
     const card = $(".reward-card", track);
     const direction = Number(button.dataset.rewardScroll) || 1;
     track?.scrollBy({ left: direction * Math.max(280, (card?.getBoundingClientRect().width || 320) + 16), behavior: "smooth" });
   });
   if (referralCode) {
-    $("#share-referral-whatsapp").onclick = () => shareReferral(referralCode, true);
-    $("#share-referral").onclick = () => shareReferral(referralCode);
-    $("#copy-referral").onclick = () => run(async () => {
+    $("#share-referral-whatsapp")?.addEventListener("click", () => shareReferral(referralCode, true));
+    $("#share-referral")?.addEventListener("click", () => shareReferral(referralCode));
+    $("#copy-referral")?.addEventListener("click", () => run(async () => {
       await navigator.clipboard.writeText(referralCode);
       notify("Código de invitación copiado.");
-    });
+    }));
   }
   $$('[data-view-coupon]').forEach((item) => item.onclick = () => {
     const redemption = redemptions.find((entry) => entry.id === item.dataset.viewCoupon);
@@ -3992,7 +4020,7 @@ function safety() {
 async function inbox() {
  const result=await inboxRpc("list"),messages=result.messages||[],unread=messages.filter(x=>!x.is_read).length;
  const category={general:"Aviso",safety:"Seguridad",payment:"Pagos",service:"Servicio",promotion:"Promoción",news:"Novedades"};
- const cards=messages.length?messages.map(x=>`<details class="inbox-message ${x.is_read?"":"unread"}" data-inbox-item="${e(x.id)}"><summary><span class="inbox-category">${I(x.category==="safety"?"shield-check":x.category==="payment"?"wallet":"bell")}</span><span class="inbox-message-title"><strong>${e(x.title)}</strong><small>${e(category[x.category]||"Aviso")} · ${date(x.created_at)}</small></span>${x.is_read?'<span class="badge neutral">Leído</span>':'<span class="badge pending">Nuevo</span>'}</summary><div class="inbox-message-body"><p>${e(x.body)}</p>${x.ends_at?`<small>Vigente hasta ${date(x.ends_at)}</small>`:""}</div></details>`).join(""):'<div class="empty"><p>Tu bandeja está al día. Aquí aparecerán los avisos y mensajes de Yavoi!.</p></div>';
+ const cards=messages.length?messages.map(x=>`<details class="inbox-message ${x.is_read?"":"unread"}" data-inbox-item="${e(x.id)}"><summary><span class="inbox-category">${I(x.category==="safety"?"shield-check":x.category==="payment"?"circle-dollar-sign":"bell")}</span><span class="inbox-message-title"><strong>${e(x.title)}</strong><small>${e(category[x.category]||"Aviso")} · ${date(x.created_at)}</small></span>${x.is_read?'<span class="badge neutral">Leído</span>':'<span class="badge pending">Nuevo</span>'}</summary><div class="inbox-message-body"><p>${e(x.body)}</p>${x.ends_at?`<small>Vigente hasta ${date(x.ends_at)}</small>`:""}</div></details>`).join(""):'<div class="empty"><p>Tu bandeja está al día. Aquí aparecerán los avisos y mensajes de Yavoi!.</p></div>';
  const admin=S.profile.role==="admin";
  const sent=admin&&result.sent?.length?`<section class="panel section-gap"><h2>Comunicados recientes</h2><div class="inbox-list">${result.sent.map(x=>`<article class="inbox-sent"><div><strong>${e(x.title)}</strong><small>${e(category[x.category]||"Aviso")} · ${x.audience==="all"?"Todos":x.audience==="passenger"?"Pasajeros":"Conductores"}</small></div><span class="badge neutral">Hasta ${date(x.ends_at)}</span></article>`).join("")}</div></section>`:"";
  shell(`${admin?`<section class="panel broadcast-panel"><div class="row between wrap"><div><div class="eyebrow">CENTRO DE OPERACIÓN</div><h2>Enviar comunicado</h2><p>Publica un aviso en la bandeja Yavoi! de todos los usuarios o de un grupo.</p></div>${I("send")}</div><form id="broadcast-form" class="broadcast-form"><div class="grid2"><label>Destinatarios<select name="audience"><option value="all">Todos los usuarios</option><option value="passenger">Pasajeros</option><option value="driver">Conductores</option></select></label><label>Tipo de mensaje<select name="category"><option value="general">Aviso general</option><option value="safety">Seguridad</option><option value="payment">Pagos</option><option value="service">Servicio</option><option value="promotion">Promoción</option><option value="news">Novedades</option></select></label></div><label>Título<input name="title" required minlength="3" maxlength="120" placeholder="Escribe un título claro"></label><label>Mensaje<textarea name="body" required minlength="5" maxlength="2000" placeholder="Comparte la información que necesitan conocer."></textarea></label><label>Vigente hasta<input name="ends_at" type="datetime-local" required></label><button class="btn" type="submit">${I("send")} Publicar comunicado</button><p class="hint">Publicar requiere el acceso de Operaciones con verificación en dos pasos. Cada envío queda registrado para auditoría.</p></form></section>${sent}`:`<div class="inbox-summary panel"><div><div class="eyebrow">MENSAJES Y AVISOS</div><h2>${unread?`${unread} mensaje${unread===1?"":"s"} nuevo${unread===1?"":"s"}`:"Estás al día"}</h2><p>Comunicados de Operaciones, novedades de servicio y avisos importantes.</p></div>${I("inbox")}</div>`}<section class="panel section-gap"><div class="row between wrap"><div><h2>${admin?"Vista de bandeja":"Bandeja de Entrada"}</h2><p>Los avisos vigentes se actualizan automáticamente.</p></div><button class="btn secondary" type="button" data-action="refresh">${I("refresh-cw")} Actualizar</button></div><div class="inbox-list section-gap">${cards}</div></section>`,"Bandeja de Entrada",admin?"Publica y revisa avisos para usuarios de Yavoi!.":"Mensajes de Yavoi! y novedades relacionadas con tu cuenta.");
@@ -4730,7 +4758,9 @@ function requestInitialLocation() {
   return S.initialLocationPromise;
 }
 function firstRunPermissionsKey() {
-  return `yavoi:device-permissions:${S.profile?.role || "guest"}:v2`;
+  // v3 repeats the guide after the Android notification and overlay work was
+  // added, including for accounts that had already opened an earlier build.
+  return `yavoi:device-permissions:${S.profile?.role || "guest"}:v3`;
 }
 function markFirstRunPermissionsHandled() {
   try { localStorage.setItem(firstRunPermissionsKey(), "1"); } catch {}

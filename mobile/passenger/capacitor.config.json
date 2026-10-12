@@ -8,6 +8,7 @@
   },
   "server": {
     "androidScheme": "https",
+    "hostname": "yavoi-app.vercel.app",
     "appStartPath": "/portal.html"
   }
 }

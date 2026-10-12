@@ -19,10 +19,30 @@ test("driver asks permissions deliberately and can request its optional alert wi
   const manifest = await read("mobile/driver/android/app/src/main/AndroidManifest.xml");
   const plugin = await read("mobile/driver/android/app/src/main/java/mx/yavoi/conductor/YavoiDevicePermissionsPlugin.java");
   assert.match(portal, /showFirstRunPermissionGuide/);
+  assert.match(portal, /yavoi:device-permissions:\$\{S\.profile\?\.role \|\| "guest"\}:v3/);
   assert.match(portal, /enableDriverPushNotifications\(\)/);
   assert.match(portal, /requestOverlay\(\)/);
   assert.match(manifest, /SYSTEM_ALERT_WINDOW/);
   assert.match(plugin, /ACTION_MANAGE_OVERLAY_PERMISSION/);
+});
+
+test("native builds use Yavoi's secure host for Maps and recover from rejected map keys", async () => {
+  const portal = await read("src/portal.js");
+  const driverConfig = await read("mobile/driver/capacitor.config.json");
+  const passengerConfig = await read("mobile/passenger/capacitor.config.json");
+  assert.match(driverConfig, /"hostname": "yavoi-app\.vercel\.app"/);
+  assert.match(passengerConfig, /"hostname": "yavoi-app\.vercel\.app"/);
+  assert.match(portal, /window\.gm_authFailure/);
+  assert.match(portal, /googleMapsAuthenticationFailed/);
+});
+
+test("legacy data cannot break navigation, rewards, or the driver income screen", async () => {
+  const portal = await read("src/portal.js");
+  assert.match(portal, /function wallet\(\)/);
+  assert.match(portal, /lucideName/);
+  assert.match(portal, /circle-alert/);
+  assert.match(portal, /rewardFaqButton\) rewardFaqButton\.onclick/);
+  assert.match(portal, /\$\("#share-referral-whatsapp"\)\?\.addEventListener/);
 });
 
 test("navigation and profile entry points avoid the unstable wallet icon alias", async () => {

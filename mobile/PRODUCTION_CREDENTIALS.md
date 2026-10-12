@@ -5,8 +5,10 @@ La primera publicación usa efectivo directo entre pasajero y conductor. Operaci
 ## Google Maps Platform
 
 1. Crear una clave de navegador para `VITE_GOOGLE_MAPS_BROWSER_KEY`.
-2. Restringirla por referentes HTTPS a los dominios reales de Yavoi!, incluida
-   `https://yavoi-app.vercel.app/*` mientras se usa ese dominio.
+2. Restringirla por referentes HTTPS a `https://yavoi-app.vercel.app/*`.
+   Los AAB usan ese mismo host seguro mediante Capacitor, así que la misma
+   restricción protege la PWA y ambas aplicaciones Android sin abrir la clave
+   a `localhost` ni a referentes genéricos.
 3. Restringir las APIs a Maps JavaScript API y las necesarias en navegador.
 4. Crear una clave de servidor distinta para el secreto de Supabase
    `GOOGLE_MAPS_API_KEY`; restringirla por API a Places API (New), Geocoding
