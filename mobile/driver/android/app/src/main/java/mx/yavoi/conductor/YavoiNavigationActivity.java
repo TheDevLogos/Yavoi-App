@@ -11,9 +11,16 @@ import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.speech.tts.TextToSpeech;
 import android.os.Build;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.view.View;
+import android.widget.CheckBox;
+import android.widget.LinearLayout;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.appcompat.app.AlertDialog;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -62,7 +69,13 @@ public class YavoiNavigationActivity extends AppCompatActivity {
     private double destinationLat;
     private double destinationLng;
     private boolean destinationReached = false;
-    private String tripId, finalDestination, total, passengerName;
+    private String tripId, pickupDestination, finalDestination, total, passengerName;
+    private String waitingAmount = "$0.00", adjustmentsAmount = "$0.00", dynamicAmount = "$0.00";
+    private AlertDialog cashDialog;
+    private TextView cashTotalView, cashDetailsView;
+    private Button cashConfirmButton;
+    private CheckBox cashAcknowledgement;
+    private boolean finalFareReady = false;
     private double finalLat, finalLng;
     private android.view.View offerCard;
     private TextToSpeech speech;
@@ -71,6 +84,8 @@ public class YavoiNavigationActivity extends AppCompatActivity {
             String command = intent.getStringExtra(EXTRA_COMMAND);
             if ("next_trip".equals(command)) { switchTrip(intent); return; }
             if ("close".equals(command)) { finishWithAction("resume", true); return; }
+            if ("update_fare".equals(command)) { updateFare(intent); return; }
+            if ("transition_failed".equals(command)) { restoreStage(intent); return; }
             String offerId = intent.getStringExtra(EXTRA_OFFER_ID);
             ((TextView) findViewById(R.id.navigation_offer_title)).setText("NUEVO VIAJE DISPONIBLE");
             ((TextView) findViewById(R.id.navigation_offer_summary)).setText(intent.getStringExtra("summary"));
@@ -127,9 +142,11 @@ public class YavoiNavigationActivity extends AppCompatActivity {
                 }
                 navigator.addArrivalListener(arrivalEvent -> {
                     if (arrivalEvent.isFinalDestination()) {
-                        destinationReached = true;
-                        ((TextView) findViewById(R.id.navigation_stage)).setText("Llegaste al punto del viaje");
-                        ((Button) findViewById(R.id.navigation_primary_action)).setText(primaryLabel());
+                        runOnUiThread(() -> {
+                            destinationReached = true;
+                            if ("destination".equals(stage)) reachDestination();
+                            else ((Button) findViewById(R.id.navigation_primary_action)).setText(primaryLabel());
+                        });
                     }
                 });
                 routeToDestination();
@@ -146,7 +163,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         if (navigator == null || !Double.isFinite(destinationLat) || !Double.isFinite(destinationLng)) return;
         Waypoint waypoint = Waypoint.builder()
                 .setLatLng(destinationLat, destinationLng)
-                .setTitle(getIntent().getStringExtra(EXTRA_DESTINATION))
+                .setTitle("destination".equals(stage) ? finalDestination : pickupDestination)
                 .setVehicleStopover(true)
                 .build();
         RoutingOptions options = new RoutingOptions();
@@ -169,6 +186,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         if ("ready".equals(stage)) return "Iniciar viaje";
         if ("destination".equals(stage)) return "Llegué al destino";
         if ("switching".equals(stage)) return "Preparando siguiente viaje";
+        if ("collect".equals(stage)) return "cash".equals(paymentMethod) ? "Finalizar y recolectar dinero" : "Finalizar viaje";
         return "cash".equals(paymentMethod) ? "Confirmar dinero recibido" : "Completar viaje";
     }
 
@@ -189,28 +207,170 @@ public class YavoiNavigationActivity extends AppCompatActivity {
             dispatchEvent("arrive", null); if (navigator != null) navigator.stopGuidance(); stage = "ready"; renderStage(getIntent().getStringExtra(EXTRA_DESTINATION)); speak("Ya llegaste por " + passengerName + ". Confirma cuando el pasajero esté listo."); return;
         }
         if ("ready".equals(stage)) {
-            dispatchEvent("start", null); stage = "destination"; destinationLat = finalLat; destinationLng = finalLng; routeToDestination(); renderStage(null); speak("Viaje iniciado. Te llevamos al destino de " + passengerName + "."); return;
+            dispatchEvent("start", null); stage = "destination"; destinationReached = false; destinationLat = finalLat; destinationLng = finalLng; routeToDestination(); renderStage(null); speak("Viaje iniciado. Te llevamos al destino de " + passengerName + "."); return;
         }
         if ("destination".equals(stage)) {
-            if (navigator != null) navigator.stopGuidance(); stage = "collect"; renderStage(null); return;
+            reachDestination(); return;
         }
-        dispatchEvent("complete", null); stage = "switching"; renderStage(null); speak("Que tengas un bonito día, " + passengerName + ". Buscando tu siguiente viaje.");
+        if ("collect".equals(stage) && "cash".equals(paymentMethod)) {
+            confirmCashReceived();
+            return;
+        }
+        completeTrip();
+    }
+
+    private void reachDestination() {
+        if (!"destination".equals(stage)) return;
+        if (navigator != null) navigator.stopGuidance();
+        stage = "collect";
+        finalFareReady = false;
+        renderStage(null);
+        confirmCashReceived();
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private TextView dialogText(String value, int size, boolean bold) {
+        TextView text = new TextView(this);
+        text.setText(value);
+        text.setTextColor(Color.rgb(8, 31, 49));
+        text.setTextSize(size);
+        if (bold) text.setTypeface(null, android.graphics.Typeface.BOLD);
+        return text;
+    }
+
+    private void confirmCashReceived() {
+        if (cashDialog != null && cashDialog.isShowing()) return;
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(24), dp(24), dp(24), dp(24));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(22));
+        card.setBackground(background);
+
+        TextView title = dialogText("Llegada y pago en efectivo", 25, true);
+        card.addView(title);
+        TextView instructions = dialogText("Confirma con el pasajero que llegaron al destino antes de cerrar el viaje.", 16, false);
+        instructions.setTextColor(Color.rgb(111, 124, 135));
+        LinearLayout.LayoutParams instructionParams = new LinearLayout.LayoutParams(-1, -2);
+        instructionParams.topMargin = dp(18);
+        card.addView(instructions, instructionParams);
+        cashTotalView = dialogText("Total a recolectar     Calculando...", 22, true);
+        LinearLayout.LayoutParams amountParams = new LinearLayout.LayoutParams(-1, -2);
+        amountParams.topMargin = dp(28);
+        card.addView(cashTotalView, amountParams);
+        cashDetailsView = dialogText("Consultando el total final y los ajustes aceptados...", 14, false);
+        cashDetailsView.setTextColor(Color.rgb(104, 117, 130));
+        cashDetailsView.setPadding(dp(12), dp(12), dp(12), dp(12));
+        GradientDrawable detailBackground = new GradientDrawable();
+        detailBackground.setColor(Color.rgb(244, 247, 250));
+        detailBackground.setCornerRadius(dp(10));
+        cashDetailsView.setBackground(detailBackground);
+        LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(-1, -2);
+        detailParams.topMargin = dp(18);
+        card.addView(cashDetailsView, detailParams);
+        cashAcknowledgement = new CheckBox(this);
+        cashAcknowledgement.setText("Recibí el pago y entregué el cambio correspondiente.");
+        cashAcknowledgement.setTextColor(Color.rgb(8, 31, 49));
+        cashAcknowledgement.setTextSize(16);
+        LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(-1, -2);
+        checkParams.topMargin = dp(16);
+        card.addView(cashAcknowledgement, checkParams);
+        cashConfirmButton = new Button(this);
+        cashConfirmButton.setText("Confirmar dinero recibido ✓");
+        cashConfirmButton.setTextColor(Color.WHITE);
+        GradientDrawable orange = new GradientDrawable();
+        orange.setColor(Color.rgb(255, 112, 0));
+        orange.setCornerRadius(dp(10));
+        cashConfirmButton.setBackground(orange);
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(-1, dp(54));
+        buttonParams.topMargin = dp(12);
+        card.addView(cashConfirmButton, buttonParams);
+        cashAcknowledgement.setOnCheckedChangeListener((button, checked) -> updateCashDialog());
+        cashConfirmButton.setOnClickListener(view -> {
+            if (!finalFareReady) { dispatchEvent("destination_reached", null); return; }
+            if (!cashAcknowledgement.isChecked()) return;
+            cashDialog.dismiss();
+            completeTrip();
+        });
+        cashDialog = new AlertDialog.Builder(this).setView(card).create();
+        cashDialog.setOnDismissListener(dialog -> { cashDialog = null; renderStage(null); });
+        cashDialog.show();
+        if (cashDialog.getWindow() != null) cashDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        updateCashDialog();
+        if (!finalFareReady) dispatchEvent("destination_reached", null);
+    }
+
+    private void updateCashDialog() {
+        if (cashTotalView == null || cashConfirmButton == null) return;
+        cashTotalView.setText("Total a recolectar     " + (finalFareReady ? total : "Calculando..."));
+        cashDetailsView.setText(finalFareReady
+                ? "Incluye " + waitingAmount + " de espera y " + adjustmentsAmount + " de otros ajustes aceptados. Demanda " + dynamicAmount + " incluida en la tarifa."
+                : "Consultando el total final y los ajustes aceptados...");
+        cashConfirmButton.setEnabled(finalFareReady && cashAcknowledgement != null && cashAcknowledgement.isChecked());
+        cashConfirmButton.setAlpha(cashConfirmButton.isEnabled() ? 1f : 0.55f);
+    }
+
+    private void updateFare(Intent command) {
+        if (!tripId.equals(command.getStringExtra(EXTRA_TRIP_ID))) return;
+        String error = command.getStringExtra("error");
+        if (error != null && !error.isEmpty()) {
+            finalFareReady = false;
+            if (cashDetailsView != null) cashDetailsView.setText(error);
+            if (cashConfirmButton != null) {
+                cashConfirmButton.setText("Reintentar cálculo");
+                cashConfirmButton.setEnabled(true);
+            }
+            return;
+        }
+        total = command.getStringExtra(EXTRA_TOTAL);
+        waitingAmount = command.getStringExtra("waiting");
+        adjustmentsAmount = command.getStringExtra("adjustments");
+        dynamicAmount = command.getStringExtra("dynamic");
+        finalFareReady = total != null && !total.isEmpty();
+        if (cashConfirmButton != null) cashConfirmButton.setText("Confirmar dinero recibido ✓");
+        updateCashDialog();
+    }
+
+    private void restoreStage(Intent command) {
+        if (!tripId.equals(command.getStringExtra(EXTRA_TRIP_ID))) return;
+        String failedAction = command.getStringExtra(EXTRA_EVENT);
+        if ("complete".equals(failedAction)) stage = "collect";
+        else if ("start".equals(failedAction)) stage = "ready";
+        else if ("arrive".equals(failedAction)) stage = "pickup";
+        renderStage(null);
+        Toast.makeText(this, command.getStringExtra("message"), Toast.LENGTH_LONG).show();
+        if ("complete".equals(failedAction)) confirmCashReceived();
+    }
+
+    private void completeTrip() {
+        dispatchEvent("complete", null);
+        stage = "switching";
+        renderStage(null);
+        speak("Que tengas un bonito día, " + passengerName + ". Buscando tu siguiente viaje.");
     }
 
     private void applyTrip(Intent source) {
         stage = source.getStringExtra(EXTRA_STAGE); if (stage == null) stage = "pickup";
         tripId = source.getStringExtra(EXTRA_TRIP_ID);
+        pickupDestination = source.getStringExtra(EXTRA_DESTINATION);
         passengerName = source.getStringExtra(EXTRA_PASSENGER_NAME);
         paymentMethod = source.getStringExtra(EXTRA_PAYMENT_METHOD);
         finalDestination = source.getStringExtra(EXTRA_FINAL_DESTINATION);
         finalLat = source.getDoubleExtra(EXTRA_FINAL_LAT, Double.NaN);
         finalLng = source.getDoubleExtra(EXTRA_FINAL_LNG, Double.NaN);
         total = source.getStringExtra(EXTRA_TOTAL);
+        finalFareReady = false;
+        waitingAmount = adjustmentsAmount = dynamicAmount = "$0.00";
         destinationLat = source.getDoubleExtra(EXTRA_LAT, Double.NaN);
         destinationLng = source.getDoubleExtra(EXTRA_LNG, Double.NaN);
         destinationReached = false;
     }
     private void switchTrip(Intent source) {
+        if (cashDialog != null) cashDialog.dismiss();
         applyTrip(source);
         offerCard.setVisibility(android.view.View.GONE);
         renderStage(source.getStringExtra(EXTRA_DESTINATION));
@@ -238,6 +398,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (cashDialog != null) cashDialog.dismiss();
         try { unregisterReceiver(commandReceiver); } catch (Exception ignored) {}
         if (speech != null) { speech.stop(); speech.shutdown(); }
         if (navigator != null && isFinishing()) navigator.stopGuidance();

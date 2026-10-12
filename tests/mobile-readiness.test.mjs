@@ -72,3 +72,49 @@ test("driver navigation remains native through pickup, trip completion, and queu
   assert.match(portal, /nativeNavigationTripPayload/);
   assert.match(portal, /YavoiNavigation\.nextTrip/);
 });
+
+test("native navigation maps each button to the server trip state", async () => {
+  const portal = await read("src/portal.js");
+  assert.match(portal, /arrive: \{ status: "arrived"/);
+  assert.match(portal, /start: \{ status: "in_progress"/);
+  assert.match(portal, /complete: \{ status: "completed", cash_received: true/);
+  assert.match(portal, /nativeNavigationEventQueue = nativeNavigationEventQueue\.catch/);
+  assert.match(portal, /S\.data = await rpc\("dashboard"\)/);
+  assert.match(portal, /location\.hash = "home";[\s\S]{0,80}YavoiNavigation\.close/);
+  assert.doesNotMatch(portal, /rpc\("transition", \{ trip_id: tripId, action:/);
+});
+
+test("cash completion asks for confirmation inside the native navigation surface", async () => {
+  const activity = await read("mobile/driver/android/app/src/main/java/mx/yavoi/conductor/YavoiNavigationActivity.java");
+  assert.match(activity, /if \("collect"\.equals\(stage\) && "cash"\.equals\(paymentMethod\)\)/);
+  assert.match(activity, /new AlertDialog\.Builder\(this\)/);
+  assert.match(activity, /Llegada y pago en efectivo/);
+  assert.match(activity, /Total a recolectar/);
+  assert.match(activity, /Recibí el pago y entregué el cambio correspondiente/);
+  assert.match(activity, /finalFareReady && cashAcknowledgement/);
+  assert.match(activity, /dispatchEvent\("complete", null\)/);
+});
+
+test("drop-off is recorded before cash confirmation and shown to the passenger", async () => {
+  const portal = await read("src/portal.js");
+  const activity = await read("mobile/driver/android/app/src/main/java/mx/yavoi/conductor/YavoiNavigationActivity.java");
+  const migration = await read("supabase/migrations/20261012210000_destination_arrival_trip_event.sql");
+  assert.match(activity, /if \("destination"\.equals\(stage\)\) reachDestination\(\)/);
+  assert.match(activity, /dispatchEvent\("destination_reached", null\)/);
+  assert.match(portal, /rpc\("destination_reached", \{ trip_id: tripId \}\)/);
+  assert.match(portal, /event === "destination_reached" && S\.profile\?\.role === "passenger"/);
+  assert.match(portal, /destinationReached \? "Llegué a Destino"/);
+  assert.match(migration, /trip_value\.status<>'in_progress'/);
+  assert.match(migration, /event='destination_reached'/);
+});
+
+test("passengers receive the final fare and every accepted trip adjustment", async () => {
+  const portal = await read("src/portal.js");
+  assert.match(portal, /function passengerFinalFareSummary/);
+  assert.match(portal, /function passengerFinalFareMarkup/);
+  assert.match(portal, /Demanda aplicada · incluida en tarifa/);
+  assert.match(portal, /Espera después de 2 min de cortesía/);
+  assert.match(portal, /Desvíos, ruta o recolecciones aceptados/);
+  assert.match(portal, /event === "completed" && S\.profile\?\.role === "passenger"/);
+  assert.match(portal, /Llegaste a tu destino/);
+});

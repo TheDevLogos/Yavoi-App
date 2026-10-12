@@ -77,6 +77,29 @@ public class YavoiNavigationPlugin extends Plugin {
         getContext().sendBroadcast(command); call.resolve();
     }
 
+    @PluginMethod public void updateFare(PluginCall call) {
+        Intent command = new Intent(YavoiNavigationActivity.ACTION_COMMAND);
+        command.setPackage(getContext().getPackageName());
+        command.putExtra(YavoiNavigationActivity.EXTRA_COMMAND, "update_fare");
+        command.putExtra(YavoiNavigationActivity.EXTRA_TRIP_ID, call.getString("tripId", ""));
+        command.putExtra(YavoiNavigationActivity.EXTRA_TOTAL, call.getString("total", ""));
+        command.putExtra("waiting", call.getString("waiting", "$0.00"));
+        command.putExtra("adjustments", call.getString("adjustments", "$0.00"));
+        command.putExtra("dynamic", call.getString("dynamic", "$0.00"));
+        command.putExtra("error", call.getString("error", ""));
+        getContext().sendBroadcast(command); call.resolve();
+    }
+
+    @PluginMethod public void transitionFailed(PluginCall call) {
+        Intent command = new Intent(YavoiNavigationActivity.ACTION_COMMAND);
+        command.setPackage(getContext().getPackageName());
+        command.putExtra(YavoiNavigationActivity.EXTRA_COMMAND, "transition_failed");
+        command.putExtra(YavoiNavigationActivity.EXTRA_TRIP_ID, call.getString("tripId", ""));
+        command.putExtra(YavoiNavigationActivity.EXTRA_EVENT, call.getString("action", ""));
+        command.putExtra("message", call.getString("message", "No se pudo actualizar el viaje."));
+        getContext().sendBroadcast(command); call.resolve();
+    }
+
     @PluginMethod public void close(PluginCall call) {
         Intent command = new Intent(YavoiNavigationActivity.ACTION_COMMAND);
         command.setPackage(getContext().getPackageName());

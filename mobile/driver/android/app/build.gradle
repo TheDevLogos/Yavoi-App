@@ -20,8 +20,8 @@ android {
         applicationId "mx.yavoi.conductor"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 14
-        versionName "1.0.13"
+        versionCode 17
+        versionName "1.0.16"
         manifestPlaceholders = [YAVOI_NAVIGATION_API_KEY: navigationApiKey]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

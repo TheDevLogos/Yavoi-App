@@ -70,6 +70,7 @@ const YavoiDevicePermissions = registerPlugin("YavoiDevicePermissions");
 const NATIVE_GOOGLE_SIGN_IN_TIMEOUT_MS = 45_000;
 let nativePushSetupPromise = null;
 let nativePushRegistrationError = null;
+let nativeNavigationEventQueue = Promise.resolve();
 let L = Leaflet;
 const DELICIAS_MAP_CENTER = [DEFAULT_ORIGIN.lat, DEFAULT_ORIGIN.lng];
 const OPERATIONS_EMPTY_ZOOM = 13;
@@ -798,7 +799,8 @@ const zoneLabel = (zone) =>
   "Zona por confirmar";
 const decimal = (value) => Number(value || 0).toLocaleString("es-MX", { maximumFractionDigits: 2 });
 function badge(t) {
-  return `<span class="badge ${t.status === "cancelled" ? "cancelled" : ["requested", "scheduled"].includes(t.status) ? "pending" : ""}">${e(statuses[t.status] || t.status)}</span>`;
+  const destinationReached = t.status === "in_progress" && S.trip?.trip?.id === t.id && S.trip?.events?.some((event) => event.event === "destination_reached");
+  return `<span class="badge ${t.status === "cancelled" ? "cancelled" : ["requested", "scheduled"].includes(t.status) ? "pending" : ""}">${e(destinationReached ? "Llegué a Destino" : statuses[t.status] || t.status)}</span>`;
 }
 function avatar(name, path, size = "") {
   const url = S.avatarUrls[path];
@@ -1588,10 +1590,21 @@ function nativeNavigationTripPayload(trip, target = navigationTarget(trip)) {
     finalDestination: trip.destination || "",
     finalLat: Number(trip.dest_lat),
     finalLng: Number(trip.dest_lng),
-    total: money(trip.final_total_cents || trip.quote_total_cents || 0),
+    total: money(trip.final_total_cents ?? trip.total_cents ?? trip.quote_total_cents ?? 0),
     passengerName: trip.passenger_name || trip.passenger?.full_name || "pasajero",
     paymentMethod: trip.payment_method || "cash",
   };
+}
+async function updateNativeFinalFare(tripId) {
+  const detail = await rpc("trip", { trip_id: tripId });
+  await YavoiNavigation.updateFare({
+    tripId,
+    total: money(detail.final_total_cents ?? detail.trip.total_cents),
+    waiting: money(detail.waiting_adjustments_cents || 0),
+    adjustments: money(detail.manual_adjustments_cents || 0),
+    dynamic: money(detail.trip.financial_terms?.dynamic_cents || 0),
+  });
+  return detail;
 }
 async function showNativeNavigationOffer(offer) {
   if (!S.nativeNavigationActive || !isNativeApp() || S.profile?.role !== "driver") return;
@@ -1604,7 +1617,8 @@ async function showNativeNavigationOffer(offer) {
 function prepareNativeNavigationEvents() {
   if (S.nativeNavigationEventsReady || !isNativeApp()) return;
   S.nativeNavigationEventsReady = true;
-  YavoiNavigation.addListener("event", ({ action, tripId, offerId }) => run(async () => {
+  YavoiNavigation.addListener("event", ({ action, tripId, offerId }) => {
+    nativeNavigationEventQueue = nativeNavigationEventQueue.catch(() => {}).then(async () => {
     if (action === "resume") { S.nativeNavigationActive = false; return; }
     if (action === "accept_offer" && offerId) {
       const accepted = await rpc("accept", { offer_id: offerId });
@@ -1613,25 +1627,55 @@ function prepareNativeNavigationEvents() {
       return;
     }
     if (!tripId) return;
-    if (action === "arrive") await rpc("transition", { trip_id: tripId, action: "arrive" });
-    if (action === "start") await rpc("transition", { trip_id: tripId, action: "start-trip" });
+    if (action === "destination_reached") {
+      try {
+        await rpc("destination_reached", { trip_id: tripId });
+        await updateNativeFinalFare(tripId);
+        if (S.view === "trip" && S.trip?.trip?.id === tripId) await tripView(tripId);
+      } catch (error) {
+        await YavoiNavigation.updateFare({ tripId, error: "No pudimos confirmar el total. Toca Reintentar." }).catch(() => {});
+        throw error;
+      }
+      return;
+    }
+    // The native activity uses short UI actions, while the server accepts only
+    // the canonical trip states. Keeping this translation in one place avoids
+    // accidentally moving a passenger to in_progress when the driver only
+    // announced arrival.
+    const transitionByAction = {
+      arrive: { status: "arrived", message: "Llegada avisada al pasajero." },
+      start: { status: "in_progress", message: "Viaje iniciado. Sigue la ruta." },
+      complete: { status: "completed", cash_received: true, message: "Viaje finalizado." },
+    };
+    const transition = transitionByAction[action];
+    if (!transition) return;
+    try {
+      await rpc("transition", { trip_id: tripId, ...transition });
+    } catch (error) {
+      await YavoiNavigation.transitionFailed({ tripId, action, message: errorMessage(error) }).catch(() => {});
+      throw error;
+    }
+
+    S.data = await rpc("dashboard");
     if (action === "complete") {
-      await rpc("transition", { trip_id: tripId, action: "finish", cash_received: true });
-      S.data = await rpc("dashboard");
       const following = S.data.trips.find((trip) => trip.driver_id === S.user?.id && trip.status === "accepted");
       if (following) {
         await YavoiNavigation.nextTrip(nativeNavigationTripPayload(following));
-        notify("Tu siguiente viaje está listo. La navegación continúa a la recolección.");
+        await tripView(following.id);
+        notify("Viaje finalizado. La navegación continúa a la recolección del siguiente viaje.");
         return;
       }
       S.nativeNavigationActive = false;
+      location.hash = "home";
       await YavoiNavigation.close().catch(() => {});
+      notify("Viaje finalizado. Estás listo para recibir nuevas solicitudes.");
+      return;
     }
-    if (["arrive", "start", "complete"].includes(action)) {
-      S.data = S.data || await rpc("dashboard");
-      notify(action === "arrive" ? "Llegada avisada al pasajero." : action === "start" ? "Viaje iniciado. Sigue la ruta." : "Viaje finalizado.");
-    }
-  }).catch((error) => notify(errorMessage(error))));
+    // Keep the web view synchronized underneath the native navigator.
+    await tripView(tripId);
+    notify(transition.message);
+    }).catch((error) => notify(errorMessage(error)));
+  }).catch((error) => notify(errorMessage(error)));
 }
 function driverMapNavigationMarkup(trip, conductor) {
   if (!conductor || !["accepted", "arrived", "in_progress"].includes(trip.status)) return "";
@@ -2726,6 +2770,40 @@ function waitingChargeMarkup(waiting) {
   const running = waiting.status === "running";
   return `<section class="finance-detail waiting-charge" data-waiting-charge data-free-until="${e(waiting.free_until)}" data-waiting-rate="${Number(waiting.rate_cents_per_minute || 0)}" data-waiting-status="${e(waiting.status)}"><h3>Tu conductor te espera fuera</h3><p class="hint">Los primeros 2 minutos son de cortesía. Después, la espera se suma por segundo a la tarifa final.</p><div class="estimate-grid compact"><div><small>${running && free > 0 ? "Cortesía restante" : "Tiempo de espera"}</small><strong data-waiting-time>${running && free > 0 ? waitingClockText(free) : waitingClockText(Math.max(0, Math.floor((Date.now() - Date.parse(waiting.free_until)) / 1000)))}</strong></div><div><small>${running && free > 0 ? "Cargo actual" : "Ajuste acumulado"}</small><strong data-waiting-amount>${money(waiting.charged_cents || 0)}</strong></div></div><p class="hint" data-waiting-note>${running && free > 0 ? "La tarifa empieza al terminar la cortesía." : "El importe se actualizará en el total final."}</p></section>`;
 }
+function passengerFinalFareSummary(detail) {
+  const trip = detail?.trip || {};
+  const terms = trip.financial_terms || {};
+  const waiting = Number(detail?.waiting_adjustments_cents || detail?.waiting_charge?.charged_cents || 0);
+  const manual = Number(detail?.manual_adjustments_cents || detail?.accepted_adjustments_cents || 0);
+  const dynamic = Number(terms.dynamic_cents || 0);
+  const total = Number(detail?.final_total_cents ?? trip.total_cents ?? trip.fare_cents ?? 0);
+  const agreed = Number(trip.total_cents ?? trip.fare_cents ?? 0);
+  const additions = [
+    dynamic ? `demanda ${money(dynamic)} incluida` : "",
+    waiting ? `espera ${money(waiting)}` : "",
+    manual ? `ajustes aceptados ${money(manual)}` : "",
+  ].filter(Boolean);
+  return { trip, total, agreed, waiting, manual, dynamic, additions };
+}
+function passengerFinalFareMarkup(detail) {
+  const summary = passengerFinalFareSummary(detail);
+  const { trip, total, agreed, waiting, manual, dynamic } = summary;
+  return `<section class="payment-summary passenger-final-charge"><div class="row between wrap"><div><h3>Tu cobro final</h3><p>El conductor confirmó que llegaron al destino.</p></div><span class="badge">Viaje finalizado</span></div><div class="receipt-row"><span>Tarifa aceptada</span><strong>${money(agreed)}</strong></div>${dynamic ? `<div class="receipt-row"><span>Demanda aplicada · incluida en tarifa</span><strong>${money(dynamic)}</strong></div>` : ""}${waiting ? `<div class="receipt-row"><span>Espera después de 2 min de cortesía</span><strong>${money(waiting)}</strong></div>` : ""}${manual ? `<div class="receipt-row"><span>Desvíos, ruta o recolecciones aceptados</span><strong>${money(manual)}</strong></div>` : ""}${trip.reward_discount_cents ? `<div class="receipt-row positive-points"><span>Recompensa aplicada</span><strong>-${money(trip.reward_discount_cents)}</strong></div>` : ""}${trip.tip_cents ? `<div class="receipt-row"><span>Propina voluntaria</span><strong>${money(trip.tip_cents)}</strong></div>` : ""}<div class="receipt-row total"><span>Total final pagado al conductor</span><strong>${money(total)}</strong></div><p class="hint">El importe se conserva en el recibo y en Mis viajes. Yavoi! no procesa el efectivo ni guarda cuentas de pago.</p></section>`;
+}
+async function announcePassengerTripCompletion(tripId) {
+  if (S.profile?.role !== "passenger" || !tripId) return;
+  const detail = await rpc("trip", { trip_id: tripId });
+  if (detail?.trip?.status !== "completed") return;
+  const summary = passengerFinalFareSummary(detail);
+  const adjustments = summary.additions.length ? ` Incluye ${summary.additions.join(", ")}.` : "";
+  serviceNotification(
+    "Llegaste a tu destino",
+    `Tu total final es ${money(summary.total)}.${adjustments} Consulta el desglose del viaje.`,
+    { tag: `yavoi-trip-completed-${tripId}`, target: `trip/${tripId}` },
+  );
+  syncTripSummary(detail.trip);
+  if (S.view === "trip" && S.trip?.trip?.id === tripId && !modal.open) await tripView(tripId);
+}
 function startWaitingClock() {
   clearInterval(S.waitingTimer);
   const box = $("[data-waiting-charge]");
@@ -2772,7 +2850,8 @@ async function tripView(id) {
   const vehiclePhoto = rider && driver?.vehicle_front_path
     ? S.vehiclePhotoUrls[driver.vehicle_front_path]
     : "";
-  const title = statuses[t.status] || t.status;
+  const destinationReached = t.status === "in_progress" && S.trip.events?.some((event) => event.event === "destination_reached");
+  const title = destinationReached ? "Llegué a Destino" : statuses[t.status] || t.status;
   const progress = ["requested", "accepted", "arrived", "in_progress", "completed"].indexOf(
     t.status,
   );
@@ -2798,7 +2877,7 @@ async function tripView(id) {
         : t.status === "scheduled" ? (t.driver_id ? "Operaciones reservó una unidad. El conductor recibirá el recordatorio antes de tu salida." : "Tu solicitud se asignará cerca de la hora programada.")
           : t.status === "accepted" ? "Verifica la fotografía, el color, el modelo y las placas antes de abordar."
             : t.status === "arrived" ? (S.trip.pin_required ? "Comparte el código de inicio sólo cuando estés frente al conductor correcto." : "El conductor puede iniciar el viaje cuando estén listos.")
-              : t.status === "in_progress" ? "Sigue el recorrido en el mapa y comunícate con tu conductor."
+              : t.status === "in_progress" ? (destinationReached ? "Llegaron al destino. El conductor confirmará el pago en efectivo y cerrará el viaje." : "En camino a tu destino. Sigue el recorrido en el mapa y comunícate con tu conductor.")
                 : t.status === "completed" ? "Gracias por viajar con Yavoi! Tu opinión nos ayuda a mejorar."
                   : `La solicitud fue cancelada${t.cancelled_by_role ? ` por ${t.cancelled_by_role === "passenger" ? "el pasajero" : t.cancelled_by_role === "driver" ? "el conductor" : "Operaciones"}` : ""}.`;
   const serviceDetails = `<div class="service-summary trip-service-summary"><div>${I("users-round")}<span><small>Personas</small><strong>${t.party_size || 1}</strong></span></div><div>${I(t.accessible ? "accessibility" : "car-front")}<span><small>Servicio</small><strong>Yavoi! ${e(S.categories.find((category) => category.id === t.category)?.name || t.category)}</strong></span></div>${t.service_notes ? `<div class="wide-detail">${I("message-square-text")}<span><small>Petición del pasajero</small><strong>${e(t.service_notes)}</strong></span></div>` : ""}</div>`;
@@ -2824,7 +2903,9 @@ async function tripView(id) {
   paymentRows += financeTripDetail({ ...t, final_total_cents: finalTripTotal, waiting_charge: S.trip.waiting_charge, manual_adjustments_cents: S.trip.manual_adjustments_cents }, S.profile.role === "driver");
   const adjustments = S.trip.fare_adjustments || [];
   const acceptedAdjustments = Number(S.trip.accepted_adjustments_cents || 0);
+  const passengerFinalCharge = rider && t.status === "completed" ? passengerFinalFareMarkup(S.trip) : "";
   if ((rider || conductor) && ["accepted", "arrived", "in_progress"].includes(t.status)) paymentRows += `${waitingChargeMarkup(S.trip.waiting_charge)}<section class="finance-detail"><h3>Ajustes durante el viaje</h3>${adjustments.map(a => `<div class="receipt-row"><span>${e({detour:'Desvío',route_change:'Cambio de ruta',extra_pickup:'Recolección adicional'}[a.reason] || a.reason)} · ${e(a.status === 'pending' ? 'pendiente' : a.status === 'accepted' ? 'aceptado' : 'rechazado')}</span><strong>${money(a.amount_cents)}</strong></div>${a.status === 'pending' && a.proposed_by !== S.user.id ? `<div class="row wrap"><button class="btn secondary" data-adjustment-decision="accepted" data-adjustment-id="${e(a.id)}">Aceptar ajuste</button><button class="btn secondary" data-adjustment-decision="declined" data-adjustment-id="${e(a.id)}">Rechazar</button></div>` : ''}`).join('') || '<p class="hint">No hay otros ajustes solicitados.</p>'}${acceptedAdjustments ? `<div class="receipt-row total"><span>Otros ajustes aceptados</span><strong>${money(acceptedAdjustments)}</strong></div>` : ''}<button class="btn secondary" data-action="fare-adjustment">Solicitar ajuste</button><p class="hint">Los cambios de ruta, desvíos y recolecciones adicionales requieren aceptación de la otra persona. La espera se calcula automáticamente al llegar.</p></section>`;
+  paymentRows += passengerFinalCharge;
   if (t.status === "cancelled") {
     const feeStatus = cancellationPayment ? ({ pending: "Pendiente de confirmar", approved: "Confirmada", cancelled: "Condonada" }[cancellationPayment.status] || cancellationPayment.status) : "Sin cargo";
     paymentRows = `${serviceDetails}<section class="cancellation-summary"><h3>Detalle de cancelación</h3><div class="receipt-row"><span>Importe original</span><strong>${money(t.total_cents ?? t.fare_cents)}</strong></div><div class="receipt-row"><span>Cuota de cancelación</span><strong>${money(t.cancellation_fee_cents || 0)}</strong></div><div class="receipt-row"><span>Estado</span><strong>${e(feeStatus)}</strong></div><p class="hint">${e(t.cancel_reason || "Sin motivo registrado.")} · Política ${e(t.cancellation_policy_version || "vigente al cancelar")}.</p></section>`;
@@ -2910,10 +2991,12 @@ function messagesHtml(ms) {
 async function refreshTrip() {
   if (S.view !== "trip" || !S.trip || modal.open || S.busy) return;
   const next = await rpc("trip", { trip_id: S.trip.trip.id });
+  const destinationReached = (detail) => Boolean(detail.events?.some((event) => event.event === "destination_reached"));
   if (
     next.trip.status !== S.trip.trip.status ||
     next.trip.driver_id !== S.trip.trip.driver_id ||
-    next.pin !== S.trip.pin
+    next.pin !== S.trip.pin ||
+    destinationReached(next) !== destinationReached(S.trip)
   ) {
     await tripView(next.trip.id);
     return;
@@ -5147,6 +5230,8 @@ async function handleAction(action, b) {
       await tripView(t.id);
     });
   if (action === "finish") {
+    await rpc("destination_reached", { trip_id: t.id });
+    if (S.profile?.role === "driver") S.trip = await rpc("trip", { trip_id: t.id });
     const finalTotal = Number(S.trip?.final_total_cents ?? t.total_cents ?? 0);
     const freeRewardTrip = finalTotal === 0;
     const cashConfirmation = freeRewardTrip
@@ -5159,7 +5244,6 @@ async function handleAction(action, b) {
     bindForm("#finish", async () => {
       await rpc("transition", { trip_id: t.id, status: "completed", cash_received: !freeRewardTrip });
       closeModal();
-      await tripView(t.id);
       try {
         const sent = await deliverTripReceipt(t.id);
         notify(sent
@@ -5176,6 +5260,8 @@ async function handleAction(action, b) {
         notify("Tu siguiente viaje está listo. Actualizamos la navegación al punto de recolección.");
         openDriverNavigation(following);
         await tripView(following.id);
+      } else {
+        location.hash = "home";
       }
     });
     return;
@@ -5388,6 +5474,18 @@ function startUpdates() {
           target: `trip/${payload.new.trip_id}`,
         });
       }
+      if (event === "in_progress" && S.profile?.role === "passenger") {
+        serviceNotification("En camino a Destino", "Tu viaje comenzó. Puedes seguir el recorrido en vivo desde Yavoi!.", {
+          tag: `yavoi-trip-started-${payload.new.trip_id}`,
+          target: `trip/${payload.new.trip_id}`,
+        });
+      }
+      if (event === "destination_reached" && S.profile?.role === "passenger") {
+        serviceNotification("Llegué a Destino", "Llegaron al destino. El conductor confirmará el total final y el efectivo recibido.", {
+          tag: `yavoi-destination-reached-${payload.new.trip_id}`,
+          target: `trip/${payload.new.trip_id}`,
+        });
+      }
       if (event === "trip_adjustment_payment_created" && payload.new?.actor_id !== S.user.id) {
         const amount = Number(payload.new?.detail?.amount_cents || 0);
         const riderNotice = S.profile?.role === "passenger";
@@ -5395,6 +5493,9 @@ function startUpdates() {
           tag: `yavoi-adjustment-payment-${payload.new.trip_id}`,
           target: `trip/${payload.new.trip_id}`,
         });
+      }
+      if (event === "completed" && S.profile?.role === "passenger") {
+        announcePassengerTripCompletion(payload.new.trip_id).catch((error) => console.warn("No se pudo preparar el aviso final del pasajero", error));
       }
       if (["cancelled", "cancellation_fee_paid", "cancellation_fee_waived"].includes(event)) {
         const body = event === "cancelled"

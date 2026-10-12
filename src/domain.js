@@ -5,7 +5,7 @@ export const statuses = {
   requested: "Buscando conductor",
   accepted: "Conductor en camino",
   arrived: "Tu conductor llegó",
-  in_progress: "Viaje en curso",
+  in_progress: "En camino a Destino",
   completed: "Completado",
   cancelled: "Cancelado",
 };

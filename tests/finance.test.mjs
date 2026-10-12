@@ -18,6 +18,13 @@ test('IVA incluido y corte semanal informativo', async () => {
   assert.match(migration, /when 'finance_withdraw' then private\.finance_digital_payments_disabled/);
 });
 
+test('El detalle de viaje conserva el total final después de activar sólo efectivo', async () => {
+  const migration = await readFile(new URL('../supabase/migrations/20261012191818_restore_final_trip_totals.sql', import.meta.url), 'utf8');
+  assert.match(migration, /return private\.trip_v16\(payload\)/);
+  assert.match(migration, /accepted route, detour, and extra-pickup adjustments/);
+  assert.match(migration, /grant execute on function public\.yavoi\(text,jsonb\) to authenticated/);
+});
+
 test('Payouts: signature, intermediate states and authoritative amounts', async () => {
  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
  const body = JSON.stringify({ external_reference: '1234567' });

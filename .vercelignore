@@ -1,0 +1,8 @@
+# Native build products are released through their respective stores and are
+# not part of the web application served by Vercel.
+mobile/
+supabase/
+tests/
+docs/
+*.aab
+*.apk
