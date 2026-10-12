@@ -62,7 +62,7 @@ test("Android registers Yavoi Google Auth before constructing the Capacitor brid
   ];
   for (const activity of activities) {
     const source = await readFile(new URL(activity, import.meta.url), "utf8");
-    assert.match(source, /registerPlugin\(YavoiGoogleAuthPlugin\.class\);\s*super\.onCreate\(savedInstanceState\);/s);
+    assert.match(source, /registerPlugin\(YavoiGoogleAuthPlugin\.class\);[\s\S]*super\.onCreate\(savedInstanceState\);/s);
   }
 });
 

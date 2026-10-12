@@ -64,6 +64,7 @@ const GOOGLE_MAP_ID = String(import.meta.env.VITE_GOOGLE_MAP_ID || "").trim();
 // exists in Supabase Edge Function secrets and signs the delivery request.
 const WEB_PUSH_VAPID_PUBLIC_KEY = String(import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY || "BPP4SxptAGWXO4pfNp5yZ4Qa75ouZDZNXG3UjLnl3pC2wJ9d1HpTkR1r8zZ4YGvtLAEd0IZ_-GkfadDOAohUmcs").trim();
 const YavoiNavigation = registerPlugin("YavoiNavigation");
+const YavoiReminder = registerPlugin("YavoiReminder");
 const YavoiGoogleAuth = registerPlugin("YavoiGoogleAuth");
 const YavoiDevicePermissions = registerPlugin("YavoiDevicePermissions");
 const NATIVE_GOOGLE_SIGN_IN_TIMEOUT_MS = 45_000;
@@ -154,6 +155,7 @@ const S = {
   addressSessions: {},
   addressSuggestionTimers: {},
   pushSubscriptionReady: false,
+  reminderTimer: null,
 };
 const referralFromUrl = String(new URLSearchParams(location.search).get("ref") || "").trim().toUpperCase();
 if (/^YV[A-F0-9]{8}$/.test(referralFromUrl)) {
@@ -399,6 +401,15 @@ function serviceNotification(title, body, { tag = "yavoi-update", target = "home
     .catch(() => {
       try { new Notification(title, options); } catch {}
     });
+}
+function scheduleYavoiReminders() {
+  const messages = S.profile?.role === "driver"
+    ? ["Revisa tus herramientas y mantén tus alertas activas.", "Confirma el importe antes de iniciar cada viaje.", "La seguridad y la transparencia acompañan cada recorrido."]
+    : ["Revisa las novedades y herramientas de Yavoi!.", "Confirma el precio antes de solicitar.", "Consulta el detalle de cada viaje para mayor transparencia."];
+  if (isNativeApp()) { YavoiReminder.schedule().catch(() => {}); return; }
+  clearInterval(S.reminderTimer);
+  let index = 0;
+  S.reminderTimer = setInterval(() => { serviceNotification("Novedades de Yavoi!", messages[index++ % messages.length], { tag: "yavoi-four-hour-tip" }); }, 4 * 60 * 60 * 1000);
 }
 function base64UrlBytes(value) {
   const padded = String(value || "").replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(String(value || "").length / 4) * 4, "=");
@@ -1032,6 +1043,7 @@ async function loadSession() {
   S.driverSessionInitialized = true;
   S.profile = b.profile;
   S.driver = b.driver;
+  scheduleYavoiReminders();
   if (S.profile.onboarding_complete && !targetAllowsRole(S.profile.role)) {
     await db.auth.signOut();
     await resetNativeGoogleAccount();

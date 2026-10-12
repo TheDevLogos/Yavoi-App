@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(YavoiNavigationPlugin.class);
         registerPlugin(YavoiDevicePermissionsPlugin.class);
         registerPlugin(YavoiGoogleAuthPlugin.class);
+        registerPlugin(YavoiReminderPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

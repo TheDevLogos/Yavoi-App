@@ -23,6 +23,7 @@
             </intent-filter>
 
         </activity>
+        <receiver android:name=".YavoiReminderReceiver" android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

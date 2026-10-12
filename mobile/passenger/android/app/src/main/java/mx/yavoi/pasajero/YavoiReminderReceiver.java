@@ -1,0 +1,7 @@
+package mx.yavoi.pasajero;
+import android.app.*; import android.content.*; import android.os.Build; import androidx.core.app.NotificationCompat;
+public class YavoiReminderReceiver extends BroadcastReceiver {
+ public static final String CHANNEL_ID="yavoi_tips";
+ private static final String[] TIPS={"Revisa las novedades y herramientas de Yavoi!.","Confirma el precio antes de solicitar.","Consulta el detalle de cada viaje para mayor transparencia.","Activa las alertas para recibir actualizaciones.","Comparte tu viaje y usa las herramientas de seguridad."};
+ @Override public void onReceive(Context c,Intent ignored){ NotificationManager m=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE); if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.O)m.createNotificationChannel(new NotificationChannel(CHANNEL_ID,"Novedades y consejos Yavoi!",NotificationManager.IMPORTANCE_DEFAULT)); PendingIntent p=PendingIntent.getActivity(c,8004,new Intent(c,MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_CLEAR_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE); String tip=TIPS[(int)((System.currentTimeMillis()/(4L*60L*60L*1000L))%TIPS.length)]; m.notify(8004,new NotificationCompat.Builder(c,CHANNEL_ID).setSmallIcon(R.drawable.ic_stat_yavoi).setContentTitle("Yavoi!").setContentText(tip).setStyle(new NotificationCompat.BigTextStyle().bigText(tip)).setAutoCancel(true).setContentIntent(p).setVisibility(NotificationCompat.VISIBILITY_PUBLIC).setPriority(NotificationCompat.PRIORITY_DEFAULT).build()); }
+}

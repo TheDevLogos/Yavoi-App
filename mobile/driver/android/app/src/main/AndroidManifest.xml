@@ -30,6 +30,7 @@
             </intent-filter>
 
         </activity>
+        <receiver android:name=".YavoiReminderReceiver" android:exported="false" />
 
         <meta-data
             android:name="com.google.android.geo.API_KEY"
