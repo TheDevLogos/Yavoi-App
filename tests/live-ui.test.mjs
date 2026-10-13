@@ -216,12 +216,12 @@ test("passenger safety is integrated into each trip and cancellation is transpar
   assert.match(paymentFunction, /status: 410/);
 });
 
-test("Operations exposes both per-driver commercial modes", () => {
-  assert.match(portal, /Aportación semanal/);
-  assert.match(portal, /Comisión por viaje/);
+test("Operations uses the single weekly commission scheme", () => {
+  assert.match(portal, /Comisión semanal Yavoi! 15%/);
+  assert.match(portal, /Un solo esquema comercial/);
   assert.match(portal, /set_driver_billing/);
-  assert.match(portal, /weekly_fee_cents \?\? 25000/);
-  assert.match(portal, /Cuotas y comisiones semanales/);
+  assert.match(portal, /weekly_commission_dashboard/);
+  assert.match(portal, /Cortes semanales por conciliar/);
   assert.match(portal, /Autorizar conducción/);
 });
 
@@ -376,7 +376,7 @@ test("Operations fee reactivation persists while overdue records remain auditabl
 test("rates explain fare inputs and reports reconcile each driver billing scheme", () => {
   assert.match(portal, /Control tarifario y precio fijo/);
   assert.match(portal, /data-rate-preview/);
-  assert.match(portal, /EJEMPLO SOBRE UNA TARIFA DE \$100/);
+  assert.match(portal, /Comisión semanal Yavoi! 15%/);
   assert.match(portal, /Conciliación de ingresos Yavoi!/);
   assert.match(portal, /Cortes pendientes/);
   assert.match(css, /\.rate-field-grid/);
