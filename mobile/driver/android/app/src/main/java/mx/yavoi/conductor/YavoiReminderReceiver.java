@@ -16,7 +16,12 @@ public class YavoiReminderReceiver extends BroadcastReceiver {
         "Confirma el importe antes de iniciar cada viaje.",
         "La seguridad y la transparencia acompañan cada recorrido.",
         "Puedes consultar tus viajes y sus detalles en cualquier momento.",
-        "Mantén actualizada tu ubicación para recibir solicitudes compatibles."
+        "Mantén actualizada tu ubicación para recibir solicitudes compatibles.",
+        "Tus promociones y reconocimientos están disponibles en Recompensas.",
+        "Consulta el resumen semanal y el detalle transparente de cada viaje.",
+        "Usa la navegación Yavoi! para recibir alertas sin salir de la ruta.",
+        "Al llegar, avisa al pasajero y espera su confirmación antes de iniciar.",
+        "Las políticas de seguridad están disponibles desde tu perfil."
     };
 
     @Override public void onReceive(Context context, Intent ignored) {

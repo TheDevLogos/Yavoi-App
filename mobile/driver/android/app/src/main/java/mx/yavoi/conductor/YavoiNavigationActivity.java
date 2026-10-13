@@ -7,6 +7,8 @@ import android.content.Context;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.speech.tts.TextToSpeech;
@@ -76,6 +78,8 @@ public class YavoiNavigationActivity extends AppCompatActivity {
     private Button cashConfirmButton;
     private CheckBox cashAcknowledgement;
     private boolean finalFareReady = false;
+    private boolean finalFareRequestInFlight = false;
+    private final Handler fareHandler = new Handler(Looper.getMainLooper());
     private double finalLat, finalLng;
     private android.view.View offerCard;
     private TextToSpeech speech;
@@ -193,9 +197,10 @@ public class YavoiNavigationActivity extends AppCompatActivity {
     private void renderStage(String initialDestination) {
         TextView stageView = findViewById(R.id.navigation_stage);
         TextView destinationView = findViewById(R.id.navigation_destination);
-        String label = "pickup".equals(stage) ? "Ve por tu pasajero" : "ready".equals(stage) ? "Pasajero a bordo" : "destination".equals(stage) ? "Lleva al pasajero a su destino" : "switching".equals(stage) ? "Preparando siguiente viaje" : "Cierre del viaje";
+        String person = (passengerName == null || passengerName.trim().isEmpty() || "pasajero".equalsIgnoreCase(passengerName.trim())) ? "tu pasajero" : passengerName.trim();
+        String label = "pickup".equals(stage) ? "Llegando por " + person : "ready".equals(stage) ? person + " a bordo" : "destination".equals(stage) ? "Llevando a " + person + " a su destino" : "switching".equals(stage) ? "Preparando siguiente viaje" : "Cierre del viaje";
         stageView.setText(label);
-        ((TextView) findViewById(R.id.navigation_passenger)).setText("Ver por " + (passengerName == null || passengerName.trim().isEmpty() ? "pasajero" : passengerName));
+        ((TextView) findViewById(R.id.navigation_passenger)).setText("Ver por " + person);
         String target = ("destination".equals(stage) || "collect".equals(stage)) ? finalDestination : initialDestination;
         destinationView.setText(target == null || target.trim().isEmpty() ? "Destino del viaje" : target);
         ((Button) findViewById(R.id.navigation_primary_action)).setText(primaryLabel());
@@ -204,7 +209,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
 
     private void handlePrimaryAction() {
         if ("pickup".equals(stage)) {
-            dispatchEvent("arrive", null); if (navigator != null) navigator.stopGuidance(); stage = "ready"; renderStage(getIntent().getStringExtra(EXTRA_DESTINATION)); speak("Ya llegaste por " + passengerName + ". Confirma cuando el pasajero esté listo."); return;
+            dispatchEvent("arrive", null); if (navigator != null) navigator.stopGuidance(); stage = "ready"; renderStage(getIntent().getStringExtra(EXTRA_DESTINATION)); speak("Llegaste por " + passengerName + ". Confirma cuando esté listo para iniciar."); return;
         }
         if ("ready".equals(stage)) {
             dispatchEvent("start", null); stage = "destination"; destinationReached = false; destinationLat = finalLat; destinationLng = finalLng; routeToDestination(); renderStage(null); speak("Viaje iniciado. Te llevamos al destino de " + passengerName + "."); return;
@@ -224,8 +229,27 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         if (navigator != null) navigator.stopGuidance();
         stage = "collect";
         finalFareReady = false;
+        requestFinalFare();
         renderStage(null);
+        speak("Llegamos al destino de " + passengerName + ". Revisemos el total final.");
         confirmCashReceived();
+    }
+
+    private void requestFinalFare() {
+        if (finalFareReady || finalFareRequestInFlight) return;
+        finalFareRequestInFlight = true;
+        dispatchEvent("destination_reached", null);
+        fareHandler.postDelayed(() -> {
+            if (!finalFareReady && finalFareRequestInFlight) {
+                finalFareRequestInFlight = false;
+                if (cashDetailsView != null) cashDetailsView.setText("No recibimos el total todavía. Toca Reintentar cálculo para consultarlo de nuevo.");
+                if (cashConfirmButton != null) {
+                    cashConfirmButton.setText("Reintentar cálculo");
+                    cashConfirmButton.setEnabled(true);
+                    cashConfirmButton.setAlpha(1f);
+                }
+            }
+        }, 8000);
     }
 
     private int dp(int value) {
@@ -291,7 +315,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         card.addView(cashConfirmButton, buttonParams);
         cashAcknowledgement.setOnCheckedChangeListener((button, checked) -> updateCashDialog());
         cashConfirmButton.setOnClickListener(view -> {
-            if (!finalFareReady) { dispatchEvent("destination_reached", null); return; }
+            if (!finalFareReady) { requestFinalFare(); return; }
             if (!cashAcknowledgement.isChecked()) return;
             cashDialog.dismiss();
             completeTrip();
@@ -301,7 +325,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         cashDialog.show();
         if (cashDialog.getWindow() != null) cashDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
         updateCashDialog();
-        if (!finalFareReady) dispatchEvent("destination_reached", null);
+        if (!finalFareReady) requestFinalFare();
     }
 
     private void updateCashDialog() {
@@ -319,6 +343,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         String error = command.getStringExtra("error");
         if (error != null && !error.isEmpty()) {
             finalFareReady = false;
+            finalFareRequestInFlight = false;
             if (cashDetailsView != null) cashDetailsView.setText(error);
             if (cashConfirmButton != null) {
                 cashConfirmButton.setText("Reintentar cálculo");
@@ -331,6 +356,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         adjustmentsAmount = command.getStringExtra("adjustments");
         dynamicAmount = command.getStringExtra("dynamic");
         finalFareReady = total != null && !total.isEmpty();
+        finalFareRequestInFlight = false;
         if (cashConfirmButton != null) cashConfirmButton.setText("Confirmar dinero recibido ✓");
         updateCashDialog();
     }
@@ -364,6 +390,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         finalLng = source.getDoubleExtra(EXTRA_FINAL_LNG, Double.NaN);
         total = source.getStringExtra(EXTRA_TOTAL);
         finalFareReady = false;
+        finalFareRequestInFlight = false;
         waitingAmount = adjustmentsAmount = dynamicAmount = "$0.00";
         destinationLat = source.getDoubleExtra(EXTRA_LAT, Double.NaN);
         destinationLng = source.getDoubleExtra(EXTRA_LNG, Double.NaN);
@@ -398,6 +425,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        fareHandler.removeCallbacksAndMessages(null);
         if (cashDialog != null) cashDialog.dismiss();
         try { unregisterReceiver(commandReceiver); } catch (Exception ignored) {}
         if (speech != null) { speech.stop(); speech.shutdown(); }

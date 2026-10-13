@@ -405,8 +405,30 @@ function serviceNotification(title, body, { tag = "yavoi-update", target = "home
 }
 function scheduleYavoiReminders() {
   const messages = S.profile?.role === "driver"
-    ? ["Revisa tus herramientas y mantén tus alertas activas.", "Confirma el importe antes de iniciar cada viaje.", "La seguridad y la transparencia acompañan cada recorrido."]
-    : ["Revisa las novedades y herramientas de Yavoi!.", "Confirma el precio antes de solicitar.", "Consulta el detalle de cada viaje para mayor transparencia."];
+    ? [
+      "Revisa tus herramientas y mantén tus alertas activas.",
+      "Confirma el importe antes de iniciar cada viaje.",
+      "La seguridad y la transparencia acompañan cada recorrido.",
+      "Consulta tus recompensas y beneficios disponibles.",
+      "Mantén actualizada tu ubicación para recibir solicitudes compatibles.",
+      "Revisa tu resumen semanal y el detalle transparente de cada viaje.",
+      "Usa la navegación Yavoi! para recibir alertas sin salir de la ruta.",
+      "Al llegar, avisa al pasajero y espera su confirmación antes de iniciar.",
+      "Las políticas de seguridad están disponibles desde tu perfil.",
+      "Tus promociones y reconocimientos aparecen en Recompensas.",
+    ]
+    : [
+      "Revisa las novedades y herramientas de Yavoi!.",
+      "Confirma el precio antes de solicitar.",
+      "Consulta el detalle de cada viaje para mayor transparencia.",
+      "Comparte tu viaje y usa las herramientas de seguridad cuando lo necesites.",
+      "Tus puntos y promociones están disponibles en Recompensas.",
+      "Guarda tus destinos frecuentes para pedir tu viaje más rápido.",
+      "Revisa la unidad y al conductor antes de iniciar el viaje.",
+      "La tarifa final muestra claramente cada ajuste aceptado.",
+      "Activa las alertas para conocer novedades y el estado de tu viaje.",
+      "Consulta las políticas de seguridad desde tu perfil cuando lo necesites.",
+    ];
   if (isNativeApp()) { YavoiReminder.schedule().catch(() => {}); return; }
   clearInterval(S.reminderTimer);
   let index = 0;
@@ -428,6 +450,8 @@ async function enableDriverPushNotifications() {
         if (permission.receive !== "granted") throw Error("Permite las notificaciones para recibir solicitudes de viaje en tu dispositivo.");
         if (window.Capacitor?.getPlatform?.() === "android") {
           await PushNotifications.createChannel({ id: "yavoi_trips", name: "Solicitudes de viaje", description: "Solicitudes y actualizaciones importantes de viajes Yavoi!", importance: 5, visibility: 1, sound: "default", vibration: true });
+          await PushNotifications.createChannel({ id: "yavoi_updates", name: "Novedades, promociones y consejos", description: "Promociones, herramientas y recomendaciones de Yavoi!", importance: 3, visibility: 1, sound: "default", vibration: true });
+          await PushNotifications.createChannel({ id: "yavoi_safety", name: "Seguridad Yavoi!", description: "Avisos de seguridad y cambios importantes de tu viaje", importance: 4, visibility: 1, sound: "default", vibration: true });
         }
         let finishRegistration;
         let failRegistration;
@@ -462,13 +486,17 @@ async function enableDriverPushNotifications() {
           }
           await refreshPage().catch((error) => notify(errorMessage(error)));
           await openPushedOffer().catch((error) => notify(errorMessage(error)));
+          const target = String(notification.data?.target || "home");
+          if (!offerId && /^(home|rewards|trips|profile|schedule)$/.test(target)) location.hash = target;
+          const tripId = target.match(/^trip\/([0-9a-f-]{36})$/i)?.[1];
+          if (!offerId && tripId) location.hash = `trip/${tripId}`;
         });
         await PushNotifications.register();
         await Promise.race([registered, new Promise((_, reject) => setTimeout(() => reject(nativePushRegistrationError || Error("No se recibió respuesta de Firebase. Revisa tu conexión e inténtalo otra vez.")), 12000))]);
       })().catch((error) => { nativePushSetupPromise = null; throw error; });
     }
     await nativePushSetupPromise;
-    serviceNotification("Alertas de Yavoi! activadas", S.profile.role === "driver" ? "Este dispositivo recibirá solicitudes de viaje cuando la app esté en segundo plano." : "Recibirás actualizaciones importantes de tus viajes.");
+    serviceNotification("Alertas de Yavoi! activadas", S.profile.role === "driver" ? "Recibirás solicitudes, promociones, consejos y avisos de seguridad cuando la app esté en segundo plano." : "Recibirás novedades, promociones, consejos de seguridad y actualizaciones importantes de tus viajes.");
     return;
   }
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
@@ -1568,7 +1596,8 @@ async function beginDriverNavigation(trip, reserved = null) {
   const target = navigationTarget(trip);
   try {
     if (target.lat === null || target.lng === null) throw Error("No encontramos coordenadas para este destino.");
-    await YavoiNavigation.start(nativeNavigationTripPayload(trip, target));
+    const nativeTrip = await enrichNativeNavigationTrip(trip);
+    await YavoiNavigation.start(nativeNavigationTripPayload(nativeTrip, target));
     S.nativeNavigationActive = true;
     releaseNavigationWindow(reserved);
     return true;
@@ -1578,6 +1607,27 @@ async function beginDriverNavigation(trip, reserved = null) {
     // restricted key. Google Maps remains a usable fallback for the driver.
     notify("Abriremos Google Maps mientras se configura la navegación nativa.");
     return launchDriverNavigation(trip);
+  }
+}
+function nativePassengerName(trip = {}, detail = null) {
+  const passenger = detail?.passenger || trip.passenger || {};
+  const candidates = [
+    trip.passenger_name,
+    passenger.full_name,
+    passenger.name,
+    passenger.display_name,
+    detail?.trip?.passenger_name,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find((value) => value && value.toLowerCase() !== "pasajero") || "tu pasajero";
+}
+async function enrichNativeNavigationTrip(trip) {
+  const name = nativePassengerName(trip);
+  if (name !== "tu pasajero") return { ...trip, passenger_name: name };
+  try {
+    const detail = await rpc("trip", { trip_id: trip.id });
+    return { ...trip, ...detail?.trip, passenger_name: nativePassengerName(trip, detail) };
+  } catch {
+    return { ...trip, passenger_name: name };
   }
 }
 function nativeNavigationTripPayload(trip, target = navigationTarget(trip)) {
@@ -1591,20 +1641,26 @@ function nativeNavigationTripPayload(trip, target = navigationTarget(trip)) {
     finalLat: Number(trip.dest_lat),
     finalLng: Number(trip.dest_lng),
     total: money(trip.final_total_cents ?? trip.total_cents ?? trip.quote_total_cents ?? 0),
-    passengerName: trip.passenger_name || trip.passenger?.full_name || "pasajero",
+    passengerName: nativePassengerName(trip),
     paymentMethod: trip.payment_method || "cash",
   };
 }
 async function updateNativeFinalFare(tripId) {
   const detail = await rpc("trip", { trip_id: tripId });
+  const trip = detail?.trip || {};
+  const totalCents = Number(detail?.final_total_cents ?? trip.final_total_cents ?? trip.total_cents ?? trip.fare_cents ?? 0);
+  if (!Number.isFinite(totalCents) || totalCents < 0) throw Error("No pudimos calcular el total final del viaje.");
   await YavoiNavigation.updateFare({
     tripId,
-    total: money(detail.final_total_cents ?? detail.trip.total_cents),
+    total: money(totalCents),
     waiting: money(detail.waiting_adjustments_cents || 0),
     adjustments: money(detail.manual_adjustments_cents || 0),
-    dynamic: money(detail.trip.financial_terms?.dynamic_cents || 0),
+    dynamic: money(trip.financial_terms?.dynamic_cents || 0),
   });
   return detail;
+}
+async function applyNativeNavigationAction(action, tripId) {
+  return rpc("navigation_action", { action, trip_id: tripId });
 }
 async function showNativeNavigationOffer(offer) {
   if (!S.nativeNavigationActive || !isNativeApp() || S.profile?.role !== "driver") return;
@@ -1629,7 +1685,7 @@ function prepareNativeNavigationEvents() {
     if (!tripId) return;
     if (action === "destination_reached") {
       try {
-        await rpc("destination_reached", { trip_id: tripId });
+        await applyNativeNavigationAction("destination_reached", tripId);
         await updateNativeFinalFare(tripId);
         if (S.view === "trip" && S.trip?.trip?.id === tripId) await tripView(tripId);
       } catch (error) {
@@ -1642,15 +1698,14 @@ function prepareNativeNavigationEvents() {
     // the canonical trip states. Keeping this translation in one place avoids
     // accidentally moving a passenger to in_progress when the driver only
     // announced arrival.
-    const transitionByAction = {
-      arrive: { status: "arrived", message: "Llegada avisada al pasajero." },
-      start: { status: "in_progress", message: "Viaje iniciado. Sigue la ruta." },
-      complete: { status: "completed", cash_received: true, message: "Viaje finalizado." },
+    const messages = {
+      arrive: "Llegada avisada al pasajero.",
+      start: "Viaje iniciado. Sigue la ruta.",
+      complete: "Viaje finalizado.",
     };
-    const transition = transitionByAction[action];
-    if (!transition) return;
+    if (!messages[action]) return;
     try {
-      await rpc("transition", { trip_id: tripId, ...transition });
+      await applyNativeNavigationAction(action, tripId);
     } catch (error) {
       await YavoiNavigation.transitionFailed({ tripId, action, message: errorMessage(error) }).catch(() => {});
       throw error;
@@ -1673,7 +1728,7 @@ function prepareNativeNavigationEvents() {
     }
     // Keep the web view synchronized underneath the native navigator.
     await tripView(tripId);
-    notify(transition.message);
+    notify(messages[action]);
     }).catch((error) => notify(errorMessage(error)));
   }).catch((error) => notify(errorMessage(error)));
 }

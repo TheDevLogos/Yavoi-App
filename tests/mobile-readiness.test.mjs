@@ -75,9 +75,10 @@ test("driver navigation remains native through pickup, trip completion, and queu
 
 test("native navigation maps each button to the server trip state", async () => {
   const portal = await read("src/portal.js");
-  assert.match(portal, /arrive: \{ status: "arrived"/);
-  assert.match(portal, /start: \{ status: "in_progress"/);
-  assert.match(portal, /complete: \{ status: "completed", cash_received: true/);
+  assert.match(portal, /arrive: "Llegada avisada al pasajero\."/);
+  assert.match(portal, /start: "Viaje iniciado\. Sigue la ruta\."/);
+  assert.match(portal, /applyNativeNavigationAction\(action, tripId\)/);
+  assert.match(portal, /rpc\("navigation_action", \{ action, trip_id: tripId \}\)/);
   assert.match(portal, /nativeNavigationEventQueue = nativeNavigationEventQueue\.catch/);
   assert.match(portal, /S\.data = await rpc\("dashboard"\)/);
   assert.match(portal, /location\.hash = "home";[\s\S]{0,80}YavoiNavigation\.close/);
@@ -101,7 +102,7 @@ test("drop-off is recorded before cash confirmation and shown to the passenger",
   const migration = await read("supabase/migrations/20261012210000_destination_arrival_trip_event.sql");
   assert.match(activity, /if \("destination"\.equals\(stage\)\) reachDestination\(\)/);
   assert.match(activity, /dispatchEvent\("destination_reached", null\)/);
-  assert.match(portal, /rpc\("destination_reached", \{ trip_id: tripId \}\)/);
+  assert.match(portal, /applyNativeNavigationAction\("destination_reached", tripId\)/);
   assert.match(portal, /event === "destination_reached" && S\.profile\?\.role === "passenger"/);
   assert.match(portal, /destinationReached \? "Llegué a Destino"/);
   assert.match(migration, /trip_value\.status<>'in_progress'/);
