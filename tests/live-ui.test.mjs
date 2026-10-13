@@ -218,7 +218,9 @@ test("passenger safety is integrated into each trip and cancellation is transpar
 });
 
 test("Operations uses the weekly commercial retention scheme", () => {
-  assert.match(portal, /Retención comercial Yavoi! 15%/);
+  assert.match(portal, /Retención comercial Yavoi!/);
+  assert.match(portal, /set_weekly_commission_policy/);
+  assert.match(portal, /\[5,10,15,20,25,30\]/);
   assert.match(portal, /Desglose comercial y fiscal/);
   assert.match(portal, /set_driver_billing/);
   assert.match(portal, /weekly_commission_dashboard/);
