@@ -216,9 +216,9 @@ test("passenger safety is integrated into each trip and cancellation is transpar
   assert.match(paymentFunction, /status: 410/);
 });
 
-test("Operations uses the single weekly commission scheme", () => {
-  assert.match(portal, /Comisión semanal Yavoi! 15%/);
-  assert.match(portal, /Un solo esquema comercial/);
+test("Operations uses the weekly commercial retention scheme", () => {
+  assert.match(portal, /Retención comercial Yavoi! 15%/);
+  assert.match(portal, /Desglose comercial y fiscal/);
   assert.match(portal, /set_driver_billing/);
   assert.match(portal, /weekly_commission_dashboard/);
   assert.match(portal, /Cortes semanales por conciliar/);
@@ -460,7 +460,7 @@ test("passenger price and driver contractual earnings stay distinct on trip deta
 });
 
 test("driver income is compact and filterable by period and concept", () => {
-  assert.match(portal, /Comisiones del corte semanal/);
+  assert.match(portal, /Retenciones del corte semanal/);
   assert.match(finance, /CUOTA Y COMISIONES/);
   assert.match(finance, /No representa saldo disponible/);
   assert.match(finance, /finance-week/);
