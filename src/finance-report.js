@@ -40,6 +40,7 @@ export function financialWarnings(report) {
 }
 export function reconciliationRows(r) {
   const s=r.summary;
+  const l=r.weekly_liquidation||{};
   return [
     ['Cobro esperado de viajes del periodo',s.expected_cents],['Cobro confirmado de esos viajes',s.collected_cents],['Diferencia por conciliar',s.difference_cents],
     ['Comisiones generadas (IVA incluido)',s.commission_cents],['Comisiones sin IVA',s.commission_base_cents],['Ajuste de comisiones por reembolsos de viajes anteriores',s.commission_refund_adjustment_cents||0],['IVA de comisiones',s.commission_vat_cents],
@@ -49,7 +50,14 @@ export function reconciliationRows(r) {
     ['Resultado operativo antes de ISR propio',s.operating_result_cents],['Cobros confirmados en el periodo (incluye viajes de otras fechas)',s.flow_gross_cents],['Reembolsos confirmados en el periodo',s.flow_refunds_cents],
     ['Flujo identificado de Yavoi!',s.platform_cash_flow_cents],['Saldo inicial de conciliación',s.journal_opening_cents],['Movimiento de conciliación',s.journal_movement_cents],['Saldo final de conciliación',s.journal_closing_cents],
     ['Saldo a favor de conductores',s.wallet_payable_cents],['Adeudos de conductores',s.wallet_receivable_cents],
-    ['Comisiones en efectivo liquidadas directamente',s.cash_commission_payments_cents],['Saldos de apertura conciliados',s.opening_adjustments_cents],['Ajustes conciliados',s.adjustments_cents]
+    ['Comisiones en efectivo liquidadas directamente',s.cash_commission_payments_cents],
+    ['Transferencias semanales recibidas por Yavoi! (no sumar de nuevo a ingresos)',l.received_cents||0],
+    ['  Comisión comercial incluida en liquidaciones',l.commission_cents||0],
+    ['  ISR de referencia incluido en liquidaciones',l.isr_reference_cents||0],
+    ['  IVA de referencia incluido en liquidaciones',l.vat_reference_cents||0],
+    ['  Componente estatal de referencia incluido',l.state_reference_cents||0],
+    ['Liquidaciones por vencer en el periodo',l.due_cents||0],
+    ['Saldos de apertura conciliados',s.opening_adjustments_cents],['Ajustes conciliados',s.adjustments_cents]
   ];
 }
 export function corporateRows(c) { return [['Ingresos propios cobrados acumulados sin IVA',c.income_ytd_cents],['Deducciones pagadas validadas acumuladas',c.deductions_ytd_cents],['PTU pagada',c.ptu_cents],['Pérdidas fiscales aplicables',c.losses_cents],['Base fiscal acumulada',c.taxable_base_ytd_cents],['ISR causado acumulado al 30%',c.isr_accrued_cents],['Pagos provisionales de meses anteriores',c.previous_payments_cents],['ISR acreditable propio',c.credits_cents],['Pago provisional estimado del mes',c.isr_due_cents]]; }
@@ -59,7 +67,7 @@ export function reportPrintBody(r) {
   return `<article class="finance-paper"><header><strong>Yavoi! · Finanzas</strong><h1>${r.meta.period==='week'?'Cierre semanal':'Cierre mensual'}</h1><p>${e(periodLabel(r.meta))} · ${r.saved_closure ? `Versión ${r.saved_closure.revision} · folio ${e(r.saved_closure.id)}` : 'Avance sin cierre guardado'}<br>Generado ${e(new Date(r.meta.generated_at).toLocaleString('es-MX',{timeZone:'America/Chihuahua'}))} · MXN · Hora de Chihuahua</p></header>
   <h2>Resumen financiero</h2>${table(['Concepto','Importe'],reconciliationRows(r).map(([label,n])=>[label,money(n)]))}
   <h2>Impuestos y aportación estatal</h2>${table(['Concepto','Calculado / validado','Pagado','Pendiente / saldo a favor','Base'],taxRows(r).map(x=>[x.label,x.due===null?'Pendiente':money(x.due),money(x.paid),x.balance===null?'Pendiente':money(x.balance),x.basis]))}
-  <p>El IVA propio calculado es una reserva de gestión. El ISR propio RESICO usa ingresos cobrados y deducciones validadas acumulados, con tasa de 30%, menos pagos previos y créditos. Requiere validar los saldos del ejercicio. Registrar un cierre no declara ni paga impuestos. La aportación estatal debe conciliarse con el convenio aplicable.</p>
+  <p>Las transferencias semanales son liquidaciones contractuales a Yavoi!, no retenciones fiscales. El desglose separa comisión y componentes de referencia aceptados; no se suma de nuevo a los ingresos por viajes. El IVA propio calculado es una reserva de gestión. El ISR propio RESICO usa ingresos cobrados y deducciones validadas acumulados, con tasa de 30%, menos pagos previos y créditos. Requiere validar los saldos del ejercicio. Registrar un cierre no declara ni paga impuestos. La aportación estatal debe conciliarse con el convenio aplicable.</p>
   ${r.corporate?.regime?`<h2>ISR propio RESICO persona moral</h2>${table(['Concepto','Importe'],corporateRows(r.corporate).map(([label,n])=>[label,money(n)]))}<p>${e(r.corporate.basis)}</p>`:''}<h2>Actividad diaria</h2>${table(['Fecha','Viajes','Cobro confirmado','Comisión sin IVA','Neto conductor'],r.daily.map(d=>[d.day,d.trips,money(d.collected_cents),money(d.commission_cents),money(d.driver_net_cents)]))}
   <h2>Por conductor</h2>${table(['Conductor','Viajes','Cobrado','Comisión con IVA','Neto registrado','ISR','IVA retenido','Promoción pendiente'],r.drivers.map(d=>[d.driver_name,d.trips,money(d.collected_cents),money(d.commission_cents),money(d.driver_net_cents),money(d.isr_cents),money(d.vat_cents),money(d.promotion_pending_cents)]))}
   <h2>Detalle por viaje</h2>${table(['Folio','Fecha','Estado','Conductor','Método','Esperado','Confirmado','Comisión','Neto','ISR','IVA','Descuento'],r.trips.map(t=>[t.id,t.day,t.status==='completed'?'Completado':'Cancelado',t.driver_name,t.payment_method==='cash'?'Efectivo':'Electrónico',money(t.expected_cents),money(t.collected_cents),money(t.commission_cents),money(t.driver_net_cents),money(t.isr_cents),money(t.vat_cents),money(t.discount_cents)]))}
