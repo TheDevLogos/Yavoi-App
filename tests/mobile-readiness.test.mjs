@@ -14,6 +14,15 @@ test("mobile builds use production Maps settings and keep the app role explicit"
   assert.match(script, /VITE_YAVOI_APP_TARGET: target/);
 });
 
+test("Drive only requests the Android permissions its active ride flow uses", async () => {
+  const manifest = await read("mobile/driver/android/app/src/main/AndroidManifest.xml");
+  assert.match(manifest, /ACCESS_FINE_LOCATION/);
+  assert.match(manifest, /POST_NOTIFICATIONS/);
+  assert.match(manifest, /SYSTEM_ALERT_WINDOW/);
+  assert.doesNotMatch(manifest, /FOREGROUND_SERVICE/);
+  assert.doesNotMatch(manifest, /ACCESS_BACKGROUND_LOCATION/);
+});
+
 test("driver asks permissions deliberately and can request its optional alert window", async () => {
   const portal = await read("src/portal.js");
   const manifest = await read("mobile/driver/android/app/src/main/AndroidManifest.xml");

@@ -5592,7 +5592,7 @@ function startUpdates() {
       if (event === "trip_adjustment_payment_created" && payload.new?.actor_id !== S.user.id) {
         const amount = Number(payload.new?.detail?.amount_cents || 0);
         const riderNotice = S.profile?.role === "passenger";
-        serviceNotification(riderNotice ? "Autoriza el ajuste de tu viaje" : "Ajuste de tarjeta pendiente", riderNotice ? `Se registró un ajuste de ${money(amount)}. Ábrelo para autorizar el cobro seguro con tarjeta.` : `El pasajero debe autorizar ${money(amount)} antes de finalizar el viaje.`, {
+        serviceNotification(riderNotice ? "Revisa el ajuste de tu viaje" : "Ajuste de viaje pendiente", riderNotice ? `Se registró un ajuste de ${money(amount)}. Ábrelo para revisarlo antes de confirmar el total final en efectivo.` : `El pasajero debe revisar el ajuste de ${money(amount)} antes de finalizar el viaje.`, {
           tag: `yavoi-adjustment-payment-${payload.new.trip_id}`,
           target: `trip/${payload.new.trip_id}`,
         });

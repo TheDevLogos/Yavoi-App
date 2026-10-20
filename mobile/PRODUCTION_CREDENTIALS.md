@@ -2,6 +2,12 @@
 
 La primera publicación usa efectivo directo entre pasajero y conductor. Operaciones conserva los cálculos comerciales y fiscales para el corte semanal; las aplicaciones no administran pagos, cuentas, saldos ni transferencias.
 
+## Ubicación y disponibilidad de Yavoi! Drive
+
+Yavoi! Drive solicita ubicación precisa sólo mientras el conductor usa la aplicación para conectarse, recibir solicitudes, llegar al origen o realizar un viaje. No solicita ubicación en segundo plano ni declara un servicio de ubicación en primer plano: la disponibilidad se actualiza desde la sesión activa de la aplicación y se detiene al desconectarse, cerrar el turno o perder la sesión.
+
+Las alertas de nuevas solicitudes usan notificaciones. La ventana sobre otras aplicaciones es opcional, se solicita desde el ajuste contextual del conductor y nunca impide conectarse o conducir si se rechaza.
+
 ## Google Maps Platform
 
 1. Crear una clave de navegador para `VITE_GOOGLE_MAPS_BROWSER_KEY`.
