@@ -4516,22 +4516,18 @@ function openFeatureCardEditor(card = null) {
   });
 }
 function communicationsPanelMarkup() {
-  const fields = (prefix) => `<div class="grid2"><label>Aplicación<select name="audience"><option value="passenger">Yavoi! · pasajeros</option><option value="driver">Yavoi! Drive · conductores</option><option value="all">Ambas aplicaciones</option></select></label><label>Tipo<select name="category"><option value="promotion">Promoción o descuento</option><option value="news">Novedad o consejo</option><option value="service">Recordatorio de servicio</option><option value="safety">Seguridad</option><option value="general">Aviso general</option></select></label></div><label>Correo de una cuenta específica (opcional)<input name="recipient_email" type="email" autocomplete="off" placeholder="Si se deja vacío, se envía a toda la audiencia"></label><label>Título<input name="title" required minlength="3" maxlength="120" placeholder="Ej. Nuevas recompensas Yavoi!"></label><label>Mensaje<textarea name="body" required minlength="5" maxlength="2000" placeholder="Explica el beneficio o recordatorio con claridad."></textarea></label><div class="grid2"><label>Imagen (opcional; JPG, PNG o WebP, máximo ${prefix === "push" ? "1" : "4"} MB)<input name="image" type="file" accept="image/jpeg,image/png,image/webp" data-comms-image="${prefix}"></label><label>Vigente hasta<input name="ends_at" type="datetime-local" required></label></div><div class="communication-preview" data-comms-preview="${prefix}" aria-live="polite"><strong>Vista previa</strong><span>El título y el mensaje aparecerán aquí.</span></div>`;
-  return `<section class="panel section-gap communications-panel"><div class="eyebrow">COMUNICACIÓN CON USUARIOS</div><h2>Notificaciones push y Bandeja de Entrada</h2><p>Crea mensajes para Yavoi!, Yavoi! Drive o un correo específico. Todos quedan guardados en la Bandeja; el push se entrega a dispositivos registrados que aceptaron promociones.</p><div class="communication-composers"><form id="marketing-push-form" class="communication-composer"><h3>${I("bell-ring")} Push + mensaje en Inbox</h3><p>Se muestra aun cuando la app esté cerrada, si el dispositivo tiene permiso y conexión. El mensaje se conserva en Inbox para consultarlo después.</p>${fields("push")}<button class="btn" type="submit">${I("send")} Publicar y enviar push</button></form><form id="marketing-inbox-form" class="communication-composer"><h3>${I("inbox")} Mensaje directo a Inbox</h3><p>Para promociones, descuentos y recordatorios que el usuario verá al entrar. Puedes dirigirlo a una sola cuenta.</p>${fields("inbox")}<button class="btn secondary" type="submit">${I("send")} Publicar en Bandeja</button></form></div><div class="section-gap"><div class="row between wrap"><h3>Envíos recientes</h3><button class="btn secondary" id="refresh-communications" type="button">${I("refresh-cw")} Actualizar</button></div><div id="communications-history" class="inbox-list"><p class="hint">Cargando envíos…</p></div></div></section>`;
+  const fields = `<div class="grid2"><label>Aplicación<select name="audience"><option value="passenger">Yavoi! · pasajeros</option><option value="driver">Yavoi! Drive · conductores</option><option value="all">Ambas aplicaciones</option></select></label><label>Tipo<select name="category"><option value="promotion">Promoción o descuento</option><option value="news">Novedad o consejo</option><option value="service">Recordatorio de servicio</option><option value="safety">Seguridad</option><option value="general">Aviso general</option></select></label></div><label>Correo de una cuenta específica (opcional)<input name="recipient_email" type="email" autocomplete="off" placeholder="Si se deja vacío, se envía a toda la audiencia"></label><label>Título<input name="title" required minlength="3" maxlength="120" placeholder="Ej. Nuevas recompensas Yavoi!"></label><label>Mensaje<textarea name="body" required minlength="5" maxlength="2000" placeholder="Explica el beneficio o recordatorio con claridad."></textarea></label><div class="grid2"><label>Imagen (opcional; JPG, PNG o WebP, máximo 1 MB)<input name="image" type="file" accept="image/jpeg,image/png,image/webp" data-comms-image="message"></label><label>Vigente hasta<input name="ends_at" type="datetime-local" required></label></div><div class="communication-preview" data-comms-preview="message" aria-live="polite"><strong>Vista previa</strong><span>El título y el mensaje aparecerán aquí.</span></div>`;
+  return `<section class="panel section-gap communications-panel"><div class="eyebrow">COMUNICACIÓN CON USUARIOS</div><h2>Notificaciones push y Bandeja de Entrada</h2><p>Redacta una vez y publica el mismo aviso en el Inbox; si activas push, el envío comienza al instante y continúa en segundo plano.</p><div class="communication-composers"><form id="marketing-message-form" class="communication-composer"><h3>${I("bell-ring")} Nuevo aviso</h3><p>El push llega a los dispositivos con permiso y consentimiento; el mensaje queda guardado en Inbox para consultarlo después.</p>${fields}<label class="check"><input name="send_push" type="checkbox" checked> Enviar también notificación push</label><button class="btn" type="submit">${I("send")} Publicar aviso</button></form></div><div class="section-gap"><div class="row between wrap"><h3>Envíos recientes</h3><button class="btn secondary" id="refresh-communications" type="button">${I("refresh-cw")} Actualizar</button></div><div id="communications-history" class="inbox-list"><p class="hint">Cargando envíos…</p></div></div></section>`;
 }
 async function dispatchCommunicationPush(messageId) {
-  let more = true;
-  let rounds = 0;
-  let summary = { delivered: 0, failed: 0 };
-  while (more && rounds < 100) {
-    const { data, error } = await db.functions.invoke("push-communications", { body: { message_id: messageId } });
-    if (error || data?.error) throw Error(data?.error || error?.message || "El push quedó pendiente de envío.");
-    more = Boolean(data.more);
-    summary = { delivered: Number(data.delivered || 0), failed: Number(data.failed || 0) };
-    rounds += 1;
-  }
-  if (more) throw Error("El envío sigue en curso. Actualiza el historial para continuarlo.");
-  return summary;
+  const { data, error } = await db.functions.invoke("push-communications", { body: { message_id: messageId } });
+  if (error || data?.error) throw Error(data?.error || error?.message || "El push quedó pendiente en la cola de respaldo.");
+  return {
+    delivered: Number(data.delivered || 0),
+    failed: Number(data.failed || 0),
+    more: Boolean(data.more),
+    processing: Boolean(data.processing),
+  };
 }
 async function loadCommunicationsHistory() {
   const container = $("#communications-history");
@@ -4569,31 +4565,41 @@ function marketingView() {
   $("#page-content")?.insertAdjacentHTML("afterbegin", communicationsPanelMarkup());
   const due = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   $$(".communications-panel input[name='ends_at']").forEach((input) => { input.value = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}T${String(due.getHours()).padStart(2, "0")}:${String(due.getMinutes()).padStart(2, "0")}`; });
-  for (const [id, sendPush] of [["#marketing-push-form", true], ["#marketing-inbox-form", false]]) {
-    const form = $(id);
-    const preview = $(form.dataset.commsPreview || `[data-comms-preview='${sendPush ? "push" : "inbox"}']`);
-    const updatePreview = () => {
-      preview.innerHTML = `<strong>${e(form.elements.title.value || "Vista previa")}</strong><span>${e(form.elements.body.value || "El mensaje aparecerá aquí.")}</span>`;
-    };
-    form.elements.title.oninput = updatePreview;
-    form.elements.body.oninput = updatePreview;
-    form.elements.image.onchange = () => {
-      updatePreview();
-      const file = form.elements.image.files?.[0];
-      if (file) { const url = URL.createObjectURL(file); const img = document.createElement("img"); img.src = url; img.alt = "Imagen seleccionada"; img.onload = () => URL.revokeObjectURL(url); preview.append(img); }
-    };
-    bindForm(id, async (values) => {
-      if (sendPush && Number(form.elements.image.files?.[0]?.size || 0) > 1024 * 1024) throw Error("Para push, usa una imagen menor de 1 MB.");
-      const imagePath = await upload(form.elements.image.files?.[0], "yavoi-marketing");
-      const { image: _image, ...messageValues } = values;
-      const published = await inboxRpc("publish_communication", { ...messageValues, image_path: imagePath, send_push: sendPush, ends_at: new Date(values.ends_at).toISOString() });
-      form.reset();
-      await loadCommunicationsHistory();
-      if (sendPush) notify("Mensaje guardado en Inbox. El envío push se procesará en segundo plano, aunque cierres Operaciones.");
-      else notify("Mensaje publicado en la Bandeja de Entrada.");
-      await loadCommunicationsHistory();
-    });
-  }
+  const form = $("#marketing-message-form");
+  const preview = $("[data-comms-preview='message']");
+  const updatePreview = () => {
+    preview.innerHTML = `<strong>${e(form.elements.title.value || "Vista previa")}</strong><span>${e(form.elements.body.value || "El mensaje aparecerá aquí.")}</span>`;
+  };
+  form.elements.title.oninput = updatePreview;
+  form.elements.body.oninput = updatePreview;
+  form.elements.image.onchange = () => {
+    updatePreview();
+    const file = form.elements.image.files?.[0];
+    if (file) { const url = URL.createObjectURL(file); const img = document.createElement("img"); img.src = url; img.alt = "Imagen seleccionada"; img.onload = () => URL.revokeObjectURL(url); preview.append(img); }
+  };
+  bindForm("#marketing-message-form", async (values, submittedForm) => {
+    const sendPush = values.send_push === "on";
+    if (sendPush && Number(submittedForm.elements.image.files?.[0]?.size || 0) > 1024 * 1024) throw Error("Para push, usa una imagen menor de 1 MB.");
+    const imagePath = await upload(submittedForm.elements.image.files?.[0], "yavoi-marketing");
+    const { image: _image, send_push: _sendPush, ...messageValues } = values;
+    const published = await inboxRpc("publish_communication", { ...messageValues, image_path: imagePath, send_push: sendPush, ends_at: new Date(values.ends_at).toISOString() });
+    submittedForm.reset();
+    const nextExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    submittedForm.elements.ends_at.value = `${nextExpiry.getFullYear()}-${String(nextExpiry.getMonth() + 1).padStart(2, "0")}-${String(nextExpiry.getDate()).padStart(2, "0")}T${String(nextExpiry.getHours()).padStart(2, "0")}:${String(nextExpiry.getMinutes()).padStart(2, "0")}`;
+    if (sendPush) {
+      try {
+        const result = await dispatchCommunicationPush(published.message_id);
+        if (result.processing) notify("Aviso guardado en Inbox; el push ya está en proceso y la cola lo seguirá atendiendo.");
+        else if (result.more) notify(`Aviso guardado en Inbox y push iniciado. ${result.delivered} dispositivos aceptados por el servicio; el resto sigue en cola.`);
+        else notify(`Aviso guardado en Inbox. Push procesado: ${result.delivered} dispositivos aceptados por el servicio${result.failed ? `; ${result.failed} con error` : ""}.`);
+      } catch {
+        notify("Aviso guardado en Inbox; el push quedó en cola y se reintentará en segundo plano.");
+      }
+    } else {
+      notify("Aviso publicado en la Bandeja de Entrada.");
+    }
+    await loadCommunicationsHistory();
+  });
   $("#refresh-communications").onclick = () => loadCommunicationsHistory();
   loadCommunicationsHistory();
   bindForm("#marketing-settings", async (values) => {

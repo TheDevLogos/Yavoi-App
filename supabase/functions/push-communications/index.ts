@@ -37,6 +37,14 @@ function imageUrl(path: string | null) {
   return `${url}/storage/v1/object/public/yavoi-marketing/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
+async function mapInBatches<T, R>(items: T[], batchSize: number, send: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let offset = 0; offset < items.length; offset += batchSize) {
+    results.push(...await Promise.all(items.slice(offset, offset + batchSize).map(send)));
+  }
+  return results;
+}
+
 async function sendNative(token: string, credentials: { projectId: string; token: string }, message: Record<string, unknown>, app: string) {
   const image = imageUrl(message.image_path as string | null);
   const ttlSeconds = Math.max(1, Math.min(86400, Math.floor((Date.parse(String(message.ends_at)) - Date.now()) / 1000)));
@@ -72,11 +80,23 @@ Deno.serve(async (request) => {
   const body = await request.json().catch(() => ({}));
   const messageId = String(body.message_id || "");
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) return Response.json({ error: "Mensaje inválido" }, { status: 400 });
-  const { data: message } = await admin.from("communication_messages").select("id,audience,recipient_id,category,title,body,image_path,send_push,ends_at").eq("id", messageId).maybeSingle();
-  const { data: job } = await admin.from("communication_push_jobs").select("id,last_profile_id,state,delivered_count,failed_count").eq("message_id", messageId).maybeSingle();
-  if (!message || !job || !message.send_push) return Response.json({ error: "Trabajo no encontrado" }, { status: 404 });
-  if (job.state === "complete") return Response.json({ ok: true, more: false, delivered: job.delivered_count, failed: job.failed_count });
+  const { data: message, error: messageError } = await admin.from("communication_messages").select("id,audience,recipient_id,category,title,body,image_path,send_push,ends_at").eq("id", messageId).maybeSingle();
+  if (messageError) return Response.json({ error: "No se pudo consultar el aviso" }, { status: 500 });
+  if (!message || !message.send_push) return Response.json({ error: "Trabajo no encontrado" }, { status: 404 });
   if (Date.parse(message.ends_at) <= Date.now()) return Response.json({ error: "El mensaje ya no está vigente" }, { status: 409 });
+  const { data: claim, error: claimError } = await admin.rpc("claim_yavoi_communications_push_job", { target_message_id: messageId });
+  if (claimError) return Response.json({ error: "No se pudo reservar el envío push" }, { status: 500 });
+  if (!claim?.claimed) {
+    if (claim?.not_found) return Response.json({ error: "Trabajo no encontrado" }, { status: 404 });
+    return Response.json({ ok: true, more: false, processing: Boolean(claim?.processing), delivered: Number(claim?.delivered_count || 0), failed: Number(claim?.failed_count || 0) }, { status: claim?.complete ? 200 : 202 });
+  }
+  const job = {
+    id: String(claim.job_id),
+    claim_token: String(claim.claim_token),
+    last_profile_id: claim.last_profile_id ? String(claim.last_profile_id) : null,
+    delivered_count: Number(claim.delivered_count || 0),
+    failed_count: Number(claim.failed_count || 0),
+  };
   let query = admin.from("profiles").select("id,role").eq("suspended", false).in("role", ["passenger", "driver"]).order("id", { ascending: true }).limit(50);
   if (message.recipient_id) query = query.eq("id", message.recipient_id);
   else if (message.audience !== "all") query = query.eq("role", message.audience);
@@ -84,7 +104,10 @@ Deno.serve(async (request) => {
   const { data: recipients, error: recipientsError } = await query;
   if (recipientsError) return Response.json({ error: recipientsError.message }, { status: 500 });
   if (!recipients?.length) {
-    await admin.from("communication_push_jobs").update({ state: "complete", last_error: null, updated_at: new Date().toISOString() }).eq("id", job.id);
+    const { data: completed, error: completeError } = await admin.from("communication_push_jobs")
+      .update({ state: "complete", last_error: null, claim_token: null, claim_expires_at: null, updated_at: new Date().toISOString() })
+      .eq("id", job.id).eq("claim_token", job.claim_token).select("id");
+    if (completeError || !completed?.length) return Response.json({ error: "El turno de envío venció; la cola lo reintentará." }, { status: 409 });
     return Response.json({ ok: true, more: false, delivered: job.delivered_count, failed: job.failed_count });
   }
   const ids = recipients.map((item) => item.id);
@@ -105,22 +128,38 @@ Deno.serve(async (request) => {
   if (web.length && vapidPublic && vapidPrivate) {
     webpush.setVapidDetails("mailto:soporte@yavoi.app", vapidPublic, vapidPrivate);
     const payload = JSON.stringify({ title: message.title, body: message.body, image: imageUrl(message.image_path), target: "inbox", tag: `yavoi-communication-${message.id}`, actions: [{ action: "open", title: "Ver mensaje" }] });
-    for (const subscription of web) {
-      try { await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, payload, { TTL: 86400 }); delivered++; }
-      catch (error) { failed++; if ([404, 410].includes(Number((error as { statusCode?: number }).statusCode))) await admin.from("device_push_subscriptions").delete().eq("id", subscription.id); }
-    }
+    const results = await mapInBatches(web, 20, async (subscription) => {
+      try {
+        await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, payload, { TTL: 86400 });
+        return true;
+      } catch (error) {
+        if ([404, 410].includes(Number((error as { statusCode?: number }).statusCode))) await admin.from("device_push_subscriptions").delete().eq("id", subscription.id);
+        return false;
+      }
+    });
+    delivered += results.filter(Boolean).length;
+    failed += results.filter((ok) => !ok).length;
   } else failed += web.length;
   if (native.length && firebaseServiceAccountJson) {
     try {
       const credentials = await firebaseAccessToken();
-      for (const device of native) {
-        if (await sendNative(device.token, credentials, message, device.app_id)) delivered++;
-        else failed++;
-      }
+      const results = await mapInBatches(native, 20, (device) => sendNative(device.token, credentials, message, device.app_id));
+      delivered += results.filter(Boolean).length;
+      failed += results.filter((ok) => !ok).length;
     } catch { failed += native.length; }
   } else failed += native.length;
   const lastId = recipients.at(-1)?.id || job.last_profile_id;
   const more = recipients.length === 50 && !message.recipient_id;
-  await admin.from("communication_push_jobs").update({ last_profile_id: lastId, state: more ? "sending" : "complete", delivered_count: job.delivered_count + delivered, failed_count: job.failed_count + failed, last_error: failed ? `${failed} dispositivos sin entrega en este lote` : null, updated_at: new Date().toISOString() }).eq("id", job.id);
+  const { data: updated, error: updateError } = await admin.from("communication_push_jobs").update({
+    last_profile_id: lastId,
+    state: more ? "sending" : "complete",
+    delivered_count: job.delivered_count + delivered,
+    failed_count: job.failed_count + failed,
+    last_error: failed ? `${failed} dispositivos sin entrega en este lote` : null,
+    claim_token: null,
+    claim_expires_at: null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", job.id).eq("claim_token", job.claim_token).select("id");
+  if (updateError || !updated?.length) return Response.json({ error: "El turno de envío venció; la cola lo reintentará." }, { status: 409 });
   return Response.json({ ok: true, more, delivered: job.delivered_count + delivered, failed: job.failed_count + failed });
 });
