@@ -361,3 +361,60 @@ input,textarea,select{font-size:17px;min-height:48px}
   .role-passenger .inbox-message-title strong,.role-driver .inbox-message-title strong{font-size:13px}
   .role-passenger .inbox-message-body,.role-driver .inbox-message-body{padding:0 12px 12px 52px}
 }
+
+/* Driver profile: one compact type scale and progressive detail for operating status. */
+@media(max-width:650px){
+  .role-driver .profile-head{align-items:center;margin-bottom:9px}
+  .role-driver .profile-head h2{font-size:18px;line-height:1.2;margin:0 0 3px}
+  .role-driver .profile-head p{font-size:11px;line-height:1.3;overflow-wrap:anywhere;margin:0}
+  .role-driver .profile-shortcuts{margin-top:10px;padding-top:10px}
+  .role-driver .profile-score{padding:7px 10px;gap:7px}
+  .role-driver .profile-score>svg{width:17px;height:17px}
+  .role-driver .profile-score small{font-size:9px}
+  .role-driver .profile-score strong{font-size:14px;margin-top:1px}
+  .role-driver .profile-shortcut-grid{margin-top:8px}
+  .role-driver .profile-shortcut{min-height:51px;padding:8px 10px;gap:8px}
+  .role-driver .profile-shortcut small{display:none}
+  .role-driver .profile-shortcut strong{font-size:12px;line-height:1.2}
+  .role-driver .profile-lock-notice{align-items:center;margin:12px 0;padding:10px 12px;gap:9px}
+  .role-driver .profile-lock-notice>svg{width:18px;height:18px;flex:none}
+  .role-driver .profile-lock-notice strong{font-size:12px}
+  .role-driver .profile-lock-notice p{font-size:11px;line-height:1.35;margin:2px 0 0}
+  .role-driver .profile-section{margin-top:10px;border-radius:13px}
+  .role-driver .profile-section>summary{min-height:54px;align-items:center;gap:8px;padding:12px 14px}
+  .role-driver .profile-section>summary>span:first-child{gap:9px;min-width:0}
+  .role-driver .profile-section>summary>span:first-child svg{width:19px;height:19px;flex:none}
+  .role-driver .profile-section>summary strong{font-size:14px;line-height:1.2}
+  .role-driver .profile-section>summary .badge{font-size:10px;white-space:nowrap;flex:none}
+  .role-driver .weekly-profile>.profile-section-body{padding:12px 14px 14px}
+  .role-driver .permit-status{display:flex;align-items:center;gap:10px;padding:10px 11px;border-radius:11px;background:#f5f8fb}
+  .role-driver .permit-status.pending{background:#fff7ef}
+  .role-driver .permit-status.allowed{background:#edf8f3}
+  .role-driver .permit-status-icon{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:10px;background:#fff;color:#d85e0a}
+  .role-driver .permit-status.allowed .permit-status-icon{color:#168158}
+  .role-driver .permit-status-icon svg{width:18px;height:18px}
+  .role-driver .permit-status small,.role-driver .permit-balance small{display:block;color:#64758a;font-size:10px;line-height:1.2;font-weight:700;letter-spacing:.02em}
+  .role-driver .permit-status strong{display:block;margin-top:2px;font-size:14px;line-height:1.25}
+  .role-driver .permit-reason,.role-driver .permit-breakdown,.role-driver .permit-records{border-bottom:1px solid var(--line)}
+  .role-driver .permit-reason>summary,.role-driver .permit-breakdown>summary,.role-driver .permit-records>summary{display:flex;align-items:center;gap:8px;min-height:42px;padding:9px 2px;cursor:pointer;list-style:none;font-size:12px;font-weight:700}
+  .role-driver .permit-reason>summary::-webkit-details-marker,.role-driver .permit-breakdown>summary::-webkit-details-marker,.role-driver .permit-records>summary::-webkit-details-marker{display:none}
+  .role-driver .permit-reason>summary>svg:last-child,.role-driver .permit-breakdown>summary>svg:last-child,.role-driver .permit-records>summary>svg:last-child{width:15px;height:15px;margin-left:auto;color:#7b8b9a}
+  .role-driver .permit-records>summary>svg:first-child{width:17px;height:17px;color:var(--orange)}
+  .role-driver .permit-records>summary .badge{margin-left:auto;font-size:10px}
+  .role-driver .permit-reason p{font-size:11px;line-height:1.4;margin:0 0 10px;color:#607184}
+  .role-driver .permit-balance{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 2px 8px}
+  .role-driver .permit-balance strong{display:block;font-size:22px;line-height:1.15;margin:3px 0}
+  .role-driver .permit-balance span{display:block;color:#64758a;font-size:10px;line-height:1.3}
+  .role-driver .permit-balance .btn{min-height:44px;padding:8px 10px;font-size:11px;flex:none}
+  .role-driver .permit-balance .btn svg{width:15px;height:15px}
+  .role-driver .permit-records>div,.role-driver .permit-breakdown>*:not(summary){padding-bottom:9px}
+  .role-driver .permit-records .fee-row{gap:7px;font-size:11px}
+  .role-driver .notification-preferences{padding:14px;margin-top:10px}
+  .role-driver .notification-preferences h2{display:flex;align-items:center;gap:7px;font-size:15px;margin:0 0 3px}
+  .role-driver .notification-preferences h2 svg{width:18px;height:18px;color:var(--orange)}
+  .role-driver .notification-preferences>p{font-size:11px;margin:0 0 10px}
+  .role-driver .notification-preferences .row{gap:7px}
+  .role-driver .notification-preferences .btn{min-height:44px;padding:8px 10px;font-size:11px}
+  .role-driver .notification-preferences form{margin-top:9px;gap:8px}
+  .role-driver .notification-preferences .check{font-size:11px;line-height:1.3}
+}
