@@ -231,10 +231,11 @@ input,textarea,select{font-size:17px;min-height:48px}
 .inbox-home-notice{display:flex;align-items:center;gap:12px;margin:0 0 14px;padding:12px 16px;border:1px solid #ffc28e;border-radius:12px;background:#fff4e9;color:#071d33;text-decoration:none;font-size:14px;font-weight:650}
 .inbox-home-notice svg{width:20px;height:20px;color:#e96305;flex:none}.inbox-home-notice svg:last-child{margin-left:auto}
 .notification-preferences form{display:grid;gap:12px;margin-top:16px}.notification-preferences .check{display:flex;align-items:flex-start;gap:10px}
-.communication-composers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:18px}
+.communication-composers{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;margin-top:18px}
 .communication-composer{display:grid;align-content:start;gap:12px;padding:18px;border:1px solid #dce5ec;border-radius:14px;background:#f9fbfd}
 .communication-composer h3{display:flex;align-items:center;gap:8px;margin:0;color:#08253d}.communication-composer p{margin:0;color:#68798a;font-size:13px;line-height:1.45}
 .communication-composer label{display:grid;gap:5px;font-size:13px;font-weight:650}.communication-composer input,.communication-composer select,.communication-composer textarea{width:100%}
 .communication-composer textarea{min-height:100px}.communication-preview{display:grid;gap:7px;padding:13px;border-radius:11px;background:#fff;border:1px solid #dfe7ed;word-break:break-word}.communication-preview span{white-space:pre-wrap;color:#506477}.communication-preview img{max-width:100%;max-height:160px;object-fit:contain;border-radius:8px}
 .inbox-message-image{display:block;max-width:100%;max-height:280px;object-fit:contain;margin:0 0 10px;border-radius:10px}
 @media(max-width:850px){.communication-composers{grid-template-columns:1fr}.communication-composer{padding:14px}.topbar .inbox-top-link{display:inline-flex}}
+.in-app-navigation-earnings{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 10px;border:1px solid #ffffff26;border-radius:11px;background:#ffffff12}.in-app-navigation-earnings span{color:#d5e0ea;font-size:10px;letter-spacing:.04em}.in-app-navigation-earnings strong{color:#ff9a55;font-size:15px;font-variant-numeric:tabular-nums}

@@ -29,6 +29,7 @@ public class YavoiNavigationPlugin extends Plugin {
         if (finalLat != null) intent.putExtra(YavoiNavigationActivity.EXTRA_FINAL_LAT, finalLat.doubleValue());
         if (finalLng != null) intent.putExtra(YavoiNavigationActivity.EXTRA_FINAL_LNG, finalLng.doubleValue());
         intent.putExtra(YavoiNavigationActivity.EXTRA_TOTAL, call.getString("total", ""));
+        intent.putExtra(YavoiNavigationActivity.EXTRA_DAILY_EARNINGS, call.getString("dailyEarnings", "$0.00"));
     }
     private final BroadcastReceiver navigationEvents = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -61,12 +62,22 @@ public class YavoiNavigationPlugin extends Plugin {
     }
 
     @PluginMethod public void showOffer(PluginCall call) {
+        String offerId = call.getString("offerId", "");
+        String summary = call.getString("summary", "");
+        String route = call.getString("route", "");
+        YavoiCarState.setOffer(offerId, summary, route);
         Intent command = new Intent(YavoiNavigationActivity.ACTION_COMMAND);
         command.setPackage(getContext().getPackageName());
-        command.putExtra(YavoiNavigationActivity.EXTRA_OFFER_ID, call.getString("offerId", ""));
-        command.putExtra("summary", call.getString("summary", ""));
-        command.putExtra("route", call.getString("route", ""));
+        command.putExtra(YavoiNavigationActivity.EXTRA_OFFER_ID, offerId);
+        command.putExtra("summary", summary);
+        command.putExtra("route", route);
         getContext().sendBroadcast(command); call.resolve();
+    }
+
+    @PluginMethod public void isCarConnected(PluginCall call) {
+        JSObject response = new JSObject();
+        response.put("connected", YavoiCarState.isAutoConnected());
+        call.resolve(response);
     }
 
     @PluginMethod public void nextTrip(PluginCall call) {

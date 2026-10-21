@@ -1422,7 +1422,15 @@ test("Postgres security and complete ride lifecycle", async () => {
   })])).rows[0].result;
   assert.equal(communication.push_queued, true);
   assert.equal((await db.query("select state from public.communication_push_jobs where message_id=$1", [communication.message_id])).rows[0].state, "queued");
+  await db.exec("reset role");
+  const ownNoticeId = (await db.query("insert into public.driver_operating_notices(driver_id,kind,title,body) values($1,'permit_authorized','Permiso vigente','Operaciones confirmó tu permiso.') returning id", [ids.driver])).rows[0].id;
+  await db.query("insert into public.driver_operating_notices(driver_id,kind,title,body) values($1,'permit_suspended','Aviso de otra cuenta','Este mensaje no debe ser visible.')", [ids.driver2]);
   await as(ids.driver);
+  assert.equal((await db.query("select count(*)::int as count from public.driver_operating_notices where driver_id=$1", [ids.driver])).rows[0].count, 1);
+  assert.equal((await db.query("select count(*)::int as count from public.driver_operating_notices where driver_id=$1", [ids.driver2])).rows[0].count, 0);
+  const noticeRead = (await db.query("select public.yavoi_inbox('read',$1::jsonb) result", [JSON.stringify({ announcement_id: ownNoticeId })])).rows[0].result;
+  assert.equal(noticeRead.ok, true);
+  await expectError(() => db.query("update public.driver_operating_notices set title='Cambiar' where id=$1", [ownNoticeId]), /permission denied/);
   const driverInbox = (await db.query("select public.yavoi_inbox('list','{}'::jsonb) result")).rows[0].result;
   assert.equal(driverInbox.messages.some((item) => item.id === communication.message_id), false);
   await as(ids.rider);

@@ -20,8 +20,8 @@ android {
         applicationId "mx.yavoi.conductor"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 22
-        versionName "1.0.21"
+        versionCode 25
+        versionName "1.0.24"
         manifestPlaceholders = [YAVOI_NAVIGATION_API_KEY: navigationApiKey]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -72,11 +72,16 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
-    // Native Google Sign-In avoids unsupported OAuth flows inside WebView.
-    implementation "com.google.android.gms:play-services-auth:21.2.0"
+    // Credential Manager keeps Google account selection native and supports all device accounts.
+    implementation "androidx.credentials:credentials:1.6.0"
+    implementation "androidx.credentials:credentials-play-services-auth:1.6.0"
+    implementation "com.google.android.libraries.identity.googleid:googleid:1.2.0"
 
     // Navigation SDK replaces the native Maps SDK for the guided driver experience.
     implementation 'com.google.android.libraries.navigation:navigation:7.9.0'
+    // Android Auto projection for the same Google Navigation SDK route.
+    implementation 'androidx.car.app:app:1.7.0'
+    implementation 'androidx.car.app:app-projected:1.7.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs_nio:2.1.5'
 }

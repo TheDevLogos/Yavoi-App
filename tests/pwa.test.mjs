@@ -84,16 +84,22 @@ test("driver push subscriptions preserve offer opening after a background wake",
 });
 
 test("Operations push continues from a protected background queue after its tab closes", async () => {
-  const [migration, worker] = await Promise.all([
+  const [migration, worker, deliveryMigration] = await Promise.all([
     read("supabase/migrations/20261020201500_communications_background_dispatch.sql").then(String),
     read("supabase/functions/push-communications/index.ts").then(String),
+    read("supabase/migrations/20261021044133_driver_inbox_and_push_delivery.sql").then(String),
   ]);
   assert.match(migration, /cron\.schedule\('yavoi-communications-every-minute','\* \* \* \* \*'/);
   assert.match(migration, /communication_push_jobs/);
   assert.match(migration, /vault\.decrypted_secrets/);
   assert.match(worker, /verify_yavoi_communications_worker_token/);
   assert.match(worker, /marketing_enabled/);
-  assert.match(portal, /El envío push se procesará en segundo plano/);
+  assert.match(worker, /claim_yavoi_communications_push_job/);
+  assert.match(worker, /mapInBatches/);
+  assert.match(deliveryMigration, /claim_expires_at/);
+  assert.match(deliveryMigration, /driver_operating_notices_read_own/);
+  assert.match(portal, /dispatchCommunicationPush\(published\.message_id\)/);
+  assert.match(portal, /marketing-message-form/);
   assert.match(portal, /resumeExistingPushRegistration\(\)\.catch/);
   assert.match(portal, /pushNotificationActionPerformed/);
 });

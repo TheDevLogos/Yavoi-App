@@ -67,20 +67,21 @@ test("Android registers Yavoi Google Auth before constructing the Capacitor brid
 });
 
 
-test("native Google login can clear the cached account and always recovers from a stalled attempt", async () => {
+test("native Google login presents all accounts, recovers when none are authorized, and distinguishes cancellation", async () => {
   const { readFile } = await import("node:fs/promises");
   const portal = await readFile(new URL("../src/portal.js", import.meta.url), "utf8");
-  assert.match(portal, /async function resetNativeGoogleAccount/);
-  assert.match(portal, /await resetNativeGoogleAccount\(\);\s*const response = await nativeGoogleSignInWithTimeout/s);
-  assert.match(portal, /NATIVE_GOOGLE_SIGN_IN_TIMEOUT_MS/);
-  assert.match(portal, /await resetNativeGoogleAccount\(\);\s*S\.user = null/s);
+  assert.match(portal, /const response = await YavoiGoogleAuth\.signIn\(\{ serverClientId: GOOGLE_CLIENT_ID \}\)/);
+  assert.doesNotMatch(portal, /resetNativeGoogleAccount|nativeGoogleSignInWithTimeout|Elige una cuenta distinta o vuelve a intentarlo/);
   const plugins = [
     "../mobile/passenger/android/app/src/main/java/mx/yavoi/pasajero/YavoiGoogleAuthPlugin.java",
     "../mobile/driver/android/app/src/main/java/mx/yavoi/conductor/YavoiGoogleAuthPlugin.java",
   ];
   for (const plugin of plugins) {
     const source = await readFile(new URL(plugin, import.meta.url), "utf8");
-    assert.match(source, /public void signOut\(PluginCall call\)/);
-    assert.match(source, /\.signOut\(\)\s*\.addOnCompleteListener/s);
+    assert.match(source, /new GetGoogleIdOption\.Builder\(\)[\s\S]*?\.setFilterByAuthorizedAccounts\(false\)[\s\S]*?\.setAutoSelectEnabled\(false\)/);
+    assert.match(source, /GetSignInWithGoogleOption/);
+    assert.match(source, /error instanceof NoCredentialException/);
+    assert.match(source, /error instanceof GetCredentialCancellationException/);
+    assert.doesNotMatch(source, /GoogleSignIn\.getSignedInAccountFromIntent|Activity\.RESULT_OK/);
   }
 });

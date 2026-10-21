@@ -60,6 +60,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
     public static final String EXTRA_FINAL_LAT = "final_lat";
     public static final String EXTRA_FINAL_LNG = "final_lng";
     public static final String EXTRA_TOTAL = "total";
+    public static final String EXTRA_DAILY_EARNINGS = "daily_earnings";
     public static final String EXTRA_PASSENGER_NAME = "passenger_name";
     public static final String EXTRA_COMMAND = "command";
 
@@ -79,6 +80,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
     private CheckBox cashAcknowledgement;
     private boolean finalFareReady = false;
     private boolean finalFareRequestInFlight = false;
+    private boolean pickupArrivalHandled = false;
     private final Handler fareHandler = new Handler(Looper.getMainLooper());
     private double finalLat, finalLng;
     private android.view.View offerCard;
@@ -86,8 +88,13 @@ public class YavoiNavigationActivity extends AppCompatActivity {
     private final BroadcastReceiver commandReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             String command = intent.getStringExtra(EXTRA_COMMAND);
+            if ("car_primary".equals(command)) { handlePrimaryAction(); return; }
+            if ("car_confirm_cash".equals(command)) {
+                if (finalFareReady) completeTrip(); else requestFinalFare();
+                return;
+            }
             if ("next_trip".equals(command)) { switchTrip(intent); return; }
-            if ("close".equals(command)) { finishWithAction("resume", true); return; }
+            if ("close".equals(command)) { YavoiCarState.setIdle(); finishWithAction("resume", true); return; }
             if ("update_fare".equals(command)) { updateFare(intent); return; }
             if ("transition_failed".equals(command)) { restoreStage(intent); return; }
             String offerId = intent.getStringExtra(EXTRA_OFFER_ID);
@@ -140,6 +147,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
             @Override
             public void onNavigatorReady(Navigator readyNavigator) {
                 navigator = readyNavigator;
+                YavoiCarState.setNavigator(readyNavigator, YavoiNavigationActivity.this);
                 navigationFragment = (SupportNavigationFragment) getSupportFragmentManager().findFragmentById(R.id.yavoi_navigation_fragment);
                 if (navigationFragment != null) {
                     navigationFragment.getMapAsync(map -> map.followMyLocation(CameraPerspective.TILTED));
@@ -149,6 +157,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             destinationReached = true;
                             if ("destination".equals(stage)) reachDestination();
+                            else if ("pickup".equals(stage)) markArrivedAtPickup();
                             else ((Button) findViewById(R.id.navigation_primary_action)).setText(primaryLabel());
                         });
                     }
@@ -209,10 +218,10 @@ public class YavoiNavigationActivity extends AppCompatActivity {
 
     private void handlePrimaryAction() {
         if ("pickup".equals(stage)) {
-            dispatchEvent("arrive", null); if (navigator != null) navigator.stopGuidance(); stage = "ready"; renderStage(getIntent().getStringExtra(EXTRA_DESTINATION)); speak("Llegaste por " + passengerName + ". Confirma cuando esté listo para iniciar."); return;
+            markArrivedAtPickup(); return;
         }
         if ("ready".equals(stage)) {
-            dispatchEvent("start", null); stage = "destination"; destinationReached = false; destinationLat = finalLat; destinationLng = finalLng; routeToDestination(); renderStage(null); speak("Viaje iniciado. Te llevamos al destino de " + passengerName + "."); return;
+            dispatchEvent("start", null); stage = "destination"; YavoiCarState.setStage(stage); pickupArrivalHandled = false; destinationReached = false; destinationLat = finalLat; destinationLng = finalLng; routeToDestination(); renderStage(null); speak("Viaje iniciado. Te llevamos al destino de " + passengerName + "."); return;
         }
         if ("destination".equals(stage)) {
             reachDestination(); return;
@@ -224,15 +233,29 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         completeTrip();
     }
 
+    private void markArrivedAtPickup() {
+        if (!"pickup".equals(stage) || pickupArrivalHandled) return;
+        pickupArrivalHandled = true;
+        if (navigator != null) navigator.stopGuidance();
+        if (navigator != null) navigator.clearDestinations();
+        dispatchEvent("arrive", null);
+        stage = "ready";
+        YavoiCarState.setStage(stage);
+        renderStage(getIntent().getStringExtra(EXTRA_DESTINATION));
+        speak("Llegaste por " + passengerName + ". Confirma cuando esté listo para iniciar.");
+    }
+
     private void reachDestination() {
         if (!"destination".equals(stage)) return;
         if (navigator != null) navigator.stopGuidance();
+        if (navigator != null) navigator.clearDestinations();
         stage = "collect";
+        YavoiCarState.setStage(stage);
         finalFareReady = false;
         requestFinalFare();
         renderStage(null);
         speak("Llegamos al destino de " + passengerName + ". Revisemos el total final.");
-        confirmCashReceived();
+        if ("cash".equals(paymentMethod) && !YavoiCarState.isAutoConnected()) confirmCashReceived();
     }
 
     private void requestFinalFare() {
@@ -340,6 +363,7 @@ public class YavoiNavigationActivity extends AppCompatActivity {
 
     private void updateFare(Intent command) {
         if (!tripId.equals(command.getStringExtra(EXTRA_TRIP_ID))) return;
+        YavoiCarState.setFare(command);
         String error = command.getStringExtra("error");
         if (error != null && !error.isEmpty()) {
             finalFareReady = false;
@@ -367,16 +391,18 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         if ("complete".equals(failedAction)) stage = "collect";
         else if ("start".equals(failedAction)) stage = "ready";
         else if ("arrive".equals(failedAction)) stage = "pickup";
+        YavoiCarState.setStage(stage);
         renderStage(null);
         Toast.makeText(this, command.getStringExtra("message"), Toast.LENGTH_LONG).show();
-        if ("complete".equals(failedAction)) confirmCashReceived();
+        if ("complete".equals(failedAction) && "cash".equals(paymentMethod) && !YavoiCarState.isAutoConnected()) confirmCashReceived();
     }
 
     private void completeTrip() {
         dispatchEvent("complete", null);
         stage = "switching";
+        YavoiCarState.setStage(stage);
         renderStage(null);
-        speak("Que tengas un bonito día, " + passengerName + ". Buscando tu siguiente viaje.");
+        speak("Gracias, " + passengerName + ". Que tengas un bonito día.");
     }
 
     private void applyTrip(Intent source) {
@@ -389,12 +415,19 @@ public class YavoiNavigationActivity extends AppCompatActivity {
         finalLat = source.getDoubleExtra(EXTRA_FINAL_LAT, Double.NaN);
         finalLng = source.getDoubleExtra(EXTRA_FINAL_LNG, Double.NaN);
         total = source.getStringExtra(EXTRA_TOTAL);
+        TextView dailyEarnings = findViewById(R.id.navigation_daily_earnings);
+        if (dailyEarnings != null) {
+            String amount = source.getStringExtra(EXTRA_DAILY_EARNINGS);
+            dailyEarnings.setText(amount == null || amount.trim().isEmpty() ? "$0.00" : amount);
+        }
         finalFareReady = false;
         finalFareRequestInFlight = false;
         waitingAmount = adjustmentsAmount = dynamicAmount = "$0.00";
         destinationLat = source.getDoubleExtra(EXTRA_LAT, Double.NaN);
         destinationLng = source.getDoubleExtra(EXTRA_LNG, Double.NaN);
         destinationReached = false;
+        pickupArrivalHandled = false;
+        YavoiCarState.setTrip(source);
     }
     private void switchTrip(Intent source) {
         if (cashDialog != null) cashDialog.dismiss();
@@ -406,6 +439,13 @@ public class YavoiNavigationActivity extends AppCompatActivity {
     }
     private void speak(String message) {
         if (speech == null || message == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            android.media.AudioAttributes attributes = new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build();
+            speech.setAudioAttributes(attributes);
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) speech.speak(message, TextToSpeech.QUEUE_ADD, null, "yavoi-" + System.nanoTime());
         else speech.speak(message, TextToSpeech.QUEUE_ADD, null);
     }
