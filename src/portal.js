@@ -446,10 +446,11 @@ function base64UrlBytes(value) {
   const binary = atob(padded);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
-async function enableDriverPushNotifications() {
+async function enableDriverPushNotifications({ quiet = false } = {}) {
   if (!S.profile || !["driver", "passenger"].includes(S.profile.role)) throw Error("Inicia sesión para activar las alertas de Yavoi!.");
   if (isNativeApp()) {
     if (targetRole && targetRole !== S.profile.role) throw Error("Esta aplicación no admite este tipo de cuenta.");
+    const alreadyListening = Boolean(nativePushSetupPromise);
     if (!nativePushSetupPromise) {
       nativePushSetupPromise = (async () => {
         const current = await PushNotifications.checkPermissions();
@@ -503,7 +504,10 @@ async function enableDriverPushNotifications() {
       })().catch((error) => { nativePushSetupPromise = null; throw error; });
     }
     await nativePushSetupPromise;
-    serviceNotification("Alertas de Yavoi! activadas", S.profile.role === "driver" ? "Recibirás solicitudes, promociones, consejos y avisos de seguridad cuando la app esté en segundo plano." : "Recibirás novedades, promociones, consejos de seguridad y actualizaciones importantes de tus viajes.");
+    // A different account can sign in without restarting the WebView. Rebind
+    // its Firebase token to the active profile; the SQL upsert moves ownership.
+    if (quiet && alreadyListening) await PushNotifications.register();
+    if (!quiet) serviceNotification("Alertas de Yavoi! activadas", S.profile.role === "driver" ? "Recibirás solicitudes, promociones, consejos y avisos de seguridad cuando la app esté en segundo plano." : "Recibirás novedades, promociones, consejos de seguridad y actualizaciones importantes de tus viajes.");
     return;
   }
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
@@ -529,6 +533,21 @@ async function enableDriverPushNotifications() {
   });
   S.pushSubscriptionReady = true;
   serviceNotification("Alertas persistentes activadas", S.profile.role === "driver" ? "Aunque Yavoi! esté minimizado, recibirás y podrás abrir las solicitudes durante tu minuto de disponibilidad." : "Recibirás avisos útiles de tu cuenta y podrás abrir Yavoi! desde la notificación.");
+}
+async function resumeExistingPushRegistration() {
+  if (!S.profile || !["driver", "passenger"].includes(S.profile.role)) return;
+  if (isNativeApp()) {
+    const permission = await PushNotifications.checkPermissions();
+    if (permission.receive === "granted") await enableDriverPushNotifications({ quiet: true });
+    return;
+  }
+  if (!("Notification" in window) || Notification.permission !== "granted" || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.getSubscription();
+  if (!subscription) return;
+  const json = subscription.toJSON();
+  await rpc("push_subscription", { endpoint: subscription.endpoint, p256dh: json.keys?.p256dh || "", auth: json.keys?.auth || "", user_agent: navigator.userAgent.slice(0, 300) });
+  S.pushSubscriptionReady = true;
 }
 async function armOfferSound() {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -1118,6 +1137,9 @@ async function loadSession() {
       S.marketingPushEnabled = Boolean(preferences.marketing_enabled);
     } catch { /* Keep the session available while communications deploy. */ }
   }
+  // Reattach notification-tap handlers on every cold launch and refresh the
+  // device/account binding without showing another permission prompt.
+  resumeExistingPushRegistration().catch((error) => console.warn("No se pudo reactivar el dispositivo push", error));
   scheduleYavoiReminders();
   S.auditReport = null;
   S.scheduleData = null;

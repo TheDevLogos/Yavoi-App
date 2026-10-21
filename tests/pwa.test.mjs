@@ -71,7 +71,7 @@ test("driver push subscriptions preserve offer opening after a background wake",
     read("supabase/migrations/20260927100000_driver_web_push_and_grace.sql").then(String),
     read("supabase/functions/push-driver-alert/index.ts").then(String),
   ]);
-  assert.match(portal, /function enableDriverPushNotifications\(\)/);
+  assert.match(portal, /function enableDriverPushNotifications\(/);
   assert.match(portal, /registration\.pushManager\.subscribe/);
   assert.match(portal, /function openPushedOffer\(\)/);
   assert.match(migration, /driver_push_subscriptions/);
@@ -94,6 +94,8 @@ test("Operations push continues from a protected background queue after its tab 
   assert.match(worker, /verify_yavoi_communications_worker_token/);
   assert.match(worker, /marketing_enabled/);
   assert.match(portal, /El envío push se procesará en segundo plano/);
+  assert.match(portal, /resumeExistingPushRegistration\(\)\.catch/);
+  assert.match(portal, /pushNotificationActionPerformed/);
 });
 
 test("all map markers and service vehicle illustrations exist", async () => {
