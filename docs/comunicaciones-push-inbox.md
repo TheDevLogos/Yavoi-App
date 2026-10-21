@@ -11,8 +11,17 @@ Los envíos push manuales se limitan a cuentas que aceptaron las comunicaciones 
 - Migración `20261020194500_marketing_communications.sql` aplicada al proyecto Supabase Yavoi! el 20 de octubre de 2026.
 - Edge Function `push-communications` versión 4 activa, con autorización propia de Operaciones/MFA o token de trabajador guardado en Vault.
 - Migración `20261020201500_communications_background_dispatch.sql` aplicada; trabajo `yavoi-communications-every-minute` activo.
-- Compilan los destinos web, Android pasajero y Android conductor; pasaron 108 pruebas locales.
-- Los cambios de interfaz están en el repositorio local y todavía deben incluirse en el siguiente despliegue web y en los próximos paquetes móviles. No se publicó una versión nueva de Play Console en este cambio.
+- Compilan los destinos web, Android pasajero y Android conductor; pasaron 109 pruebas locales.
+- El PWA se desplegó desde `main` (`10c4775`) a `yavoi-app.vercel.app` el 20 de octubre de 2026.
+- Yavoi! 1.0.17 (código 18) y Yavoi! Drive 1.0.21 (código 22) incluyen el registro automático de un dispositivo que ya concedió permiso al reabrir la app.
+
+## Comprobación en teléfono
+
+1. Instala la versión interna de cada aplicación, entra con el perfil correspondiente y en Mi perfil activa las notificaciones del dispositivo y la preferencia opcional de promociones.
+2. Cierra la aplicación y, desde Operaciones, envía un mensaje `Push + Inbox` dirigido al correo de esa cuenta. La cola lo procesará en el siguiente minuto; consulta en el historial si FCM aceptó el envío.
+3. Comprueba que el aviso aparezca fuera de la app, tócalo y confirma que abra la Bandeja de Entrada. Repite con la app en segundo plano y tras reiniciar el teléfono. Marca el mensaje como leído y verifica que desaparezca el punto naranja.
+
+La verificación con pantalla apagada requiere un teléfono real con permiso y suscripción vigentes. Al 20 de octubre había 0 cuentas con promociones aceptadas, 0 tokens nativos de pasajeros, 7 tokens nativos de Drive y 4 suscripciones web; por ello todavía no hay evidencia de entrega visible en un dispositivo para estas campañas nuevas.
 
 ## Límites de plataforma
 
