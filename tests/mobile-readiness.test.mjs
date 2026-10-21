@@ -80,6 +80,14 @@ test("driver navigation remains native through pickup, trip completion, and queu
   assert.match(plugin, /nextTrip/);
   assert.match(portal, /nativeNavigationTripPayload/);
   assert.match(portal, /YavoiNavigation\.nextTrip/);
+  assert.match(portal, /dailyDriverEarningsCents/);
+  assert.match(portal, /dailyEarnings:/);
+  assert.match(activity, /EXTRA_DAILY_EARNINGS/);
+  assert.match(activity, /navigation_daily_earnings/);
+  assert.match(plugin, /EXTRA_DAILY_EARNINGS/);
+  const layout = await read("mobile/driver/android/app/src/main/res/layout/activity_yavoi_navigation.xml");
+  assert.match(layout, /navigation_daily_earnings_card/);
+  assert.match(layout, /GANANCIA NETA HOY/);
 });
 
 test("native navigation maps each button to the server trip state", async () => {

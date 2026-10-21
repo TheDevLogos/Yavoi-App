@@ -48,6 +48,7 @@ import {
   isWeakPasswordError,
 } from "./domain.js";
 import { appTargetName, isNativeApp, targetAllowsRole, targetRole } from "./app-target.js";
+import { dailyDriverEarningsCents } from "./daily-driver-earnings.js";
 const $ = (s, el = document) => el.querySelector(s),
   $$ = (s, el = document) => [...el.querySelectorAll(s)];
 // Rewards and Operations can supply an icon name from data. Lucide throws
@@ -67,7 +68,6 @@ const YavoiNavigation = registerPlugin("YavoiNavigation");
 const YavoiReminder = registerPlugin("YavoiReminder");
 const YavoiGoogleAuth = registerPlugin("YavoiGoogleAuth");
 const YavoiDevicePermissions = registerPlugin("YavoiDevicePermissions");
-const NATIVE_GOOGLE_SIGN_IN_TIMEOUT_MS = 45_000;
 let nativePushSetupPromise = null;
 let nativePushRegistrationError = null;
 let nativeNavigationEventQueue = Promise.resolve();
@@ -336,25 +336,6 @@ async function renderOfficialGoogleButton(view) {
     notify(errorMessage(error));
   }
 }
-async function resetNativeGoogleAccount() {
-  if (!isNativeApp()) return;
-  try {
-    // Google keeps the last selected account in the native client. Clearing it
-    // before a new attempt makes the account picker available again after a
-    // passenger accidentally tries to enter the driver app, or vice versa.
-    await YavoiGoogleAuth.signOut();
-  } catch {
-    // A missing cached account is an expected state and must not block login.
-  }
-}
-function nativeGoogleSignInWithTimeout() {
-  let timer;
-  const signIn = YavoiGoogleAuth.signIn({ serverClientId: GOOGLE_CLIENT_ID });
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error("Google tardó demasiado en responder. Puedes intentarlo de nuevo.")), NATIVE_GOOGLE_SIGN_IN_TIMEOUT_MS);
-  });
-  return Promise.race([signIn, timeout]).finally(() => clearTimeout(timer));
-}
 async function nativeGoogleSignIn(view) {
   if (S.busy) return;
   S.busy = true;
@@ -365,15 +346,14 @@ async function nativeGoogleSignIn(view) {
     nativeButton.setAttribute("aria-busy", "true");
   }
   try {
-    await resetNativeGoogleAccount();
-    const response = await nativeGoogleSignInWithTimeout();
+    const response = await YavoiGoogleAuth.signIn({ serverClientId: GOOGLE_CLIENT_ID });
     const token = String(response?.idToken || "");
     if (!token) throw new Error("Google no entregó un identificador de acceso válido.");
     const { error } = await db.auth.signInWithIdToken({ provider: "google", token });
     if (error) throw error;
     await loadSession();
   } catch (error) {
-    authPage(view, `${errorMessage(error)} Elige una cuenta distinta o vuelve a intentarlo.`);
+    authPage(view, errorMessage(error));
   } finally {
     S.busy = false;
     authLoading = false;
@@ -1102,7 +1082,6 @@ async function loadSession() {
   scheduleYavoiReminders();
   if (S.profile.onboarding_complete && !targetAllowsRole(S.profile.role)) {
     await db.auth.signOut();
-    await resetNativeGoogleAccount();
     S.user = null;
     return authPage("login", `Esta cuenta es de ${roles[S.profile.role] || "otro"}. En ${appTargetName()} elige una cuenta de ${targetRole === "driver" ? "conductor" : "pasajero"}.`);
   }
@@ -1715,6 +1694,7 @@ function nativeNavigationTripPayload(trip, target = navigationTarget(trip)) {
     finalLat: Number(trip.dest_lat),
     finalLng: Number(trip.dest_lng),
     total: money(trip.final_total_cents ?? trip.total_cents ?? trip.quote_total_cents ?? 0),
+    dailyEarnings: money(dailyDriverEarningsCents({ driverId: S.user?.id, trips: S.data?.trips, ledger: S.data?.ledger })),
     passengerName: nativePassengerName(trip),
     paymentMethod: trip.payment_method || "cash",
   };
@@ -1737,7 +1717,13 @@ async function applyNativeNavigationAction(action, tripId) {
   return rpc("navigation_action", { action, trip_id: tripId });
 }
 async function showNativeNavigationOffer(offer) {
-  if (!S.nativeNavigationActive || !isNativeApp() || S.profile?.role !== "driver") return;
+  if (!isNativeApp() || S.profile?.role !== "driver") return;
+  let carConnected = S.nativeNavigationActive;
+  if (!carConnected) {
+    try { carConnected = Boolean((await YavoiNavigation.isCarConnected())?.connected); }
+    catch { carConnected = false; }
+  }
+  if (!carConnected) return;
   await YavoiNavigation.showOffer({
     offerId: offer.offer_id,
     summary: `${money(offer.net_cents)} · ${decimal(offer.distance_km)} km · ${offer.trip_eta_minutes} min`,
@@ -1752,8 +1738,21 @@ function prepareNativeNavigationEvents() {
     if (action === "resume") { S.nativeNavigationActive = false; return; }
     if (action === "accept_offer" && offerId) {
       const accepted = await rpc("accept", { offer_id: offerId });
-      notify(accepted.queued_after_trip_id ? "Viaje agregado a tu cola." : "Viaje aceptado.");
+      if (accepted?.error) throw Error(accepted.error);
+      if (accepted.queued_after_trip_id) {
+        notify("Viaje agregado a tu cola.");
+      } else if (accepted?.id) {
+        location.hash = "trip/" + accepted.id;
+        await beginDriverNavigation({ ...accepted, status: "accepted" });
+        notify("Viaje aceptado. Navegación activa hacia el punto de recolección.");
+      }
       await syncDriverOffers({ present: false });
+      return;
+    }
+    if (action === "reject_offer" && offerId) {
+      await rpc("reject_offer", { offer_id: offerId, reason: "El conductor decidió no tomar la solicitud" });
+      await syncDriverOffers({ present: false });
+      notify("Solicitud rechazada. Yavoi! continúa buscando un conductor disponible.");
       return;
     }
     if (!tripId) return;
@@ -1817,7 +1816,8 @@ function driverMapNavigationMarkup(trip, conductor) {
     : trip.status === "arrived"
       ? { title: "Estás en la recolección", action: "start-trip", label: "Iniciar viaje", icon: "navigation" }
       : { title: "Lleva al pasajero a su destino", action: "finish", label: trip.payment_method === "cash" ? "Finalizar y cobrar" : "Finalizar viaje", icon: "flag" };
-  return `<section class="in-app-navigation" aria-live="polite"><div class="in-app-navigation-head"><span>${I("navigation")} Navegación Yavoi!</span><strong>${phase.title}</strong><small>${decimal(distance)} km · ${minutes} min</small></div><p>${e(destination)}</p><div class="in-app-navigation-actions"><button type="button" class="in-app-navigation-primary" data-action="${phase.action}">${I(phase.icon)} ${phase.label}</button><button type="button" class="in-app-navigation-external" data-action="external-navigation" aria-label="Abrir Google Maps">${I("external-link")}</button></div><small class="in-app-navigation-help">${embeddedDriverNavigation() ? "Vista de navegación en Yavoi!. Google Maps ofrece guía por voz." : "La navegación nativa mantiene el viaje activo."}</small></section>`;
+  const dailyEarnings = dailyDriverEarningsCents({ driverId: S.user?.id, trips: S.data?.trips, ledger: S.data?.ledger });
+  return `<section class="in-app-navigation" aria-live="polite"><div class="in-app-navigation-head"><span>${I("navigation")} Navegación Yavoi!</span><strong>${phase.title}</strong><small>${decimal(distance)} km · ${minutes} min</small></div><div class="in-app-navigation-earnings" aria-label="Ganancias netas de hoy"><span>Ganancia neta de hoy</span><strong>${money(dailyEarnings)}</strong></div><p>${e(destination)}</p><div class="in-app-navigation-actions"><button type="button" class="in-app-navigation-primary" data-action="${phase.action}">${I(phase.icon)} ${phase.label}</button><button type="button" class="in-app-navigation-external" data-action="external-navigation" aria-label="Abrir Google Maps">${I("external-link")}</button></div><small class="in-app-navigation-help">${embeddedDriverNavigation() ? "Vista de navegación en Yavoi!. Google Maps ofrece guía por voz." : "La navegación nativa mantiene el viaje activo."}</small></section>`;
 }
 async function refreshAvailableUnits({ fit = true } = {}) {
   if (!S.map || S.profile?.role !== "passenger" || !S.origin) return;

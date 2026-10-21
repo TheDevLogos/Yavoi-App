@@ -67,6 +67,42 @@
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/navigation_daily_earnings_card"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/yavoi_navigation_card"
+        android:elevation="12dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="14dp"
+        android:paddingRight="14dp"
+        android:paddingTop="9dp"
+        android:paddingBottom="9dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/navigation_header">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="GANANCIA NETA HOY"
+            android:textColor="@color/yavoi_orange"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/navigation_daily_earnings"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:text="$0.00"
+            android:textColor="@color/yavoi_white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
         android:id="@+id/navigation_offer_card"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -79,7 +115,7 @@
         android:visibility="gone"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/navigation_header">
+        app:layout_constraintTop_toBottomOf="@id/navigation_daily_earnings_card">
 
         <TextView android:id="@+id/navigation_offer_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/yavoi_orange" android:textSize="12sp" android:textStyle="bold" />
         <TextView android:id="@+id/navigation_offer_summary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:textColor="@color/yavoi_white" android:textSize="15sp" android:textStyle="bold" />
