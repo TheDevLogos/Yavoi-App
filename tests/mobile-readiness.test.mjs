@@ -42,7 +42,8 @@ test("native builds use Yavoi's secure host for Maps and recover from rejected m
   assert.match(driverConfig, /"hostname": "yavoi-app\.vercel\.app"/);
   assert.match(passengerConfig, /"hostname": "yavoi-app\.vercel\.app"/);
   assert.match(portal, /window\.gm_authFailure/);
-  assert.match(portal, /googleMapsAuthenticationFailed/);
+  assert.match(portal, /callback=\$\{callbackName\}/);
+  assert.match(portal, /googleMapsPromise = null/);
 });
 
 test("legacy data cannot break navigation, rewards, or the driver income screen", async () => {

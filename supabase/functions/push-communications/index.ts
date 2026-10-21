@@ -63,32 +63,45 @@ async function sendNative(token: string, credentials: { projectId: string; token
 }
 
 Deno.serve(async (request) => {
-  if (request.method !== "POST") return Response.json({ error: "Método no permitido" }, { status: 405 });
+  const origin = request.headers.get("origin") || "";
+  const allowedOrigins = new Set(["https://yavoi-app.vercel.app", "https://localhost", "http://localhost"]);
+  const corsHeaders = allowedOrigins.has(origin) ? {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Headers": "authorization, apikey, x-client-info, content-type, x-yavoi-communications-worker",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    Vary: "Origin",
+  } : { Vary: "Origin" };
+  const json = (body: unknown, init: ResponseInit = {}) => Response.json(body, {
+    ...init,
+    headers: { ...Object.fromEntries(new Headers(init.headers)), ...corsHeaders },
+  });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
+  if (request.method !== "POST") return json({ error: "Método no permitido" }, { status: 405 });
   const workerToken = request.headers.get("x-yavoi-communications-worker") || "";
   if (workerToken) {
     const { data: verified, error } = await admin.rpc("verify_yavoi_communications_worker_token", { supplied_token: workerToken });
-    if (error || verified !== true) return Response.json({ error: "Trabajador no autorizado" }, { status: 401 });
+    if (error || verified !== true) return json({ error: "Trabajador no autorizado" }, { status: 401 });
   } else {
     const jwt = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || "";
     const { data: authResult, error: authError } = await admin.auth.getUser(jwt);
-    if (authError || !authResult.user) return Response.json({ error: "Sesión inválida" }, { status: 401 });
+    if (authError || !authResult.user) return json({ error: "Sesión inválida" }, { status: 401 });
     let claims: Record<string, unknown> = {};
     try { claims = JSON.parse(atob(jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); } catch { /* rejected below */ }
     const { data: operator } = await admin.from("profiles").select("role,suspended").eq("id", authResult.user.id).maybeSingle();
-    if (claims.aal !== "aal2" || operator?.role !== "admin" || operator.suspended) return Response.json({ error: "Operaciones requiere verificación en dos pasos" }, { status: 403 });
+    if (claims.aal !== "aal2" || operator?.role !== "admin" || operator.suspended) return json({ error: "Operaciones requiere verificación en dos pasos" }, { status: 403 });
   }
   const body = await request.json().catch(() => ({}));
   const messageId = String(body.message_id || "");
-  if (!/^[0-9a-f-]{36}$/i.test(messageId)) return Response.json({ error: "Mensaje inválido" }, { status: 400 });
+  if (!/^[0-9a-f-]{36}$/i.test(messageId)) return json({ error: "Mensaje inválido" }, { status: 400 });
   const { data: message, error: messageError } = await admin.from("communication_messages").select("id,audience,recipient_id,category,title,body,image_path,send_push,ends_at").eq("id", messageId).maybeSingle();
-  if (messageError) return Response.json({ error: "No se pudo consultar el aviso" }, { status: 500 });
-  if (!message || !message.send_push) return Response.json({ error: "Trabajo no encontrado" }, { status: 404 });
-  if (Date.parse(message.ends_at) <= Date.now()) return Response.json({ error: "El mensaje ya no está vigente" }, { status: 409 });
+  if (messageError) return json({ error: "No se pudo consultar el aviso" }, { status: 500 });
+  if (!message || !message.send_push) return json({ error: "Trabajo no encontrado" }, { status: 404 });
+  if (Date.parse(message.ends_at) <= Date.now()) return json({ error: "El mensaje ya no está vigente" }, { status: 409 });
   const { data: claim, error: claimError } = await admin.rpc("claim_yavoi_communications_push_job", { target_message_id: messageId });
-  if (claimError) return Response.json({ error: "No se pudo reservar el envío push" }, { status: 500 });
+  if (claimError) return json({ error: "No se pudo reservar el envío push" }, { status: 500 });
   if (!claim?.claimed) {
-    if (claim?.not_found) return Response.json({ error: "Trabajo no encontrado" }, { status: 404 });
-    return Response.json({ ok: true, more: false, processing: Boolean(claim?.processing), delivered: Number(claim?.delivered_count || 0), failed: Number(claim?.failed_count || 0) }, { status: claim?.complete ? 200 : 202 });
+    if (claim?.not_found) return json({ error: "Trabajo no encontrado" }, { status: 404 });
+    return json({ ok: true, more: false, processing: Boolean(claim?.processing), delivered: Number(claim?.delivered_count || 0), failed: Number(claim?.failed_count || 0) }, { status: claim?.complete ? 200 : 202 });
   }
   const job = {
     id: String(claim.job_id),
@@ -102,13 +115,13 @@ Deno.serve(async (request) => {
   else if (message.audience !== "all") query = query.eq("role", message.audience);
   if (job.last_profile_id) query = query.gt("id", job.last_profile_id);
   const { data: recipients, error: recipientsError } = await query;
-  if (recipientsError) return Response.json({ error: recipientsError.message }, { status: 500 });
+  if (recipientsError) return json({ error: recipientsError.message }, { status: 500 });
   if (!recipients?.length) {
     const { data: completed, error: completeError } = await admin.from("communication_push_jobs")
       .update({ state: "complete", last_error: null, claim_token: null, claim_expires_at: null, updated_at: new Date().toISOString() })
       .eq("id", job.id).eq("claim_token", job.claim_token).select("id");
-    if (completeError || !completed?.length) return Response.json({ error: "El turno de envío venció; la cola lo reintentará." }, { status: 409 });
-    return Response.json({ ok: true, more: false, delivered: job.delivered_count, failed: job.failed_count });
+    if (completeError || !completed?.length) return json({ error: "El turno de envío venció; la cola lo reintentará." }, { status: 409 });
+    return json({ ok: true, more: false, delivered: job.delivered_count, failed: job.failed_count });
   }
   const ids = recipients.map((item) => item.id);
   const [prefsResult, webResult, nativeResult] = await Promise.all([
@@ -116,7 +129,7 @@ Deno.serve(async (request) => {
     admin.from("device_push_subscriptions").select("id,profile_id,endpoint,p256dh,auth").in("profile_id", ids),
     admin.from("native_push_tokens").select("id,profile_id,token,app_id").in("profile_id", ids),
   ]);
-  if (prefsResult.error || webResult.error || nativeResult.error) return Response.json({ error: "No se pudieron consultar los dispositivos" }, { status: 500 });
+  if (prefsResult.error || webResult.error || nativeResult.error) return json({ error: "No se pudieron consultar los dispositivos" }, { status: 500 });
   const optedIn = new Set((prefsResult.data || []).filter((row) => row.marketing_enabled).map((row) => row.profile_id));
   // Manual campaigns require explicit consent regardless of their label.
   // Transactional trip and safety pushes use their existing dedicated flow.
@@ -160,6 +173,6 @@ Deno.serve(async (request) => {
     claim_expires_at: null,
     updated_at: new Date().toISOString(),
   }).eq("id", job.id).eq("claim_token", job.claim_token).select("id");
-  if (updateError || !updated?.length) return Response.json({ error: "El turno de envío venció; la cola lo reintentará." }, { status: 409 });
-  return Response.json({ ok: true, more, delivered: job.delivered_count + delivered, failed: job.failed_count + failed });
+  if (updateError || !updated?.length) return json({ error: "El turno de envío venció; la cola lo reintentará." }, { status: 409 });
+  return json({ ok: true, more, delivered: job.delivered_count + delivered, failed: job.failed_count + failed });
 });

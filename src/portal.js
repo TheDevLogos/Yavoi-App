@@ -170,24 +170,36 @@ if (/^YV[A-F0-9]{8}$/.test(referralFromUrl)) {
 const modal = $("#modal");
 let toastTimer, pollTimer;
 let googleMapsPromise;
-let googleMapsAuthenticationFailed = false;
 function loadGoogleMaps() {
   if (!GOOGLE_MAPS_BROWSER_KEY) return Promise.resolve(false);
   if (window.google?.maps) return Promise.resolve(true);
   if (googleMapsPromise) return googleMapsPromise;
   googleMapsPromise = new Promise((resolve) => {
-    // Maps JavaScript API can load its global object even when Google rejects
-    // the key. Capture that callback so we never mount a broken map surface.
+    // A script load event can precede Maps initialization. The official callback
+    // fires only when the Maps JavaScript API is actually ready to create maps.
     const previousAuthFailure = window.gm_authFailure;
+    const callbackName = "__yavoiGoogleMapsReady";
+    let settled = false;
+    let timeout;
+    const finish = (ready) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      delete window[callbackName];
+      window.gm_authFailure = previousAuthFailure;
+      if (!ready) googleMapsPromise = null;
+      resolve(Boolean(ready && window.google?.maps));
+    };
+    window[callbackName] = () => finish(true);
     window.gm_authFailure = () => {
-      googleMapsAuthenticationFailed = true;
       previousAuthFailure?.();
+      finish(false);
     };
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_BROWSER_KEY)}&v=weekly&language=es&region=MX`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_BROWSER_KEY)}&v=weekly&loading=async&callback=${callbackName}&language=es&region=MX`;
     script.async = true;
-    script.onload = () => setTimeout(() => resolve(Boolean(window.google?.maps) && !googleMapsAuthenticationFailed), 0);
-    script.onerror = () => resolve(false);
+    script.onerror = () => finish(false);
+    timeout = setTimeout(() => finish(false), 15_000);
     document.head.append(script);
   });
   return googleMapsPromise;
@@ -204,7 +216,7 @@ function googleMapsFacade() {
       const iconUrl = this.options.icon?.iconUrl || this.options.icon?.html?.match(/src="([^"]+)"/)?.[1];
       this.raw = new maps.Marker({
         map: map.raw, position: this.point, draggable: Boolean(this.options.draggable), opacity: this.options.opacity,
-        icon: iconUrl ? { url: iconUrl, scaledSize: new maps.Size(42, 42), anchor: new maps.Point(21, 21) } : undefined,
+        icon: iconUrl ? { url: iconUrl, scaledSize: new maps.Size(39, 60), anchor: new maps.Point(19, 30) } : undefined,
         zIndex: this.options.zIndexOffset,
       });
       Object.entries(this.handlers).forEach(([event, handler]) => maps.event.addListener(this.raw, event, (payload) => handler(event === "dragend" ? { target: this } : { latlng: payload?.latLng ? { lat: payload.latLng.lat(), lng: payload.latLng.lng() } : payload })));
@@ -264,6 +276,12 @@ async function useGoogleMaps() {
   if (!await loadGoogleMaps()) return false;
   L = googleMapsFacade();
   return true;
+}
+function showGoogleMapUnavailable(id) {
+  const host = document.getElementById(id);
+  if (!host) return;
+  host.innerHTML = '<div class="google-map-unavailable"><strong>Google Maps no está disponible ahora.</strong><span>Comprueba tu conexión y vuelve a cargar el mapa.</span><button type="button" class="btn secondary">Reintentar</button></div>';
+  host.querySelector("button")?.addEventListener("click", () => location.reload());
 }
 const socialIcons = {
   google: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285f4" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.4a4.7 4.7 0 0 1-2 3v2.5h3.3c1.9-1.8 2.9-4.4 2.9-7.4Z"/><path fill="#34a853" d="M12 22c2.7 0 5-.9 6.7-2.4l-3.3-2.5c-.9.6-2 1-3.4 1a5.9 5.9 0 0 1-5.5-4.1H3.1v2.6A10 10 0 0 0 12 22Z"/><path fill="#fbbc05" d="M6.5 14a6 6 0 0 1 0-3.9V7.4H3.1A10 10 0 0 0 3.1 16.6L6.5 14Z"/><path fill="#ea4335" d="M12 5.9c1.6 0 3 .5 4.1 1.6l3.1-3.1A10 10 0 0 0 3.1 7.4l3.4 2.7A5.9 5.9 0 0 1 12 5.9Z"/></svg>`,
@@ -1882,16 +1900,12 @@ function rotateVehicle(marker, heading) {
 }
 async function startMap(trip = null) {
   if (!$("#ride-map")) return;
-  await useGoogleMaps();
+  if (!await useGoogleMaps()) return showGoogleMapUnavailable("ride-map");
   if (!$("#ride-map")) return;
   S.map = L.map("ride-map", { zoomControl: true, scrollWheelZoom: false }).setView(
     [28.19065, -105.47045],
     14,
   );
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(S.map);
   S.map.zoomControl.setPosition("bottomright");
   bindVehicleScale();
   if (!trip)
@@ -2468,7 +2482,7 @@ function updateDriverHomeMap(position = S.latestPosition) {
 }
 async function startDriverHomeMap() {
   if (!$("#driver-live-map")) return;
-  await useGoogleMaps();
+  if (!await useGoogleMaps()) return showGoogleMapUnavailable("driver-live-map");
   if (!$("#driver-live-map")) return;
   S.map = L.map("driver-live-map", {
     zoomControl: true,
@@ -2483,10 +2497,6 @@ async function startDriverHomeMap() {
     bounceAtZoomLimits: false,
     tap: true,
   }).setView([28.19065, -105.47045], 14);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(S.map);
   S.map.zoomControl.setPosition("bottomright");
   updateDriverHomeMap();
   setTimeout(() => S.map?.invalidateSize(), 70);
@@ -4810,17 +4820,13 @@ function updateOperationsMapLayers({ fit = false } = {}) {
 }
 async function startOperationsMap() {
   if (!$("#operations-map")) return;
-  await useGoogleMaps();
+  if (!await useGoogleMaps()) return showGoogleMapUnavailable("operations-map");
   if (!$("#operations-map")) return;
   S.opsHadLiveUnits = null;
   S.map = L.map("operations-map", { zoomControl: true, scrollWheelZoom: true }).setView(
     DELICIAS_MAP_CENTER,
     OPERATIONS_EMPTY_ZOOM,
   );
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(S.map);
   S.map.zoomControl.setPosition("bottomright");
   bindVehicleScale();
   updateOperationsMapLayers({ fit: true });
