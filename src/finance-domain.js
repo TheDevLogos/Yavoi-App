@@ -8,7 +8,7 @@ export function barPercent(value, values) {
 }
 export const entryNames = {
   cash_commission: 'Comisión de viaje en efectivo',
-  commission: 'Comisión Yavoi! (IVA incluido)', isr: 'ISR retenido', vat: 'IVA retenido',
+  commission: 'Comisión Yavoi! (IVA incluido)', isr: 'ISR de referencia', vat: 'IVA de referencia',
   refund: 'Ajuste comercial', promotion_credit: 'Promoción financiada',
   opening: 'Saldo inicial conciliado', incentive: 'Incentivo', commission_payment: 'Comisión conciliada',
   adjustment: 'Ajuste conciliado del viaje',

@@ -1,4 +1,4 @@
-const CACHE = "yavoi-shell-v8";
+const CACHE = "yavoi-shell-v9";
 const CORE = [
   "/",
   "/portal.html",
@@ -80,10 +80,11 @@ self.addEventListener("push", (event) => {
     body: payload.body || "Tienes una actualización de Yavoi!.",
     icon: "/icons/yavoi-192.png",
     badge: "/icons/yavoi-maskable-512.png",
+    ...(typeof payload.image === "string" && payload.image.startsWith("https://") ? { image: payload.image } : {}),
     tag: payload.tag || "yavoi-update",
     renotify: Boolean(payload.renotify),
     requireInteraction: Boolean(payload.require_interaction),
-    actions: payload.actions || [{ action: "open", title: "Ver solicitud" }],
+    actions: payload.actions || [{ action: "open", title: "Abrir Yavoi!" }],
     data: { target: payload.target || "home", offer_id: payload.offer_id || "" },
   };
   event.waitUntil(self.registration.showNotification(title, options));

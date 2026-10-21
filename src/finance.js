@@ -1,12 +1,19 @@
 import './finance.css';
 import { rpc, money, escapeHtml as e } from './client.js';
 import { barPercent } from './finance-domain.js';
+import { taxRows } from './finance-report.js';
 
 const $ = selector => document.querySelector(selector);
 const chartMoney = cents => new Intl.NumberFormat('es-MX', {
   style: 'currency', currency: 'MXN', notation: 'compact', maximumFractionDigits: 0,
 }).format(Number(cents || 0) / 100);
 const row = (label, value) => `<div class="receipt-row"><span>${e(label)}</span><strong>${money(value)}</strong></div>`;
+const localToday = () => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Chihuahua', year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(new Date());
+const periodLabel = report => report?.meta?.starts_on && report?.meta?.ends_on
+  ? `${report.meta.starts_on} a ${report.meta.ends_on}` : 'Periodo no determinado';
+const dateLabel = value => value ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value).toLocaleDateString('es-MX', { timeZone: 'America/Chihuahua' }) : 'Sin fecha límite registrada';
 
 export function financeTripDetail(trip, driver = false) {
   const breakdown = trip.financial_breakdown || {};
@@ -69,47 +76,139 @@ export async function mountFinanceOperations({ notify, openModal }) {
   const host = document.createElement('section');
   host.className = 'panel section-gap finance-operations';
   host.id = 'finance-operations';
-  $('#page-content')?.append(host);
-  let data;
+  document.querySelector('#page-content')?.append(host);
+  let data = {};
+  let liquidations = {};
+  let destination = {};
+  let compliance = {};
+  let fiscalReport = {};
 
   async function render() {
-    try { data = await rpc('finance_operations'); }
-    catch (error) { host.textContent = `No pudimos cargar la conciliación: ${error.message}`; return; }
-    const settings = data.settings || {};
-    host.innerHTML = `<span class="eyebrow">CONCILIACIÓN Y FISCALIDAD</span><h2>Corte semanal interno</h2><div class="finance-stats"><div><small>ISR registrado del mes</small><strong>${money(data.tax_summary?.isr_cents)}</strong></div><div><small>IVA registrado del mes</small><strong>${money(data.tax_summary?.vat_cents)}</strong></div><div><small>Aportación estatal aplicable por viaje</small><strong>${money(data.state_summary)}</strong></div></div><p class="hint">${data.state_contribution_policy?.enabled ? `Aportación activa desde ${new Date(data.state_contribution_policy.effective_at).toLocaleString('es-MX')}; folio ${e(data.state_contribution_policy.authorization_reference)}.` : 'La aportación estatal no se incluye mientras falte validar la autorización y convenio de Yavoi!.'} Este módulo calcula y conserva la conciliación administrativa. No procesa pagos desde la aplicación.</p><details class="finance-detail"><summary>Reglas comerciales</summary><form id="finance-settings-form"><label class="check"><input name="dynamic_enabled" type="checkbox" ${settings.dynamic_enabled ? 'checked' : ''}>Activar demanda dinámica visible en cotización</label><label>Máximo de demanda (multiplicador)<input name="dynamic_max" type="number" min="1" max="1.5" step="0.05" value="${settings.dynamic_max_bps / 10000}" required></label><fieldset><legend>Reducción de comisión por nivel (puntos porcentuales)</legend>${['Activo', 'Destacado', 'Élite', 'Referente'].map(level => `<label>${level}<input data-finance-level="${level}" type="number" min="0" max="50" step="0.01" value="${Number(settings.level_discounts?.[level] || 0) / 100}"></label>`).join('')}</fieldset><label>Motivo<textarea name="note" minlength="5" required></textarea></label><button class="btn" type="submit">Guardar reglas</button></form></details><section class="finance-detail"><h3>Conductores y cuota semanal</h3><div class="finance-driver-list">${(data.drivers || []).map(driver => `<article><strong>${e(driver.name)}</strong><div class="finance-stats"><span>Servicios de la semana ${money(driver.wallet?.week_cash_cents)}</span><span>Comisión o cuota pendiente ${money(driver.wallet?.debt_cents)}</span></div><p class="hint">${driver.fiscal?.verified_at ? `Datos validados: ${driver.fiscal.entity === 'company' ? 'persona moral' : 'persona física'} · ${driver.fiscal.rfc_provided ? `RFC ${e(driver.fiscal.rfc)}` : 'sin RFC proporcionado'}` : 'Pendiente: Operaciones debe validar tipo fiscal y RFC antes de habilitar la aceptación del esquema semanal'} · La conciliación queda en Operaciones.</p><div class="row wrap"><button class="btn secondary" data-finance-driver="${driver.id}">${driver.fiscal?.verified_at ? 'Actualizar validación fiscal' : 'Validar tipo fiscal y RFC'}</button><button class="btn secondary" data-finance-adjustment="${driver.id}">Registrar ajuste administrativo</button></div><button class="link" data-finance-export-driver="${driver.id}">Descargar corte del mes</button></article>`).join('') || '<p>No hay conductores para conciliar.</p>'}</div></section>`;
-    $('#finance-settings-form').onsubmit = event => submit(event, async form => {
-      const levels = {};
-      form.querySelectorAll('[data-finance-level]').forEach(input => { levels[input.dataset.financeLevel] = Math.round(Number(input.value) * 100); });
-      await rpc('finance_settings', { payouts_enabled: false, dynamic_enabled: form.elements.dynamic_enabled.checked, dynamic_max_bps: Math.round(Number(form.elements.dynamic_max.value) * 10000), level_discounts: levels, note: form.elements.note.value });
+    host.innerHTML = '<p role="status">Revisando pendientes de Operaciones…</p>';
+    try {
+      [data, liquidations, destination, compliance, fiscalReport] = await Promise.all([
+        rpc('finance_operations'),
+        rpc('weekly_commission_dashboard', { period: 'month', anchor: localToday() }),
+        rpc('weekly_transfer_destination'),
+        rpc('transport_compliance', { action: 'read' }).catch(() => ({})),
+        rpc('finance_report', { period: 'month', anchor: localToday() }).catch(() => ({})),
+      ]);
+    } catch (error) {
+      host.innerHTML = `<p>No pudimos cargar los pendientes financieros: ${e(error.message)}</p><a class="btn secondary" href="#payments">Abrir Pagos y cuotas</a>`;
+      return;
+    }
+    const drivers = data.drivers || [];
+    const cuts = liquidations.open_settlements || (liquidations.settlements || []).filter(cut => ['pending', 'submitted', 'overdue'].includes(cut.status));
+    const fiscalPending = drivers.filter(driver => !driver.fiscal?.verified_at);
+    const receiptPending = cuts.filter(cut => cut.status === 'submitted');
+    const overdue = cuts.filter(cut => cut.status === 'overdue');
+    const actionable = [];
+    const statePolicy = data.state_contribution_policy || {};
+    if (compliance.company_ready === false) actionable.push({
+      title: 'Expediente regulatorio de Yavoi! incompleto',
+      detail: 'Revisa autorización, convenio y póliza empresarial en Cumplimiento antes de activar controles obligatorios.',
+      period: 'Vigencia regulatoria', deadline: 'Antes de habilitar el modo obligatorio.', href: '#audit', action: 'Revisar cumplimiento', tone: 'pending',
     });
-    host.querySelectorAll('[data-finance-export-driver]').forEach(button => button.onclick = () => exportStatement({ driver_id: button.dataset.financeExportDriver, month: data.month }).catch(error => notify(error.message)));
-    host.querySelectorAll('[data-finance-driver]').forEach(button => button.onclick = () => fiscalDialog((data.drivers || []).find(driver => driver.id === button.dataset.financeDriver)));
-    host.querySelectorAll('[data-finance-adjustment]').forEach(button => button.onclick = () => adjustmentDialog((data.drivers || []).find(driver => driver.id === button.dataset.financeAdjustment)));
+    const warnings = [];
+    if (!destination.configured) warnings.push('Falta registrar el banco y la CLABE de Yavoi!. No se generan vencimientos ni suspensiones por cortes nuevos.');
+    if (fiscalPending.length) warnings.push(`${fiscalPending.length} conductor(es) necesitan validación de tipo fiscal y RFC antes de aceptar la liquidación vigente.`);
+    if (receiptPending.length) warnings.push(`${receiptPending.length} comprobante(s) semanal(es) esperan conciliación de Operaciones.`);
+    if (overdue.length) warnings.push(`${overdue.length} liquidación(es) vencidas requieren revisión y aviso en Bandeja de Entrada.`);
+    if (!statePolicy.enabled) {
+      warnings.push('La referencia estatal de 1.5% sigue desactivada hasta registrar y validar autorización y convenio.');
+      actionable.push({ title: 'Aportación estatal pendiente de autorización', detail: 'No se suma a los cortes mientras falten autorización y convenio vigentes.', period: 'Vigencia estatal', deadline: 'Antes de activar el concepto.', href: '#payments', action: 'Revisar política estatal', tone: 'pending' });
+    }
+    for (const driver of fiscalPending) actionable.push({ title: `Perfil fiscal pendiente · ${driver.name || 'Conductor'}`, detail: 'Validar tipo fiscal y RFC antes de aplicar el desglose semanal.', period: 'Próximo corte elegible', deadline: 'Antes de emitir el primer corte.', href: '#finance', action: 'Validar perfil', tone: 'pending' });
+    const monthPeriod = periodLabel(fiscalReport);
+    const summary = fiscalReport.summary || {};
+    const difference = Number(summary.difference_cents || 0);
+    if (Number(summary.pending_trips || 0) > 0 || difference !== 0) {
+      actionable.push({
+        title: 'Diferencias de cobro por conciliar',
+        detail: `${Number(summary.pending_trips || 0)} viaje(s) en revisión · diferencia neta ${money(difference)}.`,
+        period: monthPeriod, deadline: 'Atención operativa; sin vencimiento automático.', href: '#finance', action: 'Abrir conciliación', tone: 'pending',
+      });
+    }
+    for (const cut of overdue) actionable.push({
+      title: `Liquidación vencida · ${cut.driver_name || 'Conductor'}`,
+      detail: `${money(cut.settlement_due_cents ?? cut.commission_due_cents)} pendiente · semana ${cut.week_start}.`,
+      period: cut.week_start, deadline: dateLabel(cut.due_at), href: '#payments', action: 'Revisar corte', tone: 'overdue',
+    });
+    for (const cut of receiptPending) actionable.push({
+      title: `Comprobante por conciliar · ${cut.driver_name || 'Conductor'}`,
+      detail: `${money(cut.settlement_due_cents ?? cut.commission_due_cents)} recibido por confirmar · semana ${cut.week_start}.`,
+      period: cut.week_start, deadline: dateLabel(cut.due_at), href: '#payments', action: 'Conciliar comprobante', tone: 'pending',
+    });
+    for (const driver of compliance.drivers || []) {
+      const missing = Array.isArray(driver.missing) ? driver.missing : [];
+      if (missing.length) actionable.push({
+        title: `Expediente incompleto · ${driver.full_name || 'Conductor'}`,
+        detail: `Falta revisar: ${missing.join(', ')}.`, period: 'Sin periodo fiscal',
+        deadline: 'Antes de autorizar o renovar el permiso.', href: '#fleet', action: 'Revisar expediente', tone: 'pending',
+      });
+    }
+    const fiscalRows = fiscalReport.summary ? taxRows(fiscalReport) : [];
+    const historicalDriverTaxRows = fiscalRows.filter(tax => ['isr_withheld', 'vat_withheld'].includes(tax.kind) && Number(tax.due || 0) > 0);
+    if (historicalDriverTaxRows.length) actionable.push({
+      title: 'Conciliar registros fiscales históricos de conductores',
+      detail: `${historicalDriverTaxRows.map(tax => tax.label).join(' e ')} requieren comprobación; no se tratan como retención vigente ni pago pendiente al SAT.`,
+      period: monthPeriod, deadline: 'Sin fecha límite registrada; confirmar con asesor fiscal.', href: '#finance', action: 'Revisar registros históricos', tone: 'pending',
+    });
+    for (const tax of fiscalRows) {
+      const isHistoricalDriverReference = ['isr_withheld', 'vat_withheld'].includes(tax.kind);
+      const isCompanyEstimate = ['company_vat', 'company_isr'].includes(tax.kind) && !tax.validated;
+      if (isHistoricalDriverReference || (!tax.validated && !isCompanyEstimate)) continue;
+      const amount = Number(tax.balance ?? tax.due ?? 0);
+      if (amount <= 0) continue;
+      const validated = Boolean(tax.validated);
+      actionable.push({
+        title: `${validated ? 'Pago fiscal por registrar' : 'Determinación fiscal pendiente'} · ${tax.label}`,
+        detail: validated ? `Saldo por pagar ${money(amount)}.` : `Importe calculado de referencia ${money(amount)}; requiere determinación validada.`,
+        period: monthPeriod, deadline: 'Verificar y registrar la fecha del calendario fiscal.', href: '#finance',
+        action: validated ? 'Registrar pago' : 'Registrar determinación', tone: validated ? 'overdue' : 'pending',
+      });
+    }
+    host.innerHTML = `<div class="row between wrap"><div><span class="eyebrow">CONTROL DE PENDIENTES</span><h2>Conciliación y preparación fiscal</h2><p>Alertas operativas que requieren una acción o confirmación.</p></div><button class="btn secondary" data-finance-refresh>Actualizar</button></div>
+      <div class="finance-stats"><div><small>DESTINO SEMANAL</small><strong>${destination.configured ? 'Configurado' : 'Pendiente'}</strong><span>${destination.configured ? 'Los cortes nuevos podrán emitirse' : 'Cortes nuevos pausados'}</span></div><div><small>PERFILES FISCALES PENDIENTES</small><strong>${fiscalPending.length}</strong><span>Validar tipo fiscal y RFC</span></div><div><small>COMPROBANTES EN REVISIÓN</small><strong>${receiptPending.length}</strong><span>Requieren conciliación</span></div><div><small>LIQUIDACIONES VENCIDAS</small><strong>${overdue.length}</strong><span>Revisar saldo y permiso</span></div></div>
+      <section class="finance-detail"><h3>Bandeja de pendientes accionables</h3><p class="hint">Cada aviso indica el periodo y la fecha límite conocida. Cuando el calendario fiscal o el destino de pago no está configurado, se señala como pendiente de captura; el sistema no inventa vencimientos.</p>${!destination.configured ? `<article class="finance-action-item blocked"><div><strong>Destino bancario pendiente · emisión de cortes bloqueada</strong><p>Registra y valida la cuenta receptora para poder crear avisos con fecha de vencimiento.</p><small>Periodo: próxima liquidación · Fecha límite: no aplica mientras siga bloqueada.</small></div><a class="btn secondary" href="#payments">Configurar destino</a></article>` : ''}${actionable.length ? `<div class="finance-action-list">${actionable.map(item => `<article class="finance-action-item ${e(item.tone)}"><div><strong>${e(item.title)}</strong><p>${e(item.detail)}</p><small>Periodo: ${e(item.period)} · Fecha límite: ${e(item.deadline)}</small></div><a class="btn secondary" href="${e(item.href)}">${e(item.action)}</a></article>`).join('')}</div>` : '<p class="hint">No hay diferencias, cortes vencidos, documentos faltantes ni importes fiscales pendientes en el periodo consultado.</p>'}<div class="row wrap"><a class="btn secondary" href="#payments">Abrir Pagos y cuotas</a><a class="btn secondary" href="#fleet">Revisar expedientes</a></div>${warnings.length ? `<details class="finance-warning-context"><summary>Contexto de configuración</summary><ul class="finance-warning-list">${warnings.map(warning => `<li>${e(warning)}</li>`).join('')}</ul></details>` : ''}</section>
+      <section class="finance-detail section-gap"><div class="row between wrap"><div><h3>Validación fiscal de conductores</h3><p>Operaciones registra el tipo fiscal y RFC para que el conductor vea y acepte su desglose semanal. La validación no registra ni entera impuestos.</p></div><span class="badge ${fiscalPending.length ? 'pending' : ''}">${fiscalPending.length ? `${fiscalPending.length} por validar` : 'Al día'}</span></div><div class="finance-driver-list">${drivers.map(driver => { const fiscal = driver.fiscal || {}; const verified = Boolean(fiscal.verified_at); return `<article><div class="row between wrap"><strong>${e(driver.name || 'Conductor')}</strong><span class="badge ${verified ? '' : 'pending'}">${verified ? `Validado · ${e(fiscal.entity === 'company' ? 'persona moral' : 'persona física')}` : 'Validación pendiente'}</span></div><p class="hint">${verified ? `${fiscal.rfc_provided ? `RFC ${e(fiscal.rfc || '')}` : 'Sin RFC reportado'} · validado ${new Date(fiscal.verified_at).toLocaleDateString('es-MX')}` : 'Validar contra la documentación fiscal y registrar una nota de revisión.'}</p><button class="btn secondary" data-finance-driver="${e(driver.id)}">${verified ? 'Actualizar validación' : 'Validar tipo fiscal y RFC'}</button></article>`; }).join('') || '<p>No hay conductores registrados.</p>'}</div></section>
+      <p class="hint">Las tasas en los cortes son referencias contractuales. Las obligaciones fiscales de Yavoi! y los pagos oficiales se concilian por separado en Finanzas. Un cierre no sustituye una declaración ni el criterio del asesor fiscal.</p>`;
+    host.querySelector('[data-finance-refresh]').onclick = render;
+    host.querySelectorAll('[data-finance-driver]').forEach(button => {
+      button.onclick = () => {
+        const driver = drivers.find(item => item.id === button.dataset.financeDriver);
+        fiscalDialog(driver);
+      };
+    });
   }
-  async function submit(event, callback, close = false) {
+
+  async function submit(event, callback) {
     event.preventDefault();
-    const form = event.currentTarget; const button = form.querySelector('button[type=submit]'); button.disabled = true;
-    try { await callback(form); if (close) $('#modal').close(); await render(); notify('Cambio administrativo registrado en auditoría.'); }
-    catch (error) { notify(error.message); button.disabled = false; }
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await callback(form);
+      document.querySelector('#modal')?.close();
+      await render();
+      notify('Validación fiscal guardada en la auditoría.');
+    } catch (error) {
+      notify(error.message);
+      button.disabled = false;
+    }
   }
+
   function fiscalDialog(driver) {
     const fiscal = driver?.fiscal || {};
-    openModal(`Datos fiscales · ${driver.name}`, `<form id="finance-fiscal-form"><label>Tipo<select name="entity"><option value="individual" ${fiscal.entity !== 'company' ? 'selected' : ''}>Persona física · ISR ref. 2.1%</option><option value="company" ${fiscal.entity === 'company' ? 'selected' : ''}>Persona moral · ISR ref. 2.5% con RFC / 20% sin RFC</option></select></label><label>RFC propio (vacío si no proporcionado)<input name="rfc" maxlength="13" value="${e(fiscal.rfc)}"></label><p class="hint">Valida los datos contra la documentación fiscal del conductor. Las tasas son referencias de liquidación; no significan que Yavoi! haya retenido o enterado esos impuestos.</p><label>Nota de validación<textarea name="note" minlength="5" required></textarea></label><button class="btn" type="submit">Guardar validación</button></form>`);
-    $('#finance-fiscal-form').onsubmit = event => submit(event, form => rpc('finance_verify_profile', { driver_id: driver.id, entity: form.elements.entity.value, rfc: form.elements.rfc.value, verify_destination: false, note: form.elements.note.value }), true);
+    openModal(`Datos fiscales · ${driver.name}`, `<form id="finance-fiscal-form"><label>Tipo<select name="entity"><option value="individual" ${fiscal.entity !== 'company' ? 'selected' : ''}>Persona física</option><option value="company" ${fiscal.entity === 'company' ? 'selected' : ''}>Persona moral</option></select></label><label>RFC (vacío si no proporcionado)<input name="rfc" maxlength="13" value="${e(fiscal.rfc)}"></label><p class="hint">Verifica contra documentación fiscal. La tasa que se muestre al conductor es una referencia contractual; no significa que Yavoi! retuvo o enteró ese impuesto.</p><label>Nota de validación<textarea name="note" minlength="5" required></textarea></label><button class="btn" type="submit">Guardar validación</button></form>`);
+    document.querySelector('#finance-fiscal-form').onsubmit = event => submit(event, form => rpc('finance_verify_profile', {
+      driver_id: driver.id,
+      entity: form.elements.entity.value,
+      rfc: form.elements.rfc.value,
+      verify_destination: false,
+      note: form.elements.note.value,
+    }));
   }
-  function adjustmentDialog(driver) {
-    const requestKey = crypto.randomUUID();
-    openModal(`Ajuste administrativo · ${driver.name}`, `<form id="finance-adjustment-form"><label>Concepto<select name="kind"><option value="commission_payment">Cuota o comisión confirmada</option><option value="promotion">Promoción aplicada al viaje</option><option value="incentive">Incentivo registrado</option><option value="adjustment">Corrección administrativa</option></select></label><label>Importe (MXN)<input name="amount" type="number" min="0.01" max="1000000" step="0.01" required></label><label>ID de viaje (si aplica)<input name="trip_id" placeholder="UUID del viaje"></label><label>Referencia interna o documento<input name="reference" minlength="5" maxlength="160" required></label><label>Motivo y soporte<textarea name="note" minlength="5" required></textarea></label><p class="hint">Este registro sólo actualiza la conciliación interna. No inicia ni registra pagos, transferencias o retiros.</p><button class="btn" type="submit">Registrar ajuste</button></form>`);
-    $('#finance-adjustment-form').onsubmit = event => submit(event, form => {
-      const values = Object.fromEntries(new FormData(form));
-      return rpc('finance_funding', { driver_id: driver.id, request_key: requestKey, ...values, amount_cents: Math.round(Number(form.elements.amount.value) * 100) });
-    }, true);
-  }
-  async function exportStatement(payload) {
-    const report = await rpc('finance_driver_statement', payload);
-    const rows = ['Fecha,Concepto,Importe,Viaje,Referencia', ...(report.entries || []).map(entry => [new Date(entry.date).toLocaleString('es-MX'), entry.kind, Number(entry.amount_cents || 0) / 100, entry.trip_id || '', entry.reference || ''].map(value => `"${String(value).replaceAll('"', '""')}"`).join(','))];
-    const url = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a'); link.href = url; link.download = `corte-yavoi-${report.month}.csv`; link.click(); URL.revokeObjectURL(url);
-  }
+
   await render();
 }

@@ -156,6 +156,8 @@ const S = {
   addressSessions: {},
   addressSuggestionTimers: {},
   pushSubscriptionReady: false,
+  unreadInboxCount: 0,
+  marketingPushEnabled: false,
   reminderTimer: null,
 };
 const referralFromUrl = String(new URLSearchParams(location.search).get("ref") || "").trim().toUpperCase();
@@ -492,7 +494,7 @@ async function enableDriverPushNotifications() {
           await refreshPage().catch((error) => notify(errorMessage(error)));
           await openPushedOffer().catch((error) => notify(errorMessage(error)));
           const target = String(notification.data?.target || "home");
-          if (!offerId && /^(home|rewards|trips|profile|schedule)$/.test(target)) location.hash = target;
+          if (!offerId && /^(home|rewards|trips|profile|schedule|inbox)$/.test(target)) location.hash = target;
           const tripId = target.match(/^trip\/([0-9a-f-]{36})$/i)?.[1];
           if (!offerId && tripId) location.hash = `trip/${tripId}`;
         });
@@ -1110,6 +1112,12 @@ async function loadSession() {
   S.data.driver_permission = b.driver_permission || null;
   S.data.settlement_receipts = b.settlement_receipts || [];
   S.data.operating_notices = b.operating_notices || [];
+  if (S.profile.role !== "admin") {
+    try {
+      const [preferences] = await Promise.all([inboxRpc("preferences"), refreshUnreadInbox()]);
+      S.marketingPushEnabled = Boolean(preferences.marketing_enabled);
+    } catch { /* Keep the session available while communications deploy. */ }
+  }
   scheduleYavoiReminders();
   S.auditReport = null;
   S.scheduleData = null;
@@ -1135,11 +1143,43 @@ async function signOut() {
     authPage();
   });
 }
+function updateInboxBadges() {
+  const count = Math.max(0, Number(S.unreadInboxCount || 0));
+  $$(".inbox-unread-dot").forEach((dot) => dot.classList.toggle("hidden", count === 0));
+  $$("[data-inbox-count]").forEach((label) => { label.textContent = String(count); });
+  $$(".inbox-home-notice").forEach((notice) => notice.classList.toggle("hidden", count === 0));
+  $$(".inbox-top-link, .inbox-profile-link, .profile-shortcut[href='#inbox']").forEach((link) => {
+    link.setAttribute("aria-label", count ? `Bandeja de Entrada: ${count} mensajes nuevos` : "Bandeja de Entrada");
+  });
+}
+async function refreshUnreadInbox() {
+  if (!S.profile || S.profile.role === "admin") return;
+  const result = await inboxRpc("unread_count");
+  S.unreadInboxCount = Number(result.count || 0);
+  updateInboxBadges();
+}
 function shell(content, title, subtitle = "") {
   teardownMap();
   const p = S.profile;
   $("#app").innerHTML =
     `<div class="app-shell role-${e(p.role)}"><aside class="sidebar"><a href="/"><img class="logo" src="/assets/yavoi-logo.png" alt="Yavoi!"></a><div class="city">${I("map-pin")} Delicias, Chihuahua</div><div class="nav-label">${e(roles[p.role]).toUpperCase()}</div><nav>${navs[p.role].map(([id, icon, label]) => `<a href="#${id}" class="nav-${id} ${S.view === id ? "active" : ""}">${I(icon)}<span>${label}</span></a>`).join("")}</nav><div class="sidebar-bottom"><a class="sidebar-user" href="#profile">${avatar(p.full_name, p.avatar_path)}<div><strong>${e(p.full_name)}</strong><small>${e(roles[p.role])}</small></div></a><button class="logout" data-action="logout">${I("log-out")}<span>Cerrar sesión</span></button></div></aside><div class="workspace"><header class="topbar"><div class="topbar-brand"><img class="mobile-brand" src="/assets/yavoi-logo.png" alt="Yavoi!"><strong>Mi Yavoi! <span class="muted">/ ${e(roles[p.role])}</span></strong></div><div class="right"><span class="connection ${S.connected ? "" : "offline"}"><i></i>${S.connected ? "Conectado" : "Sin conexión"}</span><a class="landing-link link" href="/">Ir a la landing</a>${p.role === "admin" ? `<a class="icon-btn" href="#help" aria-label="Reportes y atención">${I("headset")}</a>` : ""}<a class="icon-btn" href="#profile" aria-label="Mi perfil">${I("user-round")}</a></div></header><main><div class="page-title"><div><div class="eyebrow">${p.role === "admin" ? "CENTRO DE OPERACIÓN" : "TU CIUDAD. A TU RITMO."}</div><h1>${title}</h1><p>${subtitle}</p></div><span class="badge neutral">${I("shield-check")} Acceso personal</span></div><div id="page-content">${content}</div></main><div class="footer-note">Yavoi! · Tu raite, al instante · Delicias, Chihuahua</div></div></div>`;
+  if (p.role !== "admin") {
+    const inboxLink = document.createElement("a");
+    inboxLink.className = "icon-btn inbox-top-link";
+    inboxLink.href = "#inbox";
+    inboxLink.setAttribute("aria-label", "Bandeja de Entrada");
+    inboxLink.innerHTML = `${I("inbox")}<span class="inbox-unread-dot" aria-hidden="true"></span>`;
+    $(".topbar .right a[href='#profile']")?.before(inboxLink);
+    $(".topbar .right a[href='#profile']")?.classList.add("inbox-profile-link");
+    if (S.view === "home") {
+      const homeNotice = document.createElement("a");
+      homeNotice.className = "inbox-home-notice";
+      homeNotice.href = "#inbox";
+      homeNotice.innerHTML = `${I("inbox")}<span>Tienes <strong data-inbox-count>0</strong> mensajes nuevos en tu Bandeja de Entrada.</span>${I("arrow-right")}`;
+      $("#page-content")?.prepend(homeNotice);
+    }
+    updateInboxBadges();
+  }
   if (p.role === "admin") enhanceOperationsLayout();
   iconsNow();
   $$("[data-action]").forEach((b) => (b.onclick = () => handleAction(b.dataset.action, b)));
@@ -3121,7 +3161,7 @@ function receiptSettlementBreakdownMarkup(receipt = {}) {
 function driverBillingCard() {
   const d = S.driver || {};
   const rate = Number(d.cash_commission_bps || 1500) / 100;
-  return `<details class="panel profile-section billing-summary"><summary><span>${I("circle-dollar-sign")}<strong>Liquidación semanal</strong></span><span class="badge">${rate}% comercial</span>${I("chevron-down")}</summary><div class="profile-section-body"><h2>Desglose comercial y conceptos de referencia</h2><div class="grid2 billing-rules"><div>${I("banknote")}<span><small>VIAJES EN EFECTIVO</small><strong>Comisión Yavoi! ${rate}% + referencias por viaje</strong><p>El corte suma la comisión aceptada, las referencias de ISR e IVA y la aportación estatal configurada.</p></span></div><div>${I("calendar-check")}<span><small>CIERRE SEMANAL</small><strong>Lunes a domingo · liquidación el lunes</strong><p>Operaciones genera el total el lunes a las 7:00 a. m.; el pago vence ese mismo lunes.</p></span></div></div><p class="hint">El efectivo del viaje lo recibes directamente del pasajero. Los importes de ISR/IVA y la aportación estatal son conceptos contractuales de referencia, no retenciones ni comprobantes fiscales. La referencia estatal queda sujeta a la autorización y convenio que correspondan a Yavoi!. La app no procesa transferencias ni retiros.</p></div></details>`;
+  return `<details class="panel profile-section billing-summary"><summary><span>${I("circle-dollar-sign")}<strong>Liquidación semanal</strong></span><span class="badge">${rate}% comercial</span>${I("chevron-down")}</summary><div class="profile-section-body"><h2>Desglose comercial y conceptos de referencia</h2><div class="grid2 billing-rules"><div>${I("banknote")}<span><small>VIAJES EN EFECTIVO</small><strong>Comisión Yavoi! ${rate}% + referencias por viaje</strong><p>El corte suma la comisión aceptada, las referencias de ISR e IVA y la aportación estatal configurada.</p></span></div><div>${I("calendar-check")}<span><small>CIERRE SEMANAL</small><strong>Lunes a domingo · liquidación el lunes</strong><p>Operaciones genera el total el lunes a las 7:00 a. m.; el conductor cuenta con 48 horas desde que recibe el primer aviso.</p></span></div></div><p class="hint">El efectivo del viaje lo recibes directamente del pasajero. Los importes de ISR/IVA y la aportación estatal son conceptos contractuales de referencia, no retenciones ni comprobantes fiscales. La referencia estatal queda sujeta a la autorización y convenio que correspondan a Yavoi!. La app no procesa transferencias ni retiros.</p></div></details>`;
 }
 function driverSettlementsMarkup() {
   const settlements = S.data.commission_settlements || [];
@@ -3177,7 +3217,7 @@ function weeklyProfileMarkup() {
   const policyPrompt = terms.version && !terms.accepted && !terms.fiscal_profile_verified
     ? `<section class="liquidation-consent"><div class="eyebrow">VALIDACIÓN DE OPERACIONES PENDIENTE</div><h3>Primero se debe confirmar tu información fiscal</h3><p>Operaciones debe validar si tributas como persona física o moral y si proporcionaste RFC. Hasta entonces no se aplicarán referencias de ISR o IVA ni podrás aceptar el nuevo desglose semanal.</p><p>Tu actividad y los cortes anteriores conservan sus condiciones. Cuando Operaciones valide los datos, podrás revisar y aceptar expresamente el nuevo esquema antes de que se aplique a viajes futuros.</p></section>`
     : terms.version && !terms.accepted
-      ? `<section class="liquidation-consent"><div class="eyebrow">NUEVO ESQUEMA DE LIQUIDACIÓN</div><h3>Confirma los conceptos del corte semanal</h3><p>Desde ${terms.effective_at ? date(terms.effective_at) : "el próximo corte"}, los viajes en efectivo posteriores a tu aceptación sumarán: comisión Yavoi! ${Number(terms.commission_bps || 1500) / 100}%; ISR de referencia ${isrBps / 100}% sobre la base para ${fiscalEntity === "company" ? "persona moral" : "persona física"}; ${vatShare / 100}% del IVA trasladado como referencia; ${stateChargeText}</p><p>El total se transfiere a Yavoi! los lunes. Estas referencias no son retenciones ni un comprobante de entero al SAT o al Estado; Operaciones debe conciliar por separado las obligaciones y pagos oficiales.</p><form id="driver-liquidation-terms-form"><label class="check"><input type="checkbox" name="accepted" required><span><strong>Acepto pagar el total semanal de estos conceptos a Yavoi!</strong><small>Incluye la comisión comercial y los conceptos de referencia descritos arriba. Se aplica sólo a viajes futuros; no es una retención fiscal ni acredita pagos de Yavoi! al SAT o Chihuahua.</small></span></label><button class="btn" type="submit">Aceptar esquema de liquidación ${I("check")}</button></form></section>`
+      ? `<section class="liquidation-consent"><div class="eyebrow">NUEVO ESQUEMA DE LIQUIDACIÓN</div><h3>Confirma los conceptos del corte semanal</h3><p>Desde ${terms.effective_at ? date(terms.effective_at) : "el próximo corte"}, los viajes en efectivo posteriores a tu aceptación sumarán: comisión Yavoi! ${Number(terms.commission_bps || 1500) / 100}%; ISR de referencia ${isrBps / 100}% sobre la base para ${fiscalEntity === "company" ? "persona moral" : "persona física"}; ${vatShare / 100}% del IVA trasladado como referencia; ${stateChargeText}</p><p>Operaciones calcula el corte el lunes a las 7:00 a. m. y envía un aviso con el total. Si el destino bancario de Yavoi! sigue sin configurarse, no se emite solicitud de pago. Cuando se habilite, el aviso mostrará la cuenta y el plazo de 48 horas. Estas referencias no son retenciones ni un comprobante de entero al SAT o al Estado; las obligaciones y pagos oficiales se concilian por separado.</p><form id="driver-liquidation-terms-form"><label class="check"><input type="checkbox" name="accepted" required><span><strong>Acepto pagar el total semanal de estos conceptos a Yavoi!</strong><small>Incluye la comisión comercial y los conceptos de referencia descritos arriba. Se aplica sólo a viajes futuros; no es una retención fiscal ni acredita pagos de Yavoi! al SAT o Chihuahua.</small></span></label><button class="btn" type="submit">Aceptar esquema de liquidación ${I("check")}</button></form></section>`
     : terms.accepted ? `<p class="hint liquidation-accepted">Esquema de liquidación aceptado el ${date(terms.accepted_at)}. Los nuevos conceptos sólo se aplican a viajes completados después de tu aceptación y de la fecha de vigencia.</p>` : "";
   return `<details class="profile-section weekly-profile" open><summary><span>${I("shield-check")}<strong>Permiso para conducir</strong></span><span class="badge ${permit.allowed ? "" : "pending"}">${e(permit.label || "En revisión")}</span></summary><div class="weekly-summary"><div><small>ESTADO DE OPERACIÓN</small><strong>${e(permit.label || "Pendiente de validación")}</strong><p>${e(permit.message || "Operaciones revisa tu expediente y tus cortes semanales.")}</p></div></div><div class="profile-section-body">${policyPrompt}<div class="grid2 weekly-grid"><section><h3>Total de liquidación pendiente</h3><strong>${money(current && !["paid", "waived"].includes(current.status) ? liquidationDue(current) : 0)}</strong>${current ? settlementBreakdownMarkup(current) : ""}<p>${current ? `Semana del ${new Date(current.week_start + "T12:00:00").toLocaleDateString("es-MX", { dateStyle: "long" })} · vence ${date(current.due_at)}` : "El corte se genera el lunes posterior a tu primera semana con viajes."}</p>${current && !["paid", "waived"].includes(current.status) ? `<button class="btn" data-settlement-proof="${e(current.id)}">${current.status === "submitted" ? "Actualizar comprobante" : "Cargar comprobante de pago"} ${I("upload")}</button>` : ""}</section><section><h3>Comprobantes de conciliación</h3>${receipts.length ? receipts.slice(0, 3).map((receipt) => `<div class="fee-row"><div><strong>${e(receipt.receipt_number)}</strong><small>${date(receipt.verified_at)} · ${e(receipt.reference)}</small></div><strong>${money(receipt.amount_cents)}</strong></div>${receiptSettlementBreakdownMarkup(receipt)}`).join("") : '<p class="muted">Aquí aparecerá el comprobante cuando Operaciones concilie tu pago.</p>'}</section></div><section><h3>Historial de liquidaciones</h3>${fees.length ? fees.map((fee) => `<div class="fee-row"><div><strong>${new Date(fee.week_start + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</strong><small>Vence ${date(fee.due_at)}</small></div><span class="badge ${["pending", "submitted", "overdue"].includes(fee.status) ? "pending" : ""}">${e(statusName[fee.status])}</span><strong>${money(liquidationDue(fee))}</strong></div>${settlementBreakdownMarkup(fee)}`).join("") : '<p class="muted">Sin liquidaciones registradas.</p>'}</section></div></details>`;
 }
@@ -3185,15 +3225,130 @@ function bindWeeklyProof() { bindDriverSettlements(); }
 async function financialDashboardView() {
   shell('<div id="finance-dashboard" class="fin-dashboard"><div class="fin-empty" role="status">Preparando los reportes financieros…</div></div>', 'Finanzas', 'Tus viajes, conciliaciones y cierres en un solo lugar.');
   await mountFinanceDashboard({ notify, openModal, drivers: S.data.drivers || [] });
+  await mountFinanceOperations({ notify, openModal });
 }
 const commissionStatusName = { pending: "Pendiente", submitted: "En revisión", paid: "Conciliada", overdue: "Vencida", waived: "Condonada" };
-function commissionPaymentsMarkup(report) {
+function addLiquidationPdfDisclaimer(doc, text, width) {
+  const lines = doc.splitTextToSize(text, width - 26);
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const lineHeight = 4;
+  let y = Number(doc.lastAutoTable?.finalY || 42) + 7;
+  if (y + lines.length * lineHeight > pageHeight - 8) {
+    doc.addPage();
+    y = 18;
+  }
+  doc.setFontSize(8);
+  doc.setTextColor(85, 85, 85);
+  doc.text(lines, 13, y);
+}
+async function downloadWeeklyLiquidationPdf(report, filters = {}) {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+  const width = doc.internal.pageSize.getWidth();
+  doc.setFillColor(8, 35, 56);
+  doc.rect(0, 0, width, 27, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(17);
+  doc.text('Yavoi! · Liquidaciones semanales', 13, 12);
+  doc.setFontSize(9);
+  doc.text(`${report.period_label || report.period || 'Periodo seleccionado'} · ${report.start_day || ''} a ${report.end_day || ''} · MXN`, 13, 20);
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8);
+  doc.text(`Conductor: ${filters.driver_name || 'Todos'} · Estado: ${filters.status_name || 'Todos'}`, 13, 25);
+  const summary = report.summary || {};
+  autoTable(doc, {
+    startY: 32,
+    head: [['Resumen del periodo', 'Importe']],
+    body: [
+      ['Viajes en efectivo completados', String(summary.trips || 0)],
+      ['Cobrado por conductores', money(summary.gross_cash_cents || 0)],
+      ['Comisión comercial Yavoi!', money(summary.commission_due_cents || 0)],
+      ['ISR de referencia en viajes', money(summary.isr_reference_cents || 0)],
+      ['IVA de referencia en viajes', money(summary.vat_reference_cents || 0)],
+      ['Aportación estatal de referencia', money(summary.state_contribution_cents || 0)],
+      ['Liquidaciones abiertas en el filtro', money(summary.pending_liquidation_cents || 0)],
+      ['Liquidaciones conciliadas en el periodo', money(summary.paid_liquidation_cents || 0)],
+    ],
+    theme: 'grid', styles: { fontSize: 8 }, headStyles: { fillColor: [8, 35, 56] },
+  });
+  const settlements = (report.settlements || []).filter(item =>
+    (!filters.driver_id || item.driver_id === filters.driver_id)
+    && (!filters.status || item.status === filters.status)
+    && (!filters.week_start || item.week_start === filters.week_start)
+  );
+  doc.setTextColor(8, 35, 56);
+  doc.setFontSize(10);
+  doc.text('Cortes incluidos (periodo, conductor y estado seleccionados)', 13, doc.lastAutoTable.finalY + 6);
+  autoTable(doc, {
+    startY: doc.lastAutoTable.finalY + 10,
+    head: [['Conductor', 'Semana', 'Viajes', 'Comisión', 'ISR ref.', 'IVA ref.', 'Estatal ref.', 'Total', 'Estado', 'Vence']],
+    body: settlements.map(item => [
+      item.driver_name || 'Conductor', item.week_start, String(item.trip_count || 0),
+      money(item.commission_due_cents), money(item.isr_reference_cents), money(item.vat_reference_cents),
+      money(item.state_contribution_cents), money(liquidationDue(item)),
+      commissionStatusName[item.status] || item.status, date(item.due_at),
+    ]),
+    theme: 'grid', styles: { fontSize: 7, cellPadding: 2 }, headStyles: { fillColor: [8, 35, 56] },
+  });
+  const tripRows = settlements.flatMap(item => (Array.isArray(item.liquidation_breakdown) ? item.liquidation_breakdown : []).map(part => [
+    item.driver_name || 'Conductor', item.week_start, String(part.trip_id || '').slice(0, 10),
+    date(part.completed_at), money(part.fare_gross_cents), money(part.commission_cents),
+    money(part.isr_reference_cents), money(part.vat_reference_cents),
+    money(part.state_contribution_cents), money(part.settlement_due_cents),
+  ]));
+  if (tripRows.length) {
+    doc.addPage();
+    doc.setTextColor(8, 35, 56);
+    doc.setFontSize(13);
+    doc.text('Detalle por viaje incluido en cada corte', 13, 14);
+    autoTable(doc, {
+      startY: 19,
+      head: [['Conductor', 'Semana', 'Viaje', 'Fecha', 'Base', 'Comisión', 'ISR ref.', 'IVA ref.', 'Estatal ref.', 'Total']],
+      body: tripRows, theme: 'grid', styles: { fontSize: 7, cellPadding: 2 }, headStyles: { fillColor: [8, 35, 56] },
+    });
+  }
+  addLiquidationPdfDisclaimer(doc, 'Los importes fiscales se muestran como referencias contractuales. Este reporte no acredita retenciones ni pagos al SAT o al Estado.', width);
+  doc.save(`yavoi-liquidaciones-${report.start_day || 'periodo'}-${report.end_day || ''}-${filters.status || 'todos'}-${filters.driver_id ? 'conductor' : 'flotilla'}.pdf`);
+}
+
+async function downloadSettlementPdf(settlement) {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  const width = doc.internal.pageSize.getWidth();
+  const detail = Array.isArray(settlement.liquidation_breakdown) ? settlement.liquidation_breakdown : [];
+  doc.setFillColor(8, 35, 56); doc.rect(0, 0, width, 34, 'F');
+  doc.setTextColor(255, 255, 255); doc.setFontSize(17); doc.text('Yavoi! · Corte individual', 13, 13);
+  doc.setFontSize(9); doc.text(`${settlement.driver_name || 'Conductor'} · semana ${settlement.week_start} · MXN`, 13, 21);
+  doc.text(`Estado: ${commissionStatusName[settlement.status] || settlement.status} · vence ${date(settlement.due_at)}`, 13, 28);
+  doc.setTextColor(8, 35, 56);
+  autoTable(doc, { startY: 40, head: [['Componente contractual', 'Importe']], body: [
+    ['Viajes en efectivo', money(settlement.gross_cash_cents)],
+    ['Comisión comercial Yavoi!', money(settlement.commission_due_cents)],
+    ['ISR de referencia', money(settlement.isr_reference_cents)],
+    ['IVA de referencia', money(settlement.vat_reference_cents)],
+    ['Aportación estatal de referencia', money(settlement.state_contribution_cents)],
+    ['Total del corte', money(liquidationDue(settlement))],
+  ], theme: 'grid', styles: { fontSize: 9 }, headStyles: { fillColor: [8, 35, 56] } });
+  if (detail.length) {
+    autoTable(doc, { startY: doc.lastAutoTable.finalY + 8,
+      head: [['Viaje / fecha', 'Base', 'Comisión', 'ISR ref.', 'IVA ref.', 'Estatal ref.', 'Total']],
+      body: detail.map(item => [
+        `${String(item.trip_id || '').slice(0, 8)} · ${item.completed_at ? date(item.completed_at) : 'Sin fecha'}`,
+        money(item.fare_gross_cents), money(item.commission_cents), money(item.isr_reference_cents),
+        money(item.vat_reference_cents), money(item.state_contribution_cents), money(item.settlement_due_cents),
+      ]), theme: 'grid', styles: { fontSize: 7, cellPadding: 2 }, headStyles: { fillColor: [8, 35, 56] } });
+  }
+  addLiquidationPdfDisclaimer(doc, 'Este corte corresponde a viajes cobrados en efectivo por el conductor. ISR, IVA y aportación estatal son conceptos contractuales de referencia; no acreditan retención ni pago a autoridades.', width);
+  doc.save(`yavoi-corte-${String(settlement.week_start || 'semana')}-${String(settlement.driver_name || 'conductor').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`);
+}
+
+function commissionPaymentsMarkup(report, filters = {}) {
   const summary = report.summary || {};
   const settlements = report.settlements || [];
   const drivers = report.drivers || [];
   const series = report.series || [];
   const max = Math.max(1, ...series.map((item) => Number(item.commission_due_cents || 0)));
-  const pending = settlements.filter((item) => ["pending", "submitted", "overdue"].includes(item.status));
+  const pending = settlements.filter((item) => ['pending', 'submitted', 'overdue'].includes(item.status));
   const pendingAmount = pending.reduce((sum, item) => sum + liquidationDue(item), 0);
   const policy = report.policy || { commission_bps: 1500 };
   const rate = Number(policy.commission_bps || 1500) / 100;
@@ -3207,15 +3362,29 @@ function commissionPaymentsMarkup(report) {
     row.state += Number(item.state_contribution_cents || 0);
     pendingByDriver.set(item.driver_id, row);
   });
-  return `<section class="commission-policy panel"><div><div class="eyebrow">LIQUIDACIÓN SEMANAL</div><h2>Comisión Yavoi! ${rate}% + conceptos por viaje</h2><p>Se cierra de lunes a domingo. Operaciones genera el total cada lunes a las 7:00 a. m.; el conductor transfiere a Yavoi! antes de terminar ese lunes.</p><p class="hint">Las referencias de ISR/IVA y la aportación estatal son partidas separadas del total contractual: no son retenciones y el recibo de Yavoi! no acredita que se hayan enterado al SAT o al Estado.</p></div><span class="badge neutral">Corte: lunes</span></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Porcentaje de comisión comercial</h2><p>Los cambios programados se aplican hacia delante. Cada viaje conserva su porcentaje registrado al aceptar.</p></div><button class="btn secondary" data-refresh-payments>Actualizar datos</button></div><form id="commission-policy-form" class="row wrap"><label>Porcentaje para el siguiente corte<select name="commission_rate">${[5,10,15,20,25,30].map(value => `<option value="${value}" ${(Number(report.policy?.pending_commission_bps || policy.commission_bps) / 100) === value ? "selected" : ""}>${value}%</option>`).join("")}</select></label><label>Motivo de Operaciones<input name="note" minlength="5" maxlength="500" required placeholder="Motivo del cambio"></label><button class="btn" type="submit">Programar cambio</button></form></section><div class="commission-periods" role="group" aria-label="Periodo"><button class="${report.period === "day" ? "active" : ""}" data-commission-period="day">Hoy</button><button class="${report.period === "week" ? "active" : ""}" data-commission-period="week">Semana</button><button class="${report.period === "month" ? "active" : ""}" data-commission-period="month">Mes</button></div><div class="grid4 stats"><div class="stat"><small>VIAJES EN EFECTIVO</small><strong>${Number(summary.trips || 0)}</strong><p>${money(summary.gross_cash_cents || 0)} cobrados por conductores</p></div><div class="stat"><small>COMISIÓN YAVOI! ${rate}%</small><strong>${money(summary.commission_due_cents || 0)}</strong><p>Comisión registrada por viaje</p></div><div class="stat"><small>TOTAL PENDIENTE DE LIQUIDAR</small><strong>${money(pendingAmount)}</strong><p>${pending.length} cortes por conciliar</p></div><div class="stat"><small>REFERENCIAS INCLUIDAS EN LIQUIDACIONES</small><strong>${money(summary.cash_liquidation_component_cents || 0)}</strong><p>ISR/IVA aceptados; estatal sólo con autorización/convenio</p></div></div><section class="panel section-gap"><div class="row between wrap"><div><h2>Comisión acumulada por día</h2><p>Componente comercial de los viajes en efectivo completados.</p></div><span class="badge neutral">${e(report.start_day || "")} a ${e(report.end_day || "")}</span></div><div class="commission-chart">${series.length ? series.map((item) => `<div><span style="height:${Math.max(8, Math.round(Number(item.commission_due_cents || 0) / max * 150))}px" title="${money(item.commission_due_cents)}"></span><small>${new Date(item.day + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}</small><strong>${money(item.commission_due_cents)}</strong></div>`).join("") : '<div class="empty"><p>Aún no hay viajes en efectivo en este periodo.</p></div>'}</div></section><section class="panel section-gap"><h2>Impuestos y conceptos por periodo</h2><p>Las referencias se calculan desde la base fiscal guardada en cada viaje. No sustituyen una determinación del contador ni una declaración.</p><div class="commission-breakdown"><div><small>Base gravable</small><strong>${money(summary.taxable_base_cents || 0)}</strong></div><div><small>IVA trasladado en tarifa</small><strong>${money(summary.fare_vat_cents || 0)}</strong></div><div><small>IVA de la comisión</small><strong>${money(summary.commission_vat_cents || 0)}</strong></div><div><small>ISR de referencia · todos los viajes</small><strong>${money(summary.isr_reference_cents || 0)}</strong><small>Incluido en liquidaciones aceptadas: ${money(summary.isr_liquidation_reference_cents || 0)}</small></div><div><small>IVA de referencia · todos los viajes</small><strong>${money(summary.vat_reference_cents || 0)}</strong><small>Incluido en liquidaciones aceptadas: ${money(summary.vat_liquidation_reference_cents || 0)}</small></div><div><small>Aportación estatal de referencia · todos los viajes</small><strong>${money(summary.state_contribution_cents || 0)}</strong><small>Incluida en liquidaciones aceptadas: ${money(summary.state_liquidation_reference_cents || 0)}</small></div></div><p class="hint">Los importes del detalle de cada liquidación determinan lo que se solicita al conductor. Las estimaciones de todos los viajes son sólo informativas; Yavoi! registra por separado cualquier pago oficial al SAT o al Estado. El recibo confirma el pago contractual a Yavoi! y requiere aceptación expresa.</p></section><section class="panel section-gap"><div class="row between wrap"><div><h2>Liquidaciones semanales por conciliar</h2><p>El recibo reflejará el total recibido y su desglose de comisión, ISR/IVA de referencia y aportación estatal.</p></div><span class="badge ${pending.length ? "pending" : ""}">${pending.length ? `${pending.length} pendientes` : "Sin pendientes"}</span></div><div class="fee-list">${settlements.map((item) => `<article class="fee-card"><div><strong>${e(item.driver_name || "Conductor")}</strong><small>Semana ${e(item.week_start)} · vence ${date(item.due_at)} · ${Number(item.trip_count || 0)} viajes · efectivo ${money(item.gross_cash_cents)}</small>${settlementBreakdownMarkup(item)}</div><strong>${money(liquidationDue(item))}</strong><span class="badge ${["pending", "submitted", "overdue"].includes(item.status) ? "pending" : ""}">${e(commissionStatusName[item.status] || item.status)}</span>${item.status === "submitted" ? `<button class="btn" data-commission-review="${e(item.id)}">Revisar comprobante ${I("file-check")}</button>` : item.status === "paid" ? "" : '<span class="hint">Esperando comprobante del conductor</span>'}<button class="btn ${item.account_active === false ? "secondary" : "danger"}" data-driver-access="${e(item.driver_id)}" data-driver-name="${e(item.driver_name || "Conductor")}" data-active="${item.account_active === false ? "true" : "false"}">${item.account_active === false ? "Autorizar conducción" : "Suspender conducción"}</button></article>`).join("") || '<div class="empty"><p>Los cortes se crearán cada lunes al cerrar una semana con viajes.</p></div>'}</div></section><section class="panel section-gap"><h2>Seguimiento de liquidación por conductor</h2><div class="commission-driver-grid">${drivers.map((driver) => { const due = pendingByDriver.get(driver.id) || { total: 0, commission: 0, isr: 0, vat: 0, state: 0 }; return `<article><div class="row between"><strong>${e(driver.full_name)}</strong><span class="badge ${driver.account_active ? "" : "pending"}">${driver.account_active ? "Autorizado" : "Pendiente de permiso"}</span></div><div class="commission-driver-metrics"><span><small>VIAJES</small><strong>${Number(driver.trips || 0)}</strong></span><span><small>EFECTIVO</small><strong>${money(driver.gross_cash_cents || 0)}</strong></span><span><small>COMISIÓN GENERADA</small><strong>${money(driver.commission_due_cents || 0)}</strong></span></div><details><summary>Ver total pendiente</summary><p>Liquidación ${money(due.total)}: comisión ${money(due.commission)} · ISR ref. ${money(due.isr)} · IVA ref. ${money(due.vat)} · estatal ref. ${money(due.state)}.</p></details></article>`; }).join("") || '<div class="empty"><p>Sin conductores registrados.</p></div>'}</div></section>`;
+  const driverOptions = drivers.map(driver => `<option value="${e(driver.id)}" ${filters.driver_id === driver.id ? 'selected' : ''}>${e(driver.full_name || 'Conductor')}</option>`).join('');
+  const anchor = filters.anchor || report.start_day || new Date().toISOString().slice(0, 10);
+  const selectedStatus = filters.status || '';
+  const settlementCards = settlements.map((item) => `<article class="fee-card" data-settlement-card><div><strong>${e(item.driver_name || 'Conductor')}</strong><small>Semana ${e(item.week_start)} · vence ${date(item.due_at)} · ${Number(item.trip_count || 0)} viajes · efectivo ${money(item.gross_cash_cents)}</small>${settlementBreakdownMarkup(item)}</div><strong>${money(liquidationDue(item))}</strong><span class="badge ${['pending', 'submitted', 'overdue'].includes(item.status) ? 'pending' : ''}">${e(commissionStatusName[item.status] || item.status)}</span>${item.status === 'submitted' ? `<button class="btn" data-commission-review="${e(item.id)}">Revisar comprobante ${I('file-check')}</button>` : item.status === 'paid' ? '' : '<span class="hint">Esperando comprobante del conductor</span>'}<button class="btn secondary" type="button" data-export-settlement="${e(item.id)}">Exportar corte PDF ${I('file-down')}</button>${item.status === 'pending' || item.status === 'overdue' ? `<button class="btn ${item.account_active === false ? 'secondary' : 'danger'}" data-driver-access="${e(item.driver_id)}" data-driver-name="${e(item.driver_name || 'Conductor')}" data-active="${item.account_active === false ? 'true' : 'false'}">${item.account_active === false ? 'Autorizar conducción' : 'Suspender conducción'}</button>` : ''}</article>`).join('');
+  return `<section class="commission-policy panel"><div><div class="eyebrow">LIQUIDACIÓN SEMANAL</div><h2>Comisión Yavoi! ${rate}% + conceptos por viaje</h2><p>Se cierra de lunes a domingo. Operaciones prepara el corte los lunes a las 7:00 a. m.; el conductor dispone de 48 horas desde que recibe el aviso.</p><p class="hint">Las referencias de ISR/IVA y la aportación estatal son componentes contractuales, no retenciones. El recibo de Yavoi! no acredita pagos al SAT ni al Estado.</p></div><span class="badge neutral">Corte: lunes · plazo: 48 horas</span></section>
+  <section class="panel section-gap"><div class="row between wrap"><div><h2>Porcentaje de comisión comercial</h2><p>Los cambios se aplican hacia delante. Cada viaje conserva el porcentaje registrado al aceptarse.</p></div><button class="btn secondary" data-refresh-payments>Actualizar datos</button></div><form id="commission-policy-form" class="row wrap"><label>Porcentaje para el siguiente corte<select name="commission_rate">${[5,10,15,20,25,30].map(value => `<option value="${value}" ${(Number(report.policy?.pending_commission_bps || policy.commission_bps) / 100) === value ? 'selected' : ''}>${value}%</option>`).join('')}</select></label><label>Motivo de Operaciones<input name="note" minlength="5" maxlength="500" required placeholder="Motivo del cambio"></label><button class="btn" type="submit">Programar cambio</button></form></section>
+  <form class="commission-settlement-filters" id="commission-unified-filters"><label>Periodo<select name="period"><option value="day" ${report.period === 'day' ? 'selected' : ''}>Día</option><option value="week" ${report.period === 'week' ? 'selected' : ''}>Semana</option><option value="month" ${report.period === 'month' ? 'selected' : ''}>Mes</option></select></label><label>Fecha de referencia<input name="anchor" type="date" value="${e(anchor)}"></label><label>Conductor<select name="driver_id"><option value="">Todos</option>${driverOptions}</select></label><label>Estado<select name="status"><option value="" ${!selectedStatus ? 'selected' : ''}>Todos</option><option value="pending" ${selectedStatus === 'pending' ? 'selected' : ''}>Pendiente</option><option value="submitted" ${selectedStatus === 'submitted' ? 'selected' : ''}>En revisión</option><option value="overdue" ${selectedStatus === 'overdue' ? 'selected' : ''}>Vencida</option><option value="paid" ${selectedStatus === 'paid' ? 'selected' : ''}>Conciliada</option><option value="waived" ${selectedStatus === 'waived' ? 'selected' : ''}>Condonada</option></select></label><button class="btn secondary" type="reset">Limpiar filtros</button><button class="btn" type="submit">Aplicar filtros ${I('filter')}</button></form>
+  <div class="grid4 stats"><div class="stat"><small>VIAJES EN EFECTIVO · FILTRO</small><strong>${Number(summary.trips || 0)}</strong><p>${money(summary.gross_cash_cents || 0)} cobrados por conductores en el periodo</p></div><div class="stat"><small>COMISIÓN YAVOI! ${rate}% · FILTRO</small><strong>${money(summary.commission_due_cents || 0)}</strong><p>Comisión registrada por viaje en el periodo</p></div><div class="stat"><small>CORTES ABIERTOS · FILTRO</small><strong>${money(pendingAmount)}</strong><p>${pending.length} cortes pendientes, enviados o vencidos</p></div><div class="stat"><small>REFERENCIAS DE LIQUIDACIÓN · FILTRO</small><strong>${money(summary.cash_liquidation_component_cents || 0)}</strong><p>ISR/IVA aceptados; estatal sólo con autorización y convenio</p></div></div>
+  <section class="panel section-gap"><div class="row between wrap"><div><h2>Comisión acumulada por día</h2><p>Componente comercial de los viajes en efectivo completados.</p></div><span class="badge neutral">${e(report.start_day || '')} a ${e(report.end_day || '')}</span></div><div class="commission-chart">${series.length ? series.map((item) => `<div><span style="height:${Math.max(8, Math.round(Number(item.commission_due_cents || 0) / max * 150))}px" title="${money(item.commission_due_cents)}"></span><small>${new Date(item.day + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}</small><strong>${money(item.commission_due_cents)}</strong></div>`).join('') : '<div class="empty"><p>Aún no hay viajes en efectivo en este periodo.</p></div>'}</div></section>
+  <section class="panel section-gap"><h2>Impuestos y conceptos del filtro</h2><p>Las referencias se calculan desde la base fiscal guardada en cada viaje. No sustituyen una determinación ni una declaración.</p><div class="commission-breakdown"><div><small>Base gravable</small><strong>${money(summary.taxable_base_cents || 0)}</strong></div><div><small>IVA trasladado en tarifa</small><strong>${money(summary.fare_vat_cents || 0)}</strong></div><div><small>IVA de la comisión</small><strong>${money(summary.commission_vat_cents || 0)}</strong></div><div><small>ISR de referencia · viajes filtrados</small><strong>${money(summary.isr_reference_cents || 0)}</strong><small>Incluido en cortes aceptados: ${money(summary.isr_liquidation_reference_cents || 0)}</small></div><div><small>IVA de referencia · viajes filtrados</small><strong>${money(summary.vat_reference_cents || 0)}</strong><small>Incluido en cortes aceptados: ${money(summary.vat_liquidation_reference_cents || 0)}</small></div><div><small>Aportación estatal de referencia · viajes filtrados</small><strong>${money(summary.state_contribution_cents || 0)}</strong><small>Incluida en cortes aceptados: ${money(summary.state_liquidation_reference_cents || 0)}</small></div></div><p class="hint">El corte semanal actual incluye sólo viajes en efectivo cobrados directamente por el conductor. Los electrónicos quedan fuera hasta que Yavoi! tenga cobro digital conciliado; así no se solicita dos veces dinero ya recibido por la plataforma. Los pagos oficiales al SAT o al Estado se registran por separado.</p></section>
+  <section class="panel section-gap"><div class="row between wrap"><div><h2>Liquidaciones semanales</h2><p>Las tarjetas, gráficas, totales y cortes visibles usan los mismos filtros.</p></div><div class="row wrap"><span class="badge ${pending.length ? 'pending' : ''}">${pending.length ? `${pending.length} abiertas en el filtro` : 'Sin pendientes en el filtro'}</span><button class="btn navy" type="button" data-export-liquidations-pdf>Descargar resumen PDF</button></div></div><div class="fee-list" id="commission-settlement-list">${settlementCards || '<div class="empty"><p>Sin cortes que coincidan con el periodo, conductor y estado seleccionados. No se crean cortes hasta validar la cuenta receptora.</p></div>'}</div></section>
+  <section class="panel section-gap"><h2>Seguimiento de liquidación por conductor</h2><div class="commission-driver-grid">${drivers.map((driver) => { const due = pendingByDriver.get(driver.id) || { total: 0, commission: 0, isr: 0, vat: 0, state: 0 }; return `<article><div class="row between"><strong>${e(driver.full_name)}</strong><span class="badge ${driver.account_active ? '' : 'pending'}">${driver.account_active ? 'Autorizado' : 'Pendiente de permiso'}</span></div><div class="commission-driver-metrics"><span><small>VIAJES</small><strong>${Number(driver.trips || 0)}</strong></span><span><small>EFECTIVO</small><strong>${money(driver.gross_cash_cents || 0)}</strong></span><span><small>COMISIÓN GENERADA</small><strong>${money(driver.commission_due_cents || 0)}</strong></span></div><details><summary>Ver total pendiente</summary><p>Liquidación ${money(due.total)}: comisión ${money(due.commission)} · ISR ref. ${money(due.isr)} · IVA ref. ${money(due.vat)} · estatal ref. ${money(due.state)}.</p></details></article>`; }).join('') || '<div class="empty"><p>Sin conductores registrados.</p></div>'}</div></section>`;
 }
-async function paymentsView(period = S.paymentsPeriod || "week") {
+async function paymentsView(period = S.paymentsPeriod || "week", filters = S.paymentsFilters || {}) {
   S.paymentsPeriod = period;
+  filters = { anchor: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chihuahua', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), driver_id: '', status: '', ...filters, period };
+  S.paymentsFilters = filters;
   shell('<section class="panel"><div class="empty"><p>Preparando las liquidaciones semanales…</p></div></section>', "Pagos y cuotas", "Cuotas comerciales, impuestos por viaje y control de autorizaciones.");
   try {
-    const [report, stateContribution] = await Promise.all([
-      rpc("weekly_commission_dashboard", { period }),
+    const [report, stateContribution, transferDestination] = await Promise.all([
+      rpc("weekly_commission_dashboard", filters),
       rpc("state_contribution_policy"),
+      rpc("weekly_transfer_destination"),
     ]);
     report.state_contribution = stateContribution;
     if (S.view !== "payments") return;
@@ -3230,19 +3399,54 @@ async function paymentsView(period = S.paymentsPeriod || "week") {
         ? `Activa desde ${date(statePolicy.effective_at)} · folio ${e(statePolicy.authorization_reference)}.`
         : "Desactivada; no se suma a las liquidaciones hasta validar autorización y convenio.";
     const stateControl = `<section class="panel section-gap"><div class="row between wrap"><div><span class="eyebrow">CHIHUAHUA · FONDO DE MOVILIDAD</span><h2>Aportación estatal de referencia · 1.5%</h2><p>${stateStatus}</p><p class="hint">La ley la establece para empresas de redes de transporte con autorización y convenio. No se cobra como impuesto personal del conductor. Al activarla, se calcula sólo para viajes completados desde su vigencia; los anteriores no se modifican.</p></div><span class="badge ${statePolicy.enabled ? "" : "pending"}">${statePolicy.enabled ? "Activa" : "No incluida"}</span></div><form id="state-contribution-form" class="row wrap"><label>Aplicar a viajes futuros<select name="enabled"><option value="false" ${stateSelected ? "" : "selected"}>No incluir</option><option value="true" ${stateSelected ? "selected" : ""}>Incluir cuando haya autorización</option></select></label><label>Folio de autorización y convenio<input name="authorization_reference" maxlength="240" value="${e((scheduledState?.authorization_reference || statePolicy.authorization_reference) || "")}" placeholder="Requerido para activar"></label><label>Motivo de Operaciones<input name="note" minlength="5" maxlength="500" required placeholder="Motivo y verificación realizada"></label><button class="btn" type="submit">Guardar vigencia</button></form></section>`;
-    const liquidationNotice = `<section class="panel commission-policy"><div><div class="eyebrow">LIQUIDACIÓN SEMANAL</div><h2>Comisión Yavoi! ${activeRate}% + conceptos por viaje</h2><p>El lunes, Operaciones suma la comisión comercial y los conceptos de referencia registrados en cada viaje en efectivo de la semana anterior, sólo desde la aceptación del esquema.</p><p class="hint">El total es un pago contractual a Yavoi!, no una retención. Las referencias no acreditan entero al SAT o al Estado; las obligaciones y pagos oficiales se registran por separado en Finanzas. La aportación estatal depende de la autorización y convenio aplicables a Yavoi!. Los cortes históricos conservan el importe que ya tenían.</p></div><span class="badge neutral">Cierre: lunes 7:00 a. m.</span><a class="btn secondary" href="#finance">Validar perfiles fiscales</a><a class="btn secondary" href="#fleet">Configurar modalidad por conductor</a></section>`;
-    shell(`${liquidationNotice}${stateControl}${commissionPaymentsMarkup(report)}`, "Pagos y cuotas", "Liquidación contractual, referencias por viaje y control de autorizaciones.");
+    const transferPanel = `<section class="panel section-gap"><div class="row between wrap"><div><span class="eyebrow">DESTINO DE LIQUIDACIONES</span><h2>Cuenta receptora de Yavoi!</h2><p>${transferDestination.configured ? "La cuenta se incluirá en los avisos individuales de liquidación." : "Faltan banco y CLABE. El sistema mantiene pausada la emisión y vencimiento de cortes hasta registrar un destino válido."}</p></div><span class="badge ${transferDestination.configured ? "" : "pending"}">${transferDestination.configured ? "Configurada" : "Pendiente · cortes pausados"}</span></div><form id="weekly-transfer-destination-form" class="row wrap"><label>Banco receptor<input name="bank" required minlength="2" maxlength="100" value="${e(transferDestination.bank || "")}" autocomplete="off"></label><label>CLABE interbancaria de Yavoi!<input name="clabe" inputmode="numeric" autocomplete="off" pattern="[0-9 ]{18,22}" minlength="18" maxlength="22" value="${e(transferDestination.clabe || "")}" required></label><label>Referencia de validación<input name="note" required minlength="5" maxlength="500" placeholder="Cuenta validada por Operaciones"></label><button class="btn" type="submit">Guardar destino seguro</button></form><p class="hint">La CLABE sólo se muestra a Operaciones y al conductor que recibe su aviso individual. El registro queda en auditoría con sólo los últimos cuatro dígitos.</p></section>`;
+    const liquidationNotice = `<section class="panel commission-policy"><div><div class="eyebrow">LIQUIDACIÓN SEMANAL</div><h2>Comisión Yavoi! ${activeRate}% + conceptos por viaje</h2><p>El lunes, Operaciones suma la comisión comercial y los conceptos de referencia registrados por cada viaje en efectivo de la semana anterior, sólo desde la aceptación del esquema. El plazo de pago es de 48 horas desde el primer aviso.</p><p class="hint">El total es un pago contractual a Yavoi!, no una retención. Las referencias no acreditan entero al SAT o al Estado; las obligaciones y pagos oficiales se registran por separado en Finanzas. La aportación estatal depende de la autorización y convenio aplicables a Yavoi!. Los cortes históricos conservan el importe que ya tenían.</p></div><span class="badge neutral">Cierre: lunes 7:00 a. m. · vence en 48 horas</span><a class="btn secondary" href="#finance">Validar perfiles fiscales</a><a class="btn secondary" href="#fleet">Configurar modalidad por conductor</a></section>`;
+    shell(`${liquidationNotice}${transferPanel}${stateControl}${commissionPaymentsMarkup(report, filters)}`, "Pagos y cuotas", "Liquidación contractual, referencias por viaje y control de autorizaciones.");
+    bindForm("#weekly-transfer-destination-form", async (values) => {
+      await rpc("set_weekly_transfer_destination", { bank: values.bank, clabe: values.clabe, note: values.note });
+      notify("Destino semanal guardado. La conciliación podrá generar cortes con un vencimiento fijo de 48 horas.");
+      await paymentsView(period, filters);
+    });
     bindForm("#state-contribution-form", async (values) => {
       const result = await rpc("set_state_contribution_policy", { enabled: values.enabled === "true", authorization_reference: values.authorization_reference, note: values.note });
       notify(values.enabled === "true" ? `Aportación configurada para viajes desde ${date(result.effective_at)}.` : `Aportación desactivada para viajes desde ${date(result.effective_at)}.`);
-      await paymentsView(period);
+      await paymentsView(period, filters);
     });
-    $$('[data-commission-period]').forEach((item) => item.onclick = () => paymentsView(item.dataset.commissionPeriod));
-    $('[data-refresh-payments]')?.addEventListener("click", () => paymentsView(period));
+    $('[data-refresh-payments]')?.addEventListener("click", () => paymentsView(period, filters));
+    const unifiedFilters = $("#commission-unified-filters");
+    unifiedFilters?.addEventListener('submit', event => {
+      event.preventDefault();
+      const selected = Object.fromEntries(new FormData(unifiedFilters));
+      paymentsView(selected.period, selected);
+    });
+    unifiedFilters?.addEventListener('reset', () => setTimeout(() => {
+      const selected = Object.fromEntries(new FormData(unifiedFilters));
+      selected.period = 'week';
+      selected.anchor = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chihuahua', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      paymentsView('week', selected);
+    }, 0));
+    $('[data-export-liquidations-pdf]')?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      const selectedFilters = { ...filters };
+      selectedFilters.driver_name = report.drivers?.find(driver => driver.id === selectedFilters.driver_id)?.full_name || '';
+      selectedFilters.status_name = commissionStatusName[selectedFilters.status] || 'Todos';
+      button.disabled = true;
+      try { await downloadWeeklyLiquidationPdf(report, selectedFilters); }
+      catch (error) { notify(`No se pudo crear el PDF: ${errorMessage(error)}`); }
+      finally { button.disabled = false; }
+    });
+    $$('[data-export-settlement]').forEach(button => button.addEventListener('click', async () => {
+      const settlement = report.settlements?.find(item => item.id === button.dataset.exportSettlement);
+      if (!settlement) return notify('Este corte ya no está en el periodo seleccionado. Actualiza el informe para volver a cargarlo.');
+      button.disabled = true;
+      try { await downloadSettlementPdf(settlement); }
+      catch (error) { notify(`No se pudo crear el PDF individual: ${errorMessage(error)}`); }
+      finally { button.disabled = false; }
+    }));
     bindForm("#commission-policy-form", async (values) => {
       const result = await rpc("set_weekly_commission_policy", { commission_bps: Number(values.commission_rate) * 100, note: values.note });
       notify(`Cambio programado para el ${date(result.effective_at)}. Los viajes de la semana actual no se modificaron.`);
-      await paymentsView(period);
+      await paymentsView(period, filters);
     });
     $$('[data-commission-review]').forEach((item) => item.onclick = () => {
       const settlement = (report.settlements || []).find((entry) => entry.id === item.dataset.commissionReview);
@@ -3252,12 +3456,12 @@ async function paymentsView(period = S.paymentsPeriod || "week") {
         if (error) return notify(errorMessage(error));
         window.open(data.signedUrl, "_blank", "noopener");
       });
-      bindForm("#commission-review-form", async (values) => { const result = await rpc("review_weekly_commission", { settlement_id: settlement.id, received_cents: cents(values.received), note: values.note, authorize_driver: values.authorize_driver === "on" }); closeModal(); notify(result.driver_authorized ? `Liquidación conciliada y permiso autorizado. Comprobante ${result.receipt_number}.` : `Liquidación conciliada. Comprobante ${result.receipt_number}.`); await refreshPage(); });
+      bindForm("#commission-review-form", async (values) => { const result = await rpc("review_weekly_commission", { settlement_id: settlement.id, received_cents: cents(values.received), note: values.note, authorize_driver: values.authorize_driver === "on" }); closeModal(); notify(result.driver_authorized ? `Liquidación conciliada y permiso autorizado. Comprobante ${result.receipt_number}.` : `Liquidación conciliada. Comprobante ${result.receipt_number}.${result.permit_block_reason ? ` Permiso pendiente: ${result.permit_block_reason}` : " Operaciones debe revisar el permiso por separado."}`); await refreshPage(); });
     });
     $$('[data-driver-access]').forEach((item) => item.onclick = () => { const activating = item.dataset.active === "true"; openModal(activating ? "Autorizar conducción" : "Suspender conducción", `<form id="driver-access-form"><p>${activating ? "Verifica que todos los cortes vencidos estén conciliados antes de reactivar al conductor." : "La cuenta dejará de recibir nuevas solicitudes hasta una nueva autorización."}</p><label>Motivo de la decisión<textarea name="note" minlength="5" maxlength="500" required></textarea></label><button class="btn wide" type="submit">Guardar decisión</button></form>`); bindForm("#driver-access-form", async (values) => { await rpc("set_driver_access", { driver_id: item.dataset.driverAccess, active: activating, note: values.note }); closeModal(); await refreshPage(); notify(activating ? "Permiso de conducción autorizado." : "Permiso de conducción suspendido."); }); });
   } catch (error) {
     shell(`<section class="panel"><div class="empty"><p>${e(errorMessage(error))}</p><button class="btn" data-retry-payments>Reintentar</button></div></section>`, "Pagos y cuotas", "Liquidaciones semanales, referencias por viaje y permisos.");
-    $('[data-retry-payments]')?.addEventListener("click", () => paymentsView(period));
+    $('[data-retry-payments]')?.addEventListener("click", () => paymentsView(period, filters));
   }
 }
 const rewardStatusName = {
@@ -3755,7 +3959,7 @@ function applyLegacyDriverFormCompatibility(form) {
   const safety = form.querySelector(".driver-safety-checks");
   safety?.classList.add("hidden");
   safety?.previousElementSibling?.classList.add("hidden");
-  form.elements.vehicle_year.min = "1990";
+  if (form.elements.vehicle_year) form.elements.vehicle_year.min = "1990";
   const criminalRecord = form.elements.criminal_record_file?.closest("label");
   if (criminalRecord) {
     criminalRecord.querySelector("span").textContent = "Carta de no antecedentes penales";
@@ -3927,11 +4131,20 @@ function profile() {
   const ridePreferencesMarkup = passenger
     ? `<section class="ride-preferences"><div>${I("sliders-horizontal")}<span><strong>Preferencias de viaje</strong><small>${S.ridePreferences?.pickup_pin_enabled ? "Código de inicio activado" : "Inicio de viaje sin código"}</small></span></div><button class="btn secondary" type="button" data-action="ride-preferences">Configurar</button></section><section class="ride-preferences"><div>${I("bell")}<span><strong>Alertas de Yavoi!</strong><small>Recibe avisos de seguridad, recompensas y tu servicio.</small></span></div><button class="btn secondary" type="button" data-action="notifications">Activar alertas</button></section>`
     : "";
+  const notificationPrefsMarkup = p.role === "admin" ? "" : `<section class="panel section-gap notification-preferences"><h2>Notificaciones en este dispositivo</h2><p>Activa el permiso del dispositivo para recibir avisos de viaje y seguridad. Las promociones son opcionales.</p><div class="row wrap"><button class="btn secondary" type="button" data-action="notifications">${I("bell")} Activar notificaciones del dispositivo</button><a class="btn secondary" href="#inbox">${I("inbox")} Abrir Bandeja de Entrada</a></div><form id="notification-preferences-form"><label class="check"><input type="checkbox" name="marketing_enabled" ${S.marketingPushEnabled ? "checked" : ""}>Acepto notificaciones de promociones, descuentos, recompensas y consejos.</label><button class="btn secondary" type="submit">Guardar preferencia</button></form><p class="hint">Los mensajes permanecen en la Bandeja para consultarlos al volver a conectarte. El permiso también puede cambiarse desde los ajustes del teléfono.</p></section>`;
   shell(
-    `<section class="panel"><div class="profile-head">${avatar(p.full_name, p.avatar_path, "big")}<div><h2>${e(p.full_name)}</h2><p>${e(S.user.email)} · ${e(roles[p.role])}</p><small>El tipo de cuenta se protege en el servidor.</small></div></div>${profileShortcuts}${ridePreferencesMarkup}${passenger ? passengerProgressMarkup(p) : ""}${lockNotice}${personalForm}</section>${streamlinedDriverDossier}${driver ? weeklyProfileMarkup() : ""}<section class="panel section-gap"><h2>Acceso y seguridad</h2><p>Tu sesión es personal. Puedes cambiar tu contraseña o cerrar sesión en todos tus dispositivos.</p><div class="row wrap">${button("Cambiar contraseña", "password", "secondary", "key-round")}${button("Cerrar mis sesiones", "logout", "secondary", "log-out")}</div>${p.role === "admin" ? '<p class="hint">Operaciones exige autenticación en dos pasos. Conserva acceso a tu aplicación autenticadora.</p>' : ""}</section>`,
+    `<section class="panel"><div class="profile-head">${avatar(p.full_name, p.avatar_path, "big")}<div><h2>${e(p.full_name)}</h2><p>${e(S.user.email)} · ${e(roles[p.role])}</p><small>El tipo de cuenta se protege en el servidor.</small></div></div>${profileShortcuts}${ridePreferencesMarkup}${passenger ? passengerProgressMarkup(p) : ""}${lockNotice}${personalForm}</section>${streamlinedDriverDossier}${driver ? weeklyProfileMarkup() : ""}${notificationPrefsMarkup}<section class="panel section-gap"><h2>Acceso y seguridad</h2><p>Tu sesión es personal. Puedes cambiar tu contraseña o cerrar sesión en todos tus dispositivos.</p><div class="row wrap">${button("Cambiar contraseña", "password", "secondary", "key-round")}${button("Cerrar mis sesiones", "logout", "secondary", "log-out")}</div>${p.role === "admin" ? '<p class="hint">Operaciones exige autenticación en dos pasos. Conserva acceso a tu aplicación autenticadora.</p>' : ""}</section>`,
     "Mi perfil",
     "Tu información, tu unidad y las opciones de tu cuenta.",
   );
+  const inboxShortcut = $(".profile-shortcut[href='#inbox']");
+  if (inboxShortcut) inboxShortcut.insertAdjacentHTML("beforeend", '<span class="inbox-unread-dot" aria-hidden="true"></span>');
+  updateInboxBadges();
+  bindForm("#notification-preferences-form", async (values) => {
+    const result = await inboxRpc("set_preferences", { marketing_enabled: values.marketing_enabled === "on" });
+    S.marketingPushEnabled = Boolean(result.marketing_enabled);
+    notify("Preferencia de promociones guardada.");
+  });
   if (driver) {
     applyLegacyDriverFormCompatibility($("#vehicle-form"));
     if (editState.editable) restoreDriverDraft($("#vehicle-form"));
@@ -4280,6 +4493,34 @@ function openFeatureCardEditor(card = null) {
     notify("Tarjeta guardada y registrada en Auditoría.");
   });
 }
+function communicationsPanelMarkup() {
+  const fields = (prefix) => `<div class="grid2"><label>Aplicación<select name="audience"><option value="passenger">Yavoi! · pasajeros</option><option value="driver">Yavoi! Drive · conductores</option><option value="all">Ambas aplicaciones</option></select></label><label>Tipo<select name="category"><option value="promotion">Promoción o descuento</option><option value="news">Novedad o consejo</option><option value="service">Recordatorio de servicio</option><option value="safety">Seguridad</option><option value="general">Aviso general</option></select></label></div><label>Correo de una cuenta específica (opcional)<input name="recipient_email" type="email" autocomplete="off" placeholder="Si se deja vacío, se envía a toda la audiencia"></label><label>Título<input name="title" required minlength="3" maxlength="120" placeholder="Ej. Nuevas recompensas Yavoi!"></label><label>Mensaje<textarea name="body" required minlength="5" maxlength="2000" placeholder="Explica el beneficio o recordatorio con claridad."></textarea></label><div class="grid2"><label>Imagen (opcional; JPG, PNG o WebP, máximo ${prefix === "push" ? "1" : "4"} MB)<input name="image" type="file" accept="image/jpeg,image/png,image/webp" data-comms-image="${prefix}"></label><label>Vigente hasta<input name="ends_at" type="datetime-local" required></label></div><div class="communication-preview" data-comms-preview="${prefix}" aria-live="polite"><strong>Vista previa</strong><span>El título y el mensaje aparecerán aquí.</span></div>`;
+  return `<section class="panel section-gap communications-panel"><div class="eyebrow">COMUNICACIÓN CON USUARIOS</div><h2>Notificaciones push y Bandeja de Entrada</h2><p>Crea mensajes para Yavoi!, Yavoi! Drive o un correo específico. Todos quedan guardados en la Bandeja; el push se entrega a dispositivos registrados que aceptaron promociones.</p><div class="communication-composers"><form id="marketing-push-form" class="communication-composer"><h3>${I("bell-ring")} Push + mensaje en Inbox</h3><p>Se muestra aun cuando la app esté cerrada, si el dispositivo tiene permiso y conexión. El mensaje se conserva en Inbox para consultarlo después.</p>${fields("push")}<button class="btn" type="submit">${I("send")} Publicar y enviar push</button></form><form id="marketing-inbox-form" class="communication-composer"><h3>${I("inbox")} Mensaje directo a Inbox</h3><p>Para promociones, descuentos y recordatorios que el usuario verá al entrar. Puedes dirigirlo a una sola cuenta.</p>${fields("inbox")}<button class="btn secondary" type="submit">${I("send")} Publicar en Bandeja</button></form></div><div class="section-gap"><div class="row between wrap"><h3>Envíos recientes</h3><button class="btn secondary" id="refresh-communications" type="button">${I("refresh-cw")} Actualizar</button></div><div id="communications-history" class="inbox-list"><p class="hint">Cargando envíos…</p></div></div></section>`;
+}
+async function dispatchCommunicationPush(messageId) {
+  let more = true;
+  let rounds = 0;
+  let summary = { delivered: 0, failed: 0 };
+  while (more && rounds < 100) {
+    const { data, error } = await db.functions.invoke("push-communications", { body: { message_id: messageId } });
+    if (error || data?.error) throw Error(data?.error || error?.message || "El push quedó pendiente de envío.");
+    more = Boolean(data.more);
+    summary = { delivered: Number(data.delivered || 0), failed: Number(data.failed || 0) };
+    rounds += 1;
+  }
+  if (more) throw Error("El envío sigue en curso. Actualiza el historial para continuarlo.");
+  return summary;
+}
+async function loadCommunicationsHistory() {
+  const container = $("#communications-history");
+  if (!container) return;
+  try {
+    const result = await inboxRpc("list");
+    const messages = (result.sent || []).filter((item) => item.push_state || item.recipient_id || item.send_push === false).slice(0, 20);
+    container.innerHTML = messages.length ? messages.map((item) => `<article class="inbox-sent"><div><strong>${e(item.title)}</strong><small>${e(item.recipient_id ? "Cuenta específica" : item.audience === "all" ? "Ambas apps" : item.audience === "driver" ? "Yavoi! Drive" : "Yavoi!")} · ${date(item.created_at)} · ${item.send_push ? `Push ${e(item.push_state || "pendiente")}` : "Inbox"}</small>${item.last_error ? `<small>${e(item.last_error)}</small>` : ""}</div>${item.send_push && item.push_state !== "complete" ? `<button class="btn secondary" type="button" data-retry-comms="${e(item.id)}">Continuar envío</button>` : ""}</article>`).join("") : '<p class="hint">Aún no hay mensajes enviados desde este módulo.</p>';
+    $$('[data-retry-comms]', container).forEach((button) => { button.onclick = () => run(async () => { await dispatchCommunicationPush(button.dataset.retryComms); await loadCommunicationsHistory(); notify("Envío actualizado."); }); });
+  } catch (error) { container.textContent = errorMessage(error); }
+}
 function marketingView() {
   const marketing = S.data.marketing || { rewards_enabled: true, advertising_enabled: true, campaigns: [], reward_catalog: [], feature_cards: [] };
   const campaigns = marketing.campaigns || [];
@@ -4303,6 +4544,36 @@ function marketingView() {
     "Recompensas y publicidad",
     "Controla beneficios, campañas y promociones desde un solo módulo.",
   );
+  $("#page-content")?.insertAdjacentHTML("afterbegin", communicationsPanelMarkup());
+  const due = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  $$(".communications-panel input[name='ends_at']").forEach((input) => { input.value = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}T${String(due.getHours()).padStart(2, "0")}:${String(due.getMinutes()).padStart(2, "0")}`; });
+  for (const [id, sendPush] of [["#marketing-push-form", true], ["#marketing-inbox-form", false]]) {
+    const form = $(id);
+    const preview = $(form.dataset.commsPreview || `[data-comms-preview='${sendPush ? "push" : "inbox"}']`);
+    const updatePreview = () => {
+      preview.innerHTML = `<strong>${e(form.elements.title.value || "Vista previa")}</strong><span>${e(form.elements.body.value || "El mensaje aparecerá aquí.")}</span>`;
+    };
+    form.elements.title.oninput = updatePreview;
+    form.elements.body.oninput = updatePreview;
+    form.elements.image.onchange = () => {
+      updatePreview();
+      const file = form.elements.image.files?.[0];
+      if (file) { const url = URL.createObjectURL(file); const img = document.createElement("img"); img.src = url; img.alt = "Imagen seleccionada"; img.onload = () => URL.revokeObjectURL(url); preview.append(img); }
+    };
+    bindForm(id, async (values) => {
+      if (sendPush && Number(form.elements.image.files?.[0]?.size || 0) > 1024 * 1024) throw Error("Para push, usa una imagen menor de 1 MB.");
+      const imagePath = await upload(form.elements.image.files?.[0], "yavoi-marketing");
+      const { image: _image, ...messageValues } = values;
+      const published = await inboxRpc("publish_communication", { ...messageValues, image_path: imagePath, send_push: sendPush, ends_at: new Date(values.ends_at).toISOString() });
+      form.reset();
+      await loadCommunicationsHistory();
+      if (sendPush) notify("Mensaje guardado en Inbox. El envío push se procesará en segundo plano, aunque cierres Operaciones.");
+      else notify("Mensaje publicado en la Bandeja de Entrada.");
+      await loadCommunicationsHistory();
+    });
+  }
+  $("#refresh-communications").onclick = () => loadCommunicationsHistory();
+  loadCommunicationsHistory();
   bindForm("#marketing-settings", async (values) => {
     await rpc("set_marketing_settings", { rewards_enabled: values.rewards_enabled === "on", advertising_enabled: values.advertising_enabled === "on" });
     await refreshPage();
@@ -4359,11 +4630,11 @@ function safety() {
 async function inbox() {
  const result=await inboxRpc("list"),messages=[...(result.messages||[])].sort((a,b)=>(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0)),unread=messages.filter(x=>!x.is_read).length;
  const category={general:"Aviso",safety:"Seguridad",payment:"Pagos",service:"Servicio",promotion:"Promoción",news:"Novedades"};
- const cards=messages.length?messages.map(x=>`<details class="inbox-message ${x.is_read?"":"unread"}" data-inbox-item="${e(x.id)}"><summary><span class="inbox-category">${I(x.category==="safety"?"shield-check":x.category==="payment"?"circle-dollar-sign":"bell")}</span><span class="inbox-message-title"><strong>${e(x.title)}</strong><small>${e(category[x.category]||"Aviso")} · ${date(x.created_at)}</small></span>${x.is_read?'<span class="badge neutral">Leído</span>':'<span class="badge pending">Nuevo</span>'}</summary><div class="inbox-message-body"><p>${e(x.body)}</p>${x.ends_at?`<small>Vigente hasta ${date(x.ends_at)}</small>`:""}</div></details>`).join(""):'<div class="empty"><p>Tu bandeja está al día. Aquí aparecerán los avisos y mensajes de Yavoi!.</p></div>';
+ const cards=messages.length?messages.map(x=>`<details class="inbox-message ${x.is_read?"":"unread"}" data-inbox-item="${e(x.id)}"><summary><span class="inbox-category">${I(x.category==="safety"?"shield-check":x.category==="payment"?"circle-dollar-sign":"bell")}</span><span class="inbox-message-title"><strong>${e(x.title)}</strong><small>${e(category[x.category]||"Aviso")} · ${date(x.created_at)}</small></span>${x.is_read?'<span class="badge neutral">Leído</span>':'<span class="badge pending">Nuevo</span>'}</summary><div class="inbox-message-body">${x.image_path ? `<img class="inbox-message-image" src="${e(campaignImageUrl(x.image_path))}" alt="Imagen del mensaje">` : ""}<p>${e(x.body)}</p>${x.ends_at?`<small>Vigente hasta ${date(x.ends_at)}</small>`:""}</div></details>`).join(""):'<div class="empty"><p>Tu bandeja está al día. Aquí aparecerán los avisos y mensajes de Yavoi!.</p></div>';
  const admin=S.profile.role==="admin";
  const sent=admin&&result.sent?.length?`<section class="panel section-gap"><h2>Comunicados recientes</h2><div class="inbox-list">${result.sent.map(x=>`<article class="inbox-sent"><div><strong>${e(x.title)}</strong><small>${e(category[x.category]||"Aviso")} · ${x.audience==="all"?"Todos":x.audience==="passenger"?"Pasajeros":"Conductores"}</small></div><span class="badge neutral">Hasta ${date(x.ends_at)}</span></article>`).join("")}</div></section>`:"";
  shell(`${admin?`<section class="panel broadcast-panel"><div class="row between wrap"><div><div class="eyebrow">CENTRO DE OPERACIÓN</div><h2>Enviar comunicado</h2><p>Publica un aviso en la bandeja Yavoi! de todos los usuarios o de un grupo.</p></div>${I("send")}</div><form id="broadcast-form" class="broadcast-form"><div class="grid2"><label>Destinatarios<select name="audience"><option value="all">Todos los usuarios</option><option value="passenger">Pasajeros</option><option value="driver">Conductores</option></select></label><label>Tipo de mensaje<select name="category"><option value="general">Aviso general</option><option value="safety">Seguridad</option><option value="payment">Pagos</option><option value="service">Servicio</option><option value="promotion">Promoción</option><option value="news">Novedades</option></select></label></div><label>Título<input name="title" required minlength="3" maxlength="120" placeholder="Escribe un título claro"></label><label>Mensaje<textarea name="body" required minlength="5" maxlength="2000" placeholder="Comparte la información que necesitan conocer."></textarea></label><label>Vigente hasta<input name="ends_at" type="datetime-local" required></label><button class="btn" type="submit">${I("send")} Publicar comunicado</button><p class="hint">Publicar requiere el acceso de Operaciones con verificación en dos pasos. Cada envío queda registrado para auditoría.</p></form></section>${sent}`:`<div class="inbox-summary panel"><div><div class="eyebrow">MENSAJES Y AVISOS</div><h2>${unread?`${unread} mensaje${unread===1?"":"s"} nuevo${unread===1?"":"s"}`:"Estás al día"}</h2><p>Comunicados de Operaciones, novedades de servicio y avisos importantes.</p></div>${I("inbox")}</div>`}<section class="panel section-gap"><div class="row between wrap"><div><h2>${admin?"Vista de bandeja":"Bandeja de Entrada"}</h2><p>Los avisos vigentes se actualizan automáticamente.</p></div><button class="btn secondary" type="button" data-action="refresh">${I("refresh-cw")} Actualizar</button></div><div class="inbox-list section-gap">${cards}</div></section>`,"Bandeja de Entrada",admin?"Publica y revisa avisos para usuarios de Yavoi!.":"Mensajes de Yavoi! y novedades relacionadas con tu cuenta.");
- $$('[data-inbox-item]').forEach(item=>item.addEventListener("toggle",()=>{if(item.open&&item.classList.contains("unread"))run(async()=>{await inboxRpc("read",{announcement_id:item.dataset.inboxItem});item.classList.remove("unread");const b=item.querySelector(".badge");if(b){b.className="badge neutral";b.textContent="Leído";}})}));
+ $$('[data-inbox-item]').forEach(item=>item.addEventListener("toggle",()=>{if(item.open&&item.classList.contains("unread"))run(async()=>{await inboxRpc("read",{announcement_id:item.dataset.inboxItem});item.classList.remove("unread");const b=item.querySelector(".badge");if(b){b.className="badge neutral";b.textContent="Leído";}await refreshUnreadInbox();})}));
  if(admin)bindForm("#broadcast-form",async values=>{await inboxRpc("publish",{...values,ends_at:new Date(values.ends_at).toISOString()});notify("Comunicado publicado en las bandejas seleccionadas.");await inbox();});
 }
 function help() {
@@ -4647,7 +4918,7 @@ function fleet() {
           "Revisión de " + d.full_name,
           `<div class="review-readiness ${progress.percent === 100 ? "ready" : ""}"><strong>${progress.percent === 100 ? "Expediente completo" : `Expediente al ${progress.percent}%`}</strong><p>${progress.missing.length ? `Faltan: ${e(progress.missing.join(", "))}.` : "Confirma la legibilidad, autenticidad y vigencia de cada documento antes de aprobar."}</p></div><form id="review"><label>Resultado<select name="approved"><option value="false">Pendiente / no autorizado</option><option value="true" ${d.approved ? "selected" : ""} ${progress.percent < 100 ? "disabled" : ""}>Aprobar conductor</option></select></label><label class="check"><input name="female_verified" type="checkbox" ${d.female_verified ? "checked" : ""}>Identidad de conductora verificada</label><label class="check"><input name="accessible_verified" type="checkbox" ${d.accessible_verified ? "checked" : ""}>Unidad y asistencia de accesibilidad verificadas</label><label>Resultado de la revisión<textarea name="note" required minlength="5" maxlength="1000">${e(d.review_note)}</textarea></label><p class="hint">Confirma documentos, fotografía, vigencias y capacidades. Esta acción queda registrada con tu identidad.</p><button class="btn wide" type="submit">Guardar autorización</button></form>`,
         );
-        $("#review").insertAdjacentHTML("afterbegin", `<details class="profile-section" open><summary><span>${I("clipboard-check")}<strong>Registro oficial por Operaciones</strong></span>${I("chevron-down")}</summary><div class="profile-section-body"><p class="hint">Captura esta información al revisar los cinco documentos. Sólo Operaciones puede modificarla.</p><div class="grid2"><label>Tipo de conductor<select name="driver_type"><option value="yavoi" ${d.driver_type !== "support" ? "selected" : ""}>Conductor Yavoi!</option><option value="support" ${d.driver_type === "support" ? "selected" : ""}>Conductor de Apoyo</option></select></label><label>Servicio asignado<select name="category">${S.categories.map((category) => `<option value="${e(category.id)}" ${d.category === category.id ? "selected" : ""}>Yavoi! ${e(category.name)}</option>`).join("")}</select></label><label>Marca<input name="vehicle_make" required minlength="2" maxlength="50" value="${e(d.vehicle_make || "")}"></label><label>Modelo<input name="vehicle_model" required minlength="1" maxlength="50" value="${e(d.vehicle_model || "")}"></label><label>Año<input name="vehicle_year" type="number" min="1990" max="${new Date().getFullYear() + 1}" required value="${e(d.vehicle_year || "")}"></label><label>Color<input name="vehicle_color" required minlength="3" maxlength="40" value="${e(d.vehicle_color || "")}"></label><label>Placas<input name="plate" required minlength="5" maxlength="20" value="${e(d.plate || "")}"></label><label>Número de licencia<input name="license_number" required minlength="3" maxlength="50" value="${e(d.license_number || "")}"></label><label>Vencimiento de licencia<input name="license_expires" type="date" required value="${e(d.license_expires || "")}"></label><label>Vencimiento de póliza<input name="insurance_expires" type="date" required value="${e(d.insurance_expires || "")}"></label><label>Tarjetón de transporte<input name="transport_card_number" required minlength="3" maxlength="50" value="${e(d.transport_card_number || "")}"></label><label>Vencimiento de tarjetón<input name="transport_card_expires" type="date" required value="${e(d.transport_card_expires || "")}"></label></div></div></details>`);
+        $("#review").insertAdjacentHTML("afterbegin", `<details class="profile-section" open><summary><span>${I("clipboard-check")}<strong>Registro oficial por Operaciones</strong></span>${I("chevron-down")}</summary><div class="profile-section-body"><p class="hint">Captura esta información al revisar los cinco documentos. Sólo Operaciones puede modificarla.</p><div class="grid2"><label>Tipo de conductor<select name="driver_type"><option value="yavoi" ${d.driver_type !== "support" ? "selected" : ""}>Conductor Yavoi!</option><option value="support" ${d.driver_type === "support" ? "selected" : ""}>Conductor de Apoyo</option></select></label><label>Servicio asignado<select name="category">${S.categories.map((category) => `<option value="${e(category.id)}" ${d.category === category.id ? "selected" : ""}>Yavoi! ${e(category.name)}</option>`).join("")}</select></label><label>Marca<input name="vehicle_make" required minlength="2" maxlength="50" value="${e(d.vehicle_make || "")}"></label><label>Modelo<input name="vehicle_model" required minlength="1" maxlength="50" value="${e(d.vehicle_model || "")}"></label><label>Año<input name="vehicle_year" type="number" min="1990" max="${new Date().getFullYear() + 1}" required value="${e(d.vehicle_year || "")}"></label><label>Color<input name="vehicle_color" required minlength="3" maxlength="40" value="${e(d.vehicle_color || "")}"></label><label>Placas<input name="plate" required minlength="5" maxlength="20" value="${e(d.plate || "")}"></label><label>Número de licencia<input name="license_number" required minlength="3" maxlength="50" value="${e(d.license_number || "")}"></label><label>Vencimiento de licencia<input name="license_expires" type="date" required value="${e(d.license_expires || "")}"></label><label>Vencimiento de póliza<input name="insurance_expires" type="date" required value="${e(d.insurance_expires || "")}"></label><label>Vencimiento de tarjeta de circulación<input name="vehicle_registration_expires" type="date" required min="${new Date().toISOString().slice(0,10)}" value="${e(d.vehicle_registration_expires || "")}"></label><label>Tarjetón de transporte<input name="transport_card_number" required minlength="3" maxlength="50" value="${e(d.transport_card_number || "")}"></label><label>Vencimiento de tarjetón<input name="transport_card_expires" type="date" required value="${e(d.transport_card_expires || "")}"></label></div></div></details>`);
         iconsNow();
         bindForm("#review", async (v) => {
           await rpc("review_driver", {
@@ -4663,6 +4934,7 @@ function fleet() {
             license_number: v.license_number,
             license_expires: v.license_expires,
             insurance_expires: v.insurance_expires,
+            vehicle_registration_expires: v.vehicle_registration_expires,
             transport_card_number: v.transport_card_number,
             transport_card_expires: v.transport_card_expires,
             female_verified: v.female_verified === "on",
@@ -5592,6 +5864,12 @@ async function renderRoute() {
 async function refreshPage() {
   const b = await rpc("bootstrap");
   S.profile = b.profile;
+  if (S.profile?.role !== "admin") {
+    try {
+      const [preferences] = await Promise.all([inboxRpc("preferences"), refreshUnreadInbox()]);
+      S.marketingPushEnabled = Boolean(preferences.marketing_enabled);
+    } catch { /* The app remains usable while a new database migration is deploying. */ }
+  }
   S.driver = b.driver;
   S.categories = b.categories;
 
@@ -5712,6 +5990,7 @@ async function safeRefresh() {
   if (S.refreshing || S.busy || modal.open || !S.profile || document.hidden) return;
   S.refreshing = true;
   try {
+    await refreshUnreadInbox().catch(() => {});
     if (S.view === "trip") await refreshTrip();
     else if (S.view === "trips") await refreshPage();
     else if (S.view === "home" && S.profile.role === "passenger") await refreshAvailableUnits({ fit: false });

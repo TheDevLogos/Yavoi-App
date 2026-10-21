@@ -25,6 +25,7 @@ const referralMigration = await readFile(new URL("../supabase/migrations/2026091
 const tripHistoryMigration = await readFile(new URL("../supabase/migrations/20260918193000_trip_history_people.sql", import.meta.url), "utf8");
 const operationsShiftMigration = await readFile(new URL("../supabase/migrations/20260918214500_operations_assigned_driver_shifts.sql", import.meta.url), "utf8");
 const weeklySettlementTaxContextMigration = await readFile(new URL("../supabase/migrations/20261012161500_weekly_settlement_tax_context.sql", import.meta.url), "utf8");
+const weeklyLiquidationControlsMigration = await readFile(new URL("../supabase/migrations/20261020190451_weekly_liquidation_controls_and_operations_readiness.sql", import.meta.url), "utf8");
 
 test("verified referrals unlock distinct rewards and remain auditable", () => {
   assert.match(portal, /function referralShareUrl\(code\)/);
@@ -217,25 +218,27 @@ test("passenger safety is integrated into each trip and cancellation is transpar
   assert.match(paymentFunction, /status: 410/);
 });
 
-test("Operations uses the weekly commercial retention scheme", () => {
-  assert.match(portal, /Retención comercial Yavoi!/);
+test("Operations uses a weekly contractual commission and separates tax references", () => {
+  assert.match(portal, /Comisión Yavoi!/);
   assert.match(portal, /set_weekly_commission_policy/);
   assert.match(portal, /\[5,10,15,20,25,30\]/);
-  assert.match(portal, /Desglose comercial y fiscal/);
+  assert.match(portal, /Desglose comercial y conceptos de referencia/);
   assert.match(portal, /set_driver_billing/);
   assert.match(portal, /weekly_commission_dashboard/);
-  assert.match(portal, /Cortes semanales por conciliar/);
+  assert.match(portal, /Liquidaciones semanales/);
   assert.match(portal, /Autorizar conducción/);
 });
 
-test("weekly driver notices separate company taxes from the amount due", () => {
-  assert.match(weeklySettlementTaxContextMigration, /commercial retention/i);
-  assert.match(weeklySettlementTaxContextMigration, /IMPORTE ÚNICO A LIQUIDAR/);
-  assert.match(weeklySettlementTaxContextMigration, /transfer_clabe/);
-  assert.match(weeklySettlementTaxContextMigration, /private\.driver_weekly_settlement_message_read_v1/);
-  assert.match(weeklySettlementTaxContextMigration, /yavoi_inbox_before_weekly_settlement_messages/);
-  assert.match(portal, /Provisión de Yavoi!/);
-  assert.match(portal, /sort\(\(a,b\)=>\(Date\.parse\(b\.created_at\)/);
+test("weekly settlement is paused without a destination and keeps its first 48-hour deadline", () => {
+  assert.match(weeklyLiquidationControlsMigration, /not private\.valid_clabe_v1\(commission_policy\.transfer_clabe\) then return 0/);
+  assert.match(weeklyLiquidationControlsMigration, /reference_at\+interval '48 hours'/);
+  const settlementUpsert = weeklyLiquidationControlsMigration.match(/on conflict\(driver_id,week_start\) do update set[\s\S]*?returning/);
+  assert.ok(settlementUpsert);
+  assert.doesNotMatch(settlementUpsert[0], /due_at\s*=/);
+  assert.match(weeklyLiquidationControlsMigration, /TOTAL A TRANSFERIR A YAVOI!/);
+  assert.match(weeklyLiquidationControlsMigration, /no acreditan retención ni pago a la autoridad/);
+  assert.match(portal, /El total es un pago contractual a Yavoi!/);
+  assert.match(portal, /48 horas desde que recibe el primer aviso/);
 });
 
 test("approved destinations, legal consents and women-driver availability are explicit", () => {
@@ -473,7 +476,8 @@ test("passenger price and driver contractual earnings stay distinct on trip deta
 });
 
 test("driver income is compact and filterable by period and concept", () => {
-  assert.match(portal, /Retenciones del corte semanal/);
+  assert.match(portal, /Liquidación semanal/);
+  assert.match(portal, /El total es un pago contractual a Yavoi!/);
   assert.match(finance, /CUOTA Y COMISIONES/);
   assert.match(finance, /No representa saldo disponible/);
   assert.match(finance, /finance-week/);

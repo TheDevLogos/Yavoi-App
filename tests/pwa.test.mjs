@@ -34,7 +34,10 @@ test("PWA manifest and platform icons are complete", async () => {
 });
 
 test("installed PWA checks for releases and reloads after the new worker takes control", () => {
-  assert.match(serviceWorker, /yavoi-shell-v8/);
+  assert.match(serviceWorker, /yavoi-shell-v9/);
+  assert.match(serviceWorker, /image: payload.image/);
+  assert.match(portal, /publish_communication/);
+  assert.match(portal, /refreshUnreadInbox/);
   assert.match(landing, /updateViaCache:'none'/);
   assert.match(portal, /updateViaCache: "none"/);
   assert.match(landing, /controllerchange/);
@@ -78,6 +81,19 @@ test("driver push subscriptions preserve offer opening after a background wake",
   assert.match(migration, /private\.offers_v10/);
   assert.match(pushFunction, /webpush\.sendNotification/);
   assert.match(pushFunction, /WEB_PUSH_VAPID_PRIVATE_KEY/);
+});
+
+test("Operations push continues from a protected background queue after its tab closes", async () => {
+  const [migration, worker] = await Promise.all([
+    read("supabase/migrations/20261020201500_communications_background_dispatch.sql").then(String),
+    read("supabase/functions/push-communications/index.ts").then(String),
+  ]);
+  assert.match(migration, /cron\.schedule\('yavoi-communications-every-minute','\* \* \* \* \*'/);
+  assert.match(migration, /communication_push_jobs/);
+  assert.match(migration, /vault\.decrypted_secrets/);
+  assert.match(worker, /verify_yavoi_communications_worker_token/);
+  assert.match(worker, /marketing_enabled/);
+  assert.match(portal, /El envío push se procesará en segundo plano/);
 });
 
 test("all map markers and service vehicle illustrations exist", async () => {

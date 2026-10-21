@@ -163,7 +163,7 @@ test("Postgres security and complete ride lifecycle", async () => {
       await rpc("save_driver_profile_draft", { draft: { version: 1, values: { vehicle_make: "Nissan", seatbelts_all: true }, uploaded_paths: {}, saved_at: new Date().toISOString() } });
       assert.equal((await rpc("dashboard")).driver_profile_draft.draft.values.vehicle_make, "Nissan");
     }
-    await expectError(() => rpc("availability", { online: true }), /aprobado/);
+    await expectError(() => rpc("availability", { online: true }), /aprobado|modalidad de comisión semanal/);
   }
   await db.exec("reset role");
   await db.query("update public.profiles set role='admin',onboarding_complete=true where id=$1", [
@@ -335,6 +335,7 @@ test("Postgres security and complete ride lifecycle", async () => {
       license_number: `LIC-${index + 1}`,
       license_expires: "2099-12-31",
       insurance_expires: "2099-12-31",
+      vehicle_registration_expires: "2099-12-31",
       transport_card_number: `TAR-${index + 1}`,
       transport_card_expires: "2099-12-31",
       note: "Expediente completo y vigencias verificadas.",
@@ -1413,6 +1414,27 @@ test("Postgres security and complete ride lifecycle", async () => {
     /366 días/,
   );
   assert.ok((await rpc("dashboard")).audit.length > 0);
+  await as(ids.admin, "aal2");
+  const expires = new Date(Date.now() + 7 * 86400000).toISOString();
+  const communication = (await db.query("select public.yavoi_inbox('publish_communication',$1::jsonb) result", [JSON.stringify({
+    audience: "passenger", recipient_email: "rider@example.test", category: "promotion",
+    title: "Beneficio de prueba", body: "Consulta tu nueva promoción en la Bandeja.", ends_at: expires, send_push: true,
+  })])).rows[0].result;
+  assert.equal(communication.push_queued, true);
+  assert.equal((await db.query("select state from public.communication_push_jobs where message_id=$1", [communication.message_id])).rows[0].state, "queued");
+  await as(ids.driver);
+  const driverInbox = (await db.query("select public.yavoi_inbox('list','{}'::jsonb) result")).rows[0].result;
+  assert.equal(driverInbox.messages.some((item) => item.id === communication.message_id), false);
+  await as(ids.rider);
+  const riderInbox = (await db.query("select public.yavoi_inbox('list','{}'::jsonb) result")).rows[0].result;
+  assert.equal(riderInbox.messages.some((item) => item.id === communication.message_id && !item.is_read), true);
+  const beforeRead = (await db.query("select public.yavoi_inbox('unread_count','{}'::jsonb) result")).rows[0].result.count;
+  await db.query("select public.yavoi_inbox('read',$1::jsonb)", [JSON.stringify({ announcement_id: communication.message_id })]);
+  const afterRead = (await db.query("select public.yavoi_inbox('unread_count','{}'::jsonb) result")).rows[0].result.count;
+  assert.equal(afterRead, beforeRead - 1);
+  const preference = (await db.query("select public.yavoi_inbox('set_preferences',$1::jsonb) result", [JSON.stringify({ marketing_enabled: true })])).rows[0].result;
+  assert.equal(preference.marketing_enabled, true);
+  await expectError(() => db.query("select * from public.communication_push_jobs"), /permission denied/);
   await as(ids.rider);
   await expectError(() => rpc("operations_report", { report: "overview", period: "month" }), /Operaciones/);
   await db.exec("reset role");
