@@ -1731,6 +1731,14 @@ async function updateNativeFinalFare(tripId) {
   });
   return detail;
 }
+async function syncNativeAcceptedQueue(dashboard = null) {
+  if (!isNativeApp() || S.profile?.role !== "driver") return null;
+  const current = dashboard || await rpc("dashboard");
+  const queued = (current.trips || []).filter((trip) =>
+    trip.driver_id === S.user?.id && trip.status === "accepted" && trip.id !== S.trip?.trip?.id);
+  await YavoiNavigation.updateQueue({ count: queued.length }).catch(() => {});
+  return current;
+}
 async function applyNativeNavigationAction(action, tripId) {
   return rpc("navigation_action", { action, trip_id: tripId });
 }
@@ -1758,6 +1766,7 @@ function prepareNativeNavigationEvents() {
       const accepted = await rpc("accept", { offer_id: offerId });
       if (accepted?.error) throw Error(accepted.error);
       if (accepted.queued_after_trip_id) {
+        await syncNativeAcceptedQueue();
         notify("Viaje agregado a tu cola.");
       } else if (accepted?.id) {
         location.hash = "trip/" + accepted.id;
@@ -1803,11 +1812,13 @@ function prepareNativeNavigationEvents() {
     }
 
     S.data = await rpc("dashboard");
+    await syncNativeAcceptedQueue(S.data);
     if (action === "complete") {
       const following = S.data.trips.find((trip) => trip.driver_id === S.user?.id && trip.status === "accepted");
       if (following) {
         await YavoiNavigation.nextTrip(nativeNavigationTripPayload(following));
         await tripView(following.id);
+        await syncNativeAcceptedQueue(S.data);
         notify("Viaje finalizado. La navegación continúa a la recolección del siguiente viaje.");
         return;
       }
@@ -5992,6 +6003,8 @@ function startUpdates() {
         announcePassengerTripCompletion(payload.new.trip_id).catch((error) => console.warn("No se pudo preparar el aviso final del pasajero", error));
       }
       if (["cancelled", "cancellation_fee_paid", "cancellation_fee_waived"].includes(event)) {
+        if (event === "cancelled" && S.profile?.role === "driver")
+          syncNativeAcceptedQueue().catch(() => {});
         const body = event === "cancelled"
           ? `La otra parte canceló el servicio. Abre el viaje para revisar motivo, cuota y reembolso.`
           : event === "cancellation_fee_paid"

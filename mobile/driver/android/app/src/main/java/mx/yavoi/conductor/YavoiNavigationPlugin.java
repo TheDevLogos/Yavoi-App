@@ -80,6 +80,12 @@ public class YavoiNavigationPlugin extends Plugin {
         call.resolve(response);
     }
 
+    @PluginMethod public void updateQueue(PluginCall call) {
+        Integer count = call.getInt("count", 0);
+        YavoiCarState.setQueuedTrips(count == null ? 0 : count);
+        call.resolve();
+    }
+
     @PluginMethod public void nextTrip(PluginCall call) {
         Intent command = new Intent(YavoiNavigationActivity.ACTION_COMMAND);
         command.setPackage(getContext().getPackageName());

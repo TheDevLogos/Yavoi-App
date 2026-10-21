@@ -1,0 +1,7 @@
+[
+  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#dbeaf3"}]},
+  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#f5d9bf"}]},
+  {"featureType":"road.arterial","elementType":"geometry","stylers":[{"color":"#f4f0e9"}]},
+  {"featureType":"poi.park","elementType":"geometry","stylers":[{"color":"#e3f0e6"}]},
+  {"featureType":"landscape","elementType":"geometry","stylers":[{"color":"#f7f8f5"}]}
+]

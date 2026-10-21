@@ -34,6 +34,7 @@ import androidx.lifecycle.LifecycleOwner;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.GoogleMap.CameraPerspective;
+import com.google.android.gms.maps.model.MapStyleOptions;
 import com.google.android.libraries.navigation.NavigationViewForAuto;
 import com.google.android.libraries.navigation.NavigationApi;
 import com.google.android.libraries.navigation.Navigator;
@@ -63,9 +64,10 @@ public final class YavoiCarNavigationScreen extends Screen implements SurfaceCal
         appManager.setSurfaceCallback(this);
         stateObserver = this::onStateChanged;
         YavoiCarState.observe(stateObserver);
-        requestSharedNavigatorIfNeeded();
         getLifecycle().addObserver(new DefaultLifecycleObserver() {
             @Override public void onResume(@NonNull LifecycleOwner owner) {
+                if (YavoiCarState.hasActiveRoute() && getCarContext().checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                        == PackageManager.PERMISSION_GRANTED) requestSharedNavigatorIfNeeded();
                 onStateChanged();
             }
             @Override public void onDestroy(@NonNull LifecycleOwner owner) {
@@ -78,14 +80,15 @@ public final class YavoiCarNavigationScreen extends Screen implements SurfaceCal
         if (YavoiCarState.navigator() != null || navigatorRequested) return;
         navigatorRequested = true;
         Application application = (Application) getCarContext().getApplicationContext();
-        NavigationApi.getNavigator(application, new NavigationApi.NavigatorListener() {
+        try { NavigationApi.getNavigator(application, new NavigationApi.NavigatorListener() {
             @Override public void onNavigatorReady(Navigator navigator) {
                 YavoiCarState.setNavigator(navigator, application);
             }
             @Override public void onError(int errorCode) {
+                navigatorRequested = false;
                 appManager.showToast("Abre Yavoi! Drive en tu teléfono y concede ubicación para usar la navegación.", android.widget.Toast.LENGTH_LONG);
             }
-        });
+        }); } catch (RuntimeException error) { navigatorRequested = false; }
     }
 
     @NonNull
@@ -94,7 +97,12 @@ public final class YavoiCarNavigationScreen extends Screen implements SurfaceCal
         NavigationTemplate.Builder template = new NavigationTemplate.Builder()
                 .setActionStrip(buildActionStrip());
         if (getCarContext().getCarAppApiLevel() >= 2) {
-            template.setMapActionStrip(new ActionStrip.Builder().addAction(Action.PAN).build());
+            Action brand = new Action.Builder()
+                    .setIcon(new androidx.car.app.model.CarIcon.Builder(
+                            IconCompat.createWithResource(getCarContext(), R.mipmap.ic_launcher)).build())
+                    .setOnClickListener(() -> appManager.showToast("Yavoi! Drive", android.widget.Toast.LENGTH_SHORT))
+                    .build();
+            template.setMapActionStrip(new ActionStrip.Builder().addAction(Action.PAN).addAction(brand).build());
         }
 
         RoutingInfo routingInfo = buildRoutingInfo();
@@ -137,6 +145,17 @@ public final class YavoiCarNavigationScreen extends Screen implements SurfaceCal
             strip.addAction(new Action.Builder().setTitle(title)
                     .setOnClickListener(this::runPrimaryAction).build());
         }
+        if (YavoiCarState.queuedTrips() > 0) {
+            strip.addAction(new Action.Builder().setTitle("Cola " + YavoiCarState.queuedTrips())
+                    .setOnClickListener(() -> appManager.showToast(
+                            YavoiCarState.queuedTrips() + " viaje(s) aceptados para después del actual",
+                            android.widget.Toast.LENGTH_SHORT)).build());
+        }
+        if (title == null && YavoiCarState.queuedTrips() == 0) {
+            strip.addAction(new Action.Builder().setTitle("Yavoi!")
+                    .setOnClickListener(() -> appManager.showToast("Yavoi! Drive · listo para viajes",
+                            android.widget.Toast.LENGTH_SHORT)).build());
+        }
         return strip.build();
     }
 
@@ -159,6 +178,9 @@ public final class YavoiCarNavigationScreen extends Screen implements SurfaceCal
 
     private void onStateChanged() {
         if (released) return;
+        if (YavoiCarState.hasActiveRoute() && !navigatorRequested
+                && getCarContext().checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED) requestSharedNavigatorIfNeeded();
         invalidate();
         if (!getLifecycle().getCurrentState().isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return;
         YavoiCarState.Offer offer = YavoiCarState.offer();
@@ -291,6 +313,7 @@ public final class YavoiCarNavigationScreen extends Screen implements SurfaceCal
         navigationView.getMapAsync(map -> {
             googleMap = map;
             try {
+                map.setMapStyle(MapStyleOptions.loadRawResourceStyle(getCarContext(), R.raw.yavoi_car_map_style));
                 if (getCarContext().checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
                         == PackageManager.PERMISSION_GRANTED) map.setMyLocationEnabled(true);
                 map.followMyLocation(CameraPerspective.TILTED);

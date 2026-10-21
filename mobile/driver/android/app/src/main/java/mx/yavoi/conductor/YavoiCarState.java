@@ -29,6 +29,7 @@ final class YavoiCarState {
     private static volatile String total = "", waiting = "$0.00", adjustments = "$0.00", dynamic = "$0.00", fareError = "";
     private static volatile boolean fareReady;
     private static volatile Offer offer;
+    private static volatile int queuedTrips;
     private static volatile String road = "", cue = "";
     private static volatile int maneuver = 0;
     private static volatile Integer stepDistanceMeters, destinationDistanceMeters, destinationSeconds;
@@ -66,6 +67,8 @@ final class YavoiCarState {
     static String fareError() { return fareError; }
     static boolean fareReady() { return fareReady; }
     static Offer offer() { return offer; }
+    static int queuedTrips() { return queuedTrips; }
+    static void setQueuedTrips(int count) { queuedTrips = Math.max(0, count); changed(); }
     static String road() { return road; }
     static String cue() { return cue; }
     static int maneuver() { return maneuver; }
