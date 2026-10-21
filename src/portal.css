@@ -240,3 +240,124 @@ input,textarea,select{font-size:17px;min-height:48px}
 .inbox-message-image{display:block;max-width:100%;max-height:280px;object-fit:contain;margin:0 0 10px;border-radius:10px}
 @media(max-width:850px){.communication-composers{grid-template-columns:1fr}.communication-composer{padding:14px}.topbar .inbox-top-link{display:inline-flex}}
 .in-app-navigation-earnings{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 10px;border:1px solid #ffffff26;border-radius:11px;background:#ffffff12}.in-app-navigation-earnings span{color:#d5e0ea;font-size:10px;letter-spacing:.04em}.in-app-navigation-earnings strong{color:#ff9a55;font-size:15px;font-variant-numeric:tabular-nums}
+
+/* Pasajero y conductor: una escala móvil coherente. El mapa nativo de Android Auto
+   usa sus propias plantillas y no comparte estas reglas. */
+@media(max-width:650px){
+  .role-passenger,.role-driver{--mobile-space:12px}
+  .role-passenger .workspace,.role-driver .workspace{background:#f7f9fb}
+  .role-passenger .workspace main,.role-driver .workspace main{padding:14px var(--mobile-space) calc(78px + env(safe-area-inset-bottom))}
+  .role-passenger .topbar,.role-driver .topbar{height:54px;padding:0 12px;gap:8px}
+  .role-passenger .topbar-brand,.role-driver .topbar-brand{display:flex;align-items:center;min-width:0;gap:7px}
+  .role-passenger .mobile-brand,.role-driver .mobile-brand{max-width:74px;max-height:36px;object-fit:contain}
+  .role-passenger .topbar-brand strong,.role-driver .topbar-brand strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .role-passenger .topbar-brand strong .muted,.role-driver .topbar-brand strong .muted{display:none}
+  .role-passenger .topbar .right,.role-driver .topbar .right{gap:5px}
+  .role-passenger .topbar .connection,.role-driver .topbar .connection{font-size:0;gap:0}
+  .role-passenger .topbar .connection i,.role-driver .topbar .connection i{width:8px;height:8px}
+  .role-passenger .topbar .icon-btn,.role-driver .topbar .icon-btn{width:40px;height:40px;padding:9px;border:0;background:transparent}
+  .role-passenger .page-title,.role-driver .page-title{margin-bottom:12px}
+  .role-passenger .page-title .eyebrow,.role-driver .page-title .eyebrow{display:none}
+  .role-passenger .page-title h1,.role-driver .page-title h1{font-size:22px;line-height:1.2;letter-spacing:-.55px}
+  .role-passenger .page-title p,.role-driver .page-title p{font-size:12px;line-height:1.35;margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .role-passenger h2,.role-driver h2{font-size:17px;line-height:1.25;letter-spacing:-.25px}
+  .role-passenger h3,.role-driver h3{font-size:15px;line-height:1.3}
+  .role-passenger p,.role-driver p{line-height:1.45}
+  .role-passenger .panel,.role-driver .panel{padding:13px;border-radius:12px}
+  .role-passenger .panel h2,.role-driver .panel h2{font-size:17px;margin-bottom:9px}
+  .role-passenger .section-gap,.role-driver .section-gap{margin-top:12px}
+  .role-passenger .grid2,.role-driver .grid2,.role-passenger .grid3,.role-driver .grid3,.role-passenger .grid4,.role-driver .grid4{gap:8px}
+  .role-passenger .badge,.role-driver .badge{font-size:10px;padding:5px 8px}
+  .role-passenger .hint,.role-driver .hint{font-size:11px;line-height:1.4;padding:9px 10px;margin:9px 0}
+  .role-passenger .btn,.role-driver .btn{font-size:13px;min-height:44px;padding:9px 13px;border-radius:10px;line-height:1.2}
+  .role-passenger .btn svg,.role-driver .btn svg{width:16px;height:16px}
+  .role-passenger .sidebar,.role-driver .sidebar{height:calc(62px + env(safe-area-inset-bottom));padding:0 5px env(safe-area-inset-bottom);background:#fff;box-shadow:0 -3px 15px #071d330d}
+  .role-passenger .sidebar nav,.role-driver .sidebar nav{height:62px;overflow:visible}
+  .role-passenger .sidebar nav a,.role-driver .sidebar nav a{min-width:0;min-height:54px;padding:6px 3px;gap:3px;border-radius:9px;margin:4px 1px}
+  .role-passenger .sidebar nav a svg,.role-driver .sidebar nav a svg{width:19px;height:19px}
+  .role-passenger .sidebar nav a span,.role-driver .sidebar nav a span{font-size:10px;line-height:1.15;font-weight:600;white-space:normal}
+  .role-passenger .sidebar nav a.active,.role-driver .sidebar nav a.active{background:#fff1e7}
+  .role-passenger .stats .stat,.role-driver .stats .stat{padding:11px 12px;border-radius:11px}
+  .role-passenger .stat small,.role-driver .stat small{font-size:11px;line-height:1.25}
+  .role-passenger .stat strong,.role-driver .stat strong{font-size:21px;margin:4px 0 2px;letter-spacing:-.5px}
+  .role-passenger .stat p,.role-driver .stat p{font-size:10px;line-height:1.3}
+  .role-passenger .booking,.role-driver .booking,.role-passenger .trip-layout,.role-driver .trip-layout{gap:10px}
+  .role-passenger .booking .panel,.role-driver .booking .panel{padding:12px}
+  .role-passenger .booking-title,.role-driver .booking-title{margin-bottom:6px}
+  .role-passenger .booking-title h2,.role-driver .booking-title h2{font-size:16px}
+  .role-passenger .category-grid{gap:6px;margin:8px 0 11px}
+  .role-passenger .category-option{min-height:62px;padding:7px 9px;gap:8px}
+  .role-passenger .category-option .car{width:60px;height:43px;flex-basis:60px}
+  .role-passenger .category-option strong{font-size:13px}
+  .role-passenger .category-option small{font-size:11px;line-height:1.25;margin-top:2px}
+  .role-passenger .category-option .rate{font-size:13px}
+  .role-passenger .category-option input{width:18px;height:18px}
+  .role-driver .driver-live-map .map-panel{height:290px;min-height:290px}
+  .role-driver .driver-live-controls{bottom:calc(73px + env(safe-area-inset-bottom))}
+  .role-driver .availability-hold{width:162px;min-height:54px;border-radius:14px;padding:7px 11px}
+  .role-driver .availability-hold>svg{width:19px;height:19px}
+  .role-driver .availability-hold strong{font-size:12px;margin-top:2px}
+  .role-driver .driver-banner{padding:14px;margin-bottom:11px}
+  .role-driver .driver-banner h2{font-size:19px;margin:4px 0}
+  .role-driver .driver-banner p{font-size:11px}
+  .role-driver .offer{padding:12px;margin-top:9px}
+  .role-driver .offer .earn{font-size:19px}
+  .role-passenger .trip-at-a-glance,.role-driver .trip-at-a-glance{gap:7px;margin:10px 0}
+  .role-passenger .trip-at-a-glance .estimate-grid,.role-driver .trip-at-a-glance .estimate-grid,
+  .role-passenger .trip-at-a-glance .trip-service-summary,.role-driver .trip-at-a-glance .trip-service-summary{gap:7px}
+  .role-passenger .trip-at-a-glance .estimate-grid>div,.role-driver .trip-at-a-glance .estimate-grid>div,
+  .role-passenger .trip-at-a-glance .trip-service-summary>div,.role-driver .trip-at-a-glance .trip-service-summary>div{min-height:67px;padding:10px}
+  .role-passenger .trip-at-a-glance small,.role-driver .trip-at-a-glance small{font-size:11px}
+  .role-passenger .trip-at-a-glance strong,.role-driver .trip-at-a-glance strong{font-size:15px}
+  .role-passenger .trip-panel .big-status,.role-driver .trip-panel .big-status{font-size:21px;margin:10px 0 8px}
+  .role-passenger .receipt-row,.role-driver .receipt-row{padding:7px 0;font-size:12px}
+  .role-passenger .receipt-row.total,.role-driver .receipt-row.total{font-size:17px;padding-top:12px}
+  .role-passenger .profile-head,.role-driver .profile-head{gap:11px;margin-bottom:13px}
+  .role-passenger .avatar.big,.role-driver .avatar.big{width:54px;height:54px;font-size:18px}
+  .role-passenger .profile-shortcut-grid,.role-driver .profile-shortcut-grid{gap:7px}
+  .role-passenger .profile-shortcut,.role-driver .profile-shortcut{min-height:58px;padding:9px;gap:7px}
+  .role-passenger .profile-shortcut strong,.role-driver .profile-shortcut strong{font-size:12px}
+  .role-passenger .profile-shortcut small,.role-driver .profile-shortcut small{font-size:10px;margin-top:2px}
+  .role-passenger .profile-shortcut>svg:first-child,.role-driver .profile-shortcut>svg:first-child{width:19px;height:19px}
+  .role-passenger .reward-hero,.role-driver .reward-hero{padding:13px}
+  .role-passenger .reward-brand-icon,.role-driver .reward-brand-icon{width:39px;height:39px;border-radius:12px}
+  .role-passenger .reward-hero h2,.role-driver .reward-hero h2{font-size:18px}
+  .role-passenger .reward-points-card,.role-driver .reward-points-card{padding:7px 10px}
+  .role-passenger .reward-points-card strong,.role-driver .reward-points-card strong{font-size:20px}
+  .role-passenger .trip-history-section,.role-driver .trip-history-section{padding:12px}
+  .role-passenger .trip-history-card,.role-driver .trip-history-card{padding:10px;gap:8px}
+  .role-passenger .trip-history-heading h2,.role-driver .trip-history-heading h2{font-size:18px}
+  .role-passenger .trip-history-title h3,.role-driver .trip-history-title h3{font-size:13px}
+  .role-passenger .in-app-navigation-help,.role-driver .in-app-navigation-help{display:none}
+  .role-passenger .footer-note,.role-driver .footer-note{display:none}
+}
+@media(max-width:370px){
+  .role-passenger .topbar-brand strong,.role-driver .topbar-brand strong{display:none}
+  .role-passenger .category-option .car{width:50px;flex-basis:50px}
+  .role-passenger .sidebar nav a span,.role-driver .sidebar nav a span{font-size:9px}
+}
+
+@media(max-width:650px){
+  .auth-main{padding:18px 18px 28px;min-height:100dvh}
+  .auth-box{max-width:400px}
+  .auth-logo-mobile{width:104px;max-height:60px;margin-bottom:10px}
+  .auth-mobile-journey{min-height:98px;padding:13px 15px;margin:0 0 14px;border-radius:15px}
+  .auth-mobile-journey img{width:125px;height:112px}
+  .auth-mobile-journey span{max-width:155px;font-size:19px}
+  .auth-box .eyebrow{font-size:10px;margin-bottom:5px}
+  .auth-box h2{font-size:23px;line-height:1.2;margin-bottom:5px}
+  .auth-box>p{font-size:12px;line-height:1.45;margin-bottom:15px}
+  .auth-box label{font-size:13px;margin-bottom:10px}
+  .auth-box input{font-size:16px;min-height:44px;padding:10px 12px}
+  .auth-box .btn{min-height:44px;font-size:13px}
+  .auth-links{margin-top:10px}
+  .auth-note{display:none}
+  dialog{padding:18px;width:min(500px,calc(100% - 22px));border-radius:15px}
+  dialog h2{font-size:20px;line-height:1.25;margin-bottom:11px}
+  dialog>p{font-size:12px;line-height:1.45;margin:8px 0 13px}
+  dialog .close{width:36px;height:36px;right:9px;top:9px}
+  .role-passenger .inbox-message>summary,.role-driver .inbox-message>summary{padding:10px;gap:8px}
+  .role-passenger .inbox-category,.role-driver .inbox-category{width:34px;height:34px;border-radius:10px}
+  .role-passenger .inbox-message-title strong,.role-driver .inbox-message-title strong{font-size:13px}
+  .role-passenger .inbox-message-body,.role-driver .inbox-message-body{padding:0 12px 12px 52px}
+}

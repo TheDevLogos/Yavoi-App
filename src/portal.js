@@ -2186,7 +2186,7 @@ function riderHome({ preserveDestination = false } = {}) {
       <small class="booking-privacy-note">Los datos personales del conductor se muestran cuando acepte el viaje.</small>
     </form></section>${mapFrame("ride-map", undefined, "planning")}</div>${featureCardsMarkup("passenger")}`,
     `¿A dónde vamos, ${e(S.profile.full_name.split(" ")[0])}?`,
-    "Elige tu destino, necesidades y revisa el precio antes de confirmar.",
+    "Elige destino y confirma tu tarifa.",
   );
   startMap();
   startPassengerOriginTracking();
@@ -2544,7 +2544,7 @@ async function driverHome() {
   shell(
     `${driverLiveMapMarkup(driver)}${stats()}${featureCardsMarkup("driver")}`,
     "Un buen día para conducir.",
-    "Tu tiempo, tus viajes y tus ganancias en un mismo lugar.",
+    "Viajes y ganancias de hoy.",
   );
   await startDriverHomeMap();
   bindAvailabilityHold();
@@ -3749,7 +3749,7 @@ function rewards() {
     ${activeBenefits.length ? `<section class="panel section-gap"><div class="row between wrap reward-section-heading"><div><h2>Tus recompensas activas</h2><p>Tus tickets y beneficios listos para usar.</p></div><span class="badge neutral">${activeBenefits.length} activas</span></div><div class="reward-redemptions">${activeBenefits.map(activeRewardCard).join("")}</div></section>` : ""}
     <section class="panel section-gap reward-catalog-section">
       <div class="reward-section-heading">
-        <div><div class="eyebrow">ELIGE TU BENEFICIO</div><h2>${driver ? "Recompensas para tu trabajo" : "Recompensas para ti"}</h2><p>Desliza para descubrir y canjear con tus puntos.</p></div>
+        <div><div class="eyebrow">ELIGE TU BENEFICIO</div><h2>${driver ? "Recompensas para tu trabajo" : "Recompensas para ti"}</h2><p>Usa tus puntos.</p></div>
         <div class="reward-catalog-heading-actions"><span class="badge neutral">${catalog.filter((reward) => reward.active).length} disponibles</span><button class="btn secondary reward-faq-button" id="open-reward-faq">${I("circle-help")} Preguntas frecuentes</button></div>
       </div>
       <div class="reward-carousel">
@@ -4178,7 +4178,7 @@ function profile() {
   shell(
     `<section class="panel"><div class="profile-head">${avatar(p.full_name, p.avatar_path, "big")}<div><h2>${e(p.full_name)}</h2><p>${e(S.user.email)} · ${e(roles[p.role])}</p><small>El tipo de cuenta se protege en el servidor.</small></div></div>${profileShortcuts}${ridePreferencesMarkup}${passenger ? passengerProgressMarkup(p) : ""}${lockNotice}${personalForm}</section>${streamlinedDriverDossier}${driver ? weeklyProfileMarkup() : ""}${notificationPrefsMarkup}<section class="panel section-gap"><h2>Acceso y seguridad</h2><p>Tu sesión es personal. Puedes cambiar tu contraseña o cerrar sesión en todos tus dispositivos.</p><div class="row wrap">${button("Cambiar contraseña", "password", "secondary", "key-round")}${button("Cerrar mis sesiones", "logout", "secondary", "log-out")}</div>${p.role === "admin" ? '<p class="hint">Operaciones exige autenticación en dos pasos. Conserva acceso a tu aplicación autenticadora.</p>' : ""}</section>`,
     "Mi perfil",
-    "Tu información, tu unidad y las opciones de tu cuenta.",
+    "Cuenta, seguridad y avisos.",
   );
   const inboxShortcut = $(".profile-shortcut[href='#inbox']");
   if (inboxShortcut) inboxShortcut.insertAdjacentHTML("beforeend", '<span class="inbox-unread-dot" aria-hidden="true"></span>');
