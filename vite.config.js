@@ -1,3 +1,28 @@
-import {defineConfig} from 'vite';
-import {resolve} from 'node:path';
-export default defineConfig({build:{rollupOptions:{input:{landing:resolve(import.meta.dirname,'index.html'),portal:resolve(import.meta.dirname,'portal.html'),privacy:resolve(import.meta.dirname,'privacidad.html'),terms:resolve(import.meta.dirname,'terminos.html'),accountDeletion:resolve(import.meta.dirname,'eliminar-cuenta.html')}}}});
+import { defineConfig } from 'vite';
+import { resolve } from 'node:path';
+import { driverReleasePlugin } from './scripts/driver-release-transform.mjs';
+
+const driverBuild = process.env.VITE_YAVOI_APP_TARGET === 'driver';
+const root = import.meta.dirname;
+
+export default defineConfig({
+  plugins: driverBuild ? [driverReleasePlugin()] : [],
+  build: {
+    rollupOptions: {
+      input: driverBuild
+        ? {
+            portal: resolve(root, 'portal.html'),
+            privacy: resolve(root, 'privacidad.html'),
+            terms: resolve(root, 'terminos.html'),
+            accountDeletion: resolve(root, 'eliminar-cuenta.html'),
+          }
+        : {
+            landing: resolve(root, 'index.html'),
+            portal: resolve(root, 'portal.html'),
+            privacy: resolve(root, 'privacidad.html'),
+            terms: resolve(root, 'terminos.html'),
+            accountDeletion: resolve(root, 'eliminar-cuenta.html'),
+          },
+    },
+  },
+});

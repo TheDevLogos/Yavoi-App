@@ -9,7 +9,9 @@ function table(head,rows,caption) { return `<div class="fin-table-scroll" tabind
 const tr=row=>`<tr>${row.map(x=>`<td>${x}</td>`).join('')}</tr>`;
 export async function mountFinanceDashboard({ notify, openModal, drivers=[], request=rpc }) {
   const root=document.querySelector('#finance-dashboard');if(!root)return;
-  let selection={period:'week',anchor:localToday(),driver_id:''};let report;let comparison;let token=0;let activeTab='overview';let dayFilter='';let tripLimit=20;
+  const route=location.hash.slice(1).split('/');
+  const monthAnchor=route[0]==='finance' && route[1]==='month' && /^\d{4}-\d{2}-01$/.test(route[2]||'') ? route[2] : null;
+  let selection={period:monthAnchor?'month':'week',anchor:monthAnchor||localToday(),driver_id:''};let report;let comparison;let token=0;let activeTab='overview';let dayFilter='';let tripLimit=20;
   async function load() {
     const key=++token;root.setAttribute('aria-busy','true');
     try {

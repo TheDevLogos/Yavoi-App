@@ -13,7 +13,7 @@ export const navs = {
   passenger: [
     ["home", "map-pin", "Pedir un viaje"],
     ["trips", "route", "Mis viajes"],
-    ["wallet", "circle-dollar-sign", "Mi cartera"],
+    ["wallet", "circle-dollar-sign", "Pagos de viajes"],
     ["rewards", "gift", "Recompensas"],
     ["profile", "user-round", "Mi perfil"],
   ],
@@ -26,6 +26,7 @@ export const navs = {
   ],
   admin: [
     ["home", "layout-dashboard", "Resumen"],
+    ["alerts", "bell", "Pendientes y alertas"],
     ["opsmap", "map", "Mapa en vivo"],
     ["schedule", "calendar-days", "Agenda de viajes"],
     ["trips", "route", "Viajes"],

@@ -6,3 +6,8 @@ tests/
 docs/
 *.aab
 *.apk
+node_modules/
+.git/
+dist/
+releases/
+reports/

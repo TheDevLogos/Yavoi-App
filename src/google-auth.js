@@ -26,6 +26,7 @@ export function loadGoogleIdentity() {
     const script = existing || document.createElement("script");
     const timeout = setTimeout(() => {
       googleIdentityPromise = null;
+      script.remove();
       reject(new Error("Google tardó demasiado en responder."));
     }, 10000);
     const ready = () => {
@@ -33,12 +34,14 @@ export function loadGoogleIdentity() {
       if (globalThis.google?.accounts?.id) resolve(globalThis.google);
       else {
         googleIdentityPromise = null;
+        script.remove();
         reject(new Error("No pudimos iniciar Google Identity."));
       }
     };
     const failed = () => {
       clearTimeout(timeout);
       googleIdentityPromise = null;
+      script.remove();
       reject(new Error("No pudimos cargar el acceso oficial de Google."));
     };
     script.addEventListener("load", ready, { once: true });

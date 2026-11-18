@@ -47,7 +47,7 @@ export function walletMarkup(summary) {
   const days = summary.days || [];
   const weekEnd = new Date(`${summary.week_start}T12:00:00`);
   weekEnd.setDate(weekEnd.getDate() + 6);
-  return `<section class="finance-week panel"><div class="row between"><button class="finance-week-nav" data-week-offset="-7" aria-label="Semana anterior">‹</button><div><span class="eyebrow">CORTE SEMANAL</span><h2>${money(summary.week_net_cents)}</h2><p>Servicios registrados del ${e(summary.week_start)} al ${weekEnd.toLocaleDateString('es-MX')}</p></div><button class="finance-week-nav" data-week-offset="7" aria-label="Semana siguiente">›</button></div><div class="finance-chart" role="group" aria-label="Servicios registrados por día">${days.map(day => `<button type="button" class="finance-day" data-week-day="${e(day.day)}" aria-label="${e(day.day)} · ${money(day.net_cents)} · ${day.trips} viajes"><strong>${chartMoney(day.net_cents)}</strong><div class="finance-bar-track"><span style="height:${barPercent(day.net_cents, days.map(item => item.net_cents))}%"></span></div><span>${new Date(`${day.day}T12:00:00`).toLocaleDateString('es-MX', { weekday: 'short' })}</span><small>${day.trips} viajes</small></button>`).join('')}</div><p class="hint">Resumen de operación. No representa saldo disponible, billetera, retiro ni transferencia.</p></section><section class="finance-balance panel section-gap"><span class="eyebrow">CUOTA Y COMISIONES</span><h2>Revisión con Operaciones</h2><p>Al cierre semanal, Operaciones te compartirá la comisión y cuota aplicable por tus servicios. La cobertura de la cuota es requisito para mantener activo el permiso de conducir.</p><div class="finance-stats"><div><small>Importe de servicios de la semana</small><strong>${money(summary.week_cash_cents)}</strong></div><div><small>Pago al pasajero</small><strong>Efectivo directo</strong></div></div><p class="hint">Yavoi! Drive no conserva cuentas bancarias, CLABE, saldo disponible ni herramientas para pagos o retiros.</p></section><details class="panel section-gap finance-detail"><summary>Cómo se forma el corte</summary><p>Consulta la tarifa, los ajustes aceptados, descuentos y comisión de cada viaje desde Mis viajes. Operaciones consolida estos datos y conserva la conciliación administrativa.</p><a class="btn secondary" href="#trips">Consultar mis viajes</a></details>`;
+  return `<section class="finance-week panel"><div class="row between"><button class="finance-week-nav" data-week-offset="-7" aria-label="Semana anterior">‹</button><div><span class="eyebrow">INGRESOS REGISTRADOS DE LA SEMANA</span><h2>${money(summary.week_net_cents)}</h2><p>Servicios registrados del ${e(summary.week_start)} al ${weekEnd.toLocaleDateString('es-MX')}</p></div><button class="finance-week-nav" data-week-offset="7" aria-label="Semana siguiente">›</button></div><div class="finance-chart" role="group" aria-label="Servicios registrados por día">${days.map(day => `<button type="button" class="finance-day" data-week-day="${e(day.day)}" aria-label="${e(day.day)} · ${money(day.net_cents)} · ${day.trips} viajes"><strong>${chartMoney(day.net_cents)}</strong><div class="finance-bar-track"><span style="height:${barPercent(day.net_cents, days.map(item => item.net_cents))}%"></span></div><span>${new Date(`${day.day}T12:00:00`).toLocaleDateString('es-MX', { weekday: 'short' })}</span><small>${day.trips} viajes</small></button>`).join('')}</div><p class="hint">Ingresos registrados por los servicios realizados. El efectivo se recibe directamente del pasajero.</p></section><section class="finance-balance panel section-gap"><span class="eyebrow">CUOTA Y COMISIONES</span><h2>Revisión con Operaciones</h2><p>Al cierre semanal, Operaciones te compartirá la comisión y cuota aplicable por tus servicios. La cobertura de la cuota es requisito para mantener activo el permiso de conducir.</p><div class="finance-stats"><div><small>Importe de servicios de la semana</small><strong>${money(summary.week_cash_cents)}</strong></div><div><small>Forma de pago del pasajero</small><strong>Efectivo al conductor</strong></div></div><p class="hint">Yavoi! Drive registra los importes del servicio; no procesa pagos digitales.</p></section><details class="panel section-gap finance-detail"><summary>Cómo se forma el corte</summary><p>Consulta la tarifa, los ajustes aceptados, descuentos y comisión de cada viaje desde Mis viajes. Operaciones consolida estos datos y conserva la conciliación administrativa.</p><a class="btn secondary" href="#trips">Consultar mis viajes</a></details>`;
 }
 
 export function bindWallet(summary, { redraw, openModal, notify }) {
@@ -73,6 +73,8 @@ export function bindWallet(summary, { redraw, openModal, notify }) {
 }
 
 export async function mountFinanceOperations({ notify, openModal }) {
+  const route = location.hash.slice(1).split('/');
+  const anchor = route[0] === 'finance' && route[1] === 'month' && /^\d{4}-\d{2}-01$/.test(route[2] || '') ? route[2] : localToday();
   const host = document.createElement('section');
   host.className = 'panel section-gap finance-operations';
   host.id = 'finance-operations';
@@ -88,10 +90,10 @@ export async function mountFinanceOperations({ notify, openModal }) {
     try {
       [data, liquidations, destination, compliance, fiscalReport] = await Promise.all([
         rpc('finance_operations'),
-        rpc('weekly_commission_dashboard', { period: 'month', anchor: localToday() }),
+        rpc('weekly_commission_dashboard', { period: 'month', anchor }),
         rpc('weekly_transfer_destination'),
         rpc('transport_compliance', { action: 'read' }).catch(() => ({})),
-        rpc('finance_report', { period: 'month', anchor: localToday() }).catch(() => ({})),
+        rpc('finance_report', { period: 'month', anchor }).catch(() => ({})),
       ]);
     } catch (error) {
       host.innerHTML = `<p>No pudimos cargar los pendientes financieros: ${e(error.message)}</p><a class="btn secondary" href="#payments">Abrir Pagos y cuotas</a>`;
